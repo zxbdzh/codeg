@@ -6135,3 +6135,79 @@ export interface DeepSeekModelCatalog {
    *  fixed, sessions run on the agent's built-in catalog instead. */
   invalid: string | null
 }
+
+// ── Codeg AI 助手 ──
+//
+// Mirrors `src-tauri/src/commands/ai_assistant.rs`. 这一层只描述命令
+// `get_ai_assistant_settings` / `update_ai_assistant_settings` /
+// `get_ai_assistant_availability` 等的载荷形状，业务判断都在后端。
+
+/** 助手功能所选模型提供者的接线协议。`gemini` 是既有 enum，但 Gemini 端不
+ *  支持生成类能力（标签建议 / 标题生成），因此它只在设置里出现，可用性
+ *  检查会把它挡掉。 */
+export type AiAssistantProtocol = "openai" | "anthropic" | "gemini"
+
+/** 密钥的传递方式；默认 OpenAI 用 Bearer，Anthropic 用 x-api-key。 */
+export type AiAssistantKeyHeader = "bearer" | "x_api_key" | "x_goog_api_key"
+
+/** 标题来源：Codeg 生成、沿用 agent，或只在标题缺失时由 Codeg 补充。 */
+export type AiAssistantTitleSource = "codeg" | "agent" | "fallback"
+
+/** 助手设置。字段 camelCase（与后端 settings 结构一一对应），整份由
+ *  `update_ai_assistant_settings` 覆盖保存，因此读出来即可原样回写。 */
+export interface AiAssistantSettings {
+  /** 提供者 id；`null` 表示还没选提供者，此时任何生成能力都不可用。 */
+  providerId: number | null
+  /** 所选提供者的接线协议，未选提供者时为 `null`。 */
+  protocol: AiAssistantProtocol | null
+  /** 密钥的传递方式；`null` = 用协议自带的方式。 */
+  keyHeader: AiAssistantKeyHeader | null
+  /** 标签建议用的模型名。 */
+  tagModel: string
+  /** 标题生成用的模型名。 */
+  titleModel: string
+  /** 标题的产出方。 */
+  titleSource: AiAssistantTitleSource
+  /** 同一会话两次自动生成标题之间的最小间隔（秒），用于限流。 */
+  titleMinIntervalSeconds: number
+  /** 生成时带入的上下文轮数。 */
+  contextTurns: number
+  /** 是否在会话有新消息时自动建议标签。 */
+  autoSuggestTags: boolean
+}
+
+/** 助手可用性的总体判定，snake_case 字符串原样透传，UI 侧映射到文案。 */
+export type AiAssistantAvailability =
+  | "ready"
+  | "no_provider"
+  | "provider_missing"
+  | "no_model"
+  | "unsupported_protocol"
+
+/** 一条 AI 标签建议：建议的标签名，以及为什么这么建议（展示给用户）。 */
+export interface AiAssistantTagSuggestionItem {
+  name: string
+  reason: string
+}
+
+/** 建议里尚未存在、需要新建的标签；`color` 由 AI 给出，可为 `null`
+ *  （此时由前端/后端落到默认色）。 */
+export interface AiAssistantNewTagSuggestion {
+  name: string
+  color: string | null
+}
+
+/** `suggest_conversation_tags` 的返回。 */
+export interface AiAssistantTagSuggestion {
+  /** 已存在的标签（按名字匹配上现有标签），附带理由。 */
+  tags: AiAssistantTagSuggestionItem[]
+  /** 需要新建的标签。 */
+  new_tags: AiAssistantNewTagSuggestion[]
+}
+
+/** `apply_suggested_tags` 的新建标签请求。`folderId: null` 表示全局标签。 */
+export interface AiAssistantNewTagRequest {
+  name: string
+  color: string
+  folderId: number | null
+}

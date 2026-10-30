@@ -9,6 +9,10 @@ pub struct Model {
     pub conversation_id: i32,
     #[sea_orm(primary_key, auto_increment = false)]
     pub tag_id: i32,
+    /// Who proposed this link: `user` (someone ticked it) or `ai` (the AI
+    /// assistant suggested it and a person confirmed). It records the proposer,
+    /// not the confirmer — a person is always the one who actually writes.
+    pub source: String,
     pub created_at: DateTimeUtc,
 }
 

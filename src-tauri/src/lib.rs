@@ -15,6 +15,7 @@
 
 pub mod acp;
 pub mod acp_transcript;
+pub mod ai;
 pub use acp::{
     idle_sweep_task, idle_timeout_from_env, lifecycle_subscriber_task, SWEEP_INTERVAL_SECS,
 };
@@ -99,7 +100,7 @@ mod tauri_app {
     use crate::acp::manager::ConnectionManager;
     use crate::chat_channel::manager::ChatChannelManager;
     use crate::commands::{
-        acp as acp_commands, app_update as app_update_commands,
+        acp as acp_commands, ai_assistant, app_update as app_update_commands,
         assistants as assistant_commands, automation as automation_commands,
         background as background_commands, backup,
         browser as browser_commands,
@@ -1867,6 +1868,13 @@ mod tauri_app {
                 assistant_commands::assistant_update,
                 assistant_commands::assistant_delete,
                 assistant_commands::assistant_reorder,
+                ai_assistant::get_ai_assistant_settings,
+                ai_assistant::update_ai_assistant_settings,
+                ai_assistant::get_ai_assistant_availability,
+                ai_assistant::suggest_conversation_tags,
+                ai_assistant::apply_suggested_tags,
+                ai_assistant::generate_conversation_title,
+                ai_assistant::test_ai_assistant_connection,
                 conversation_tags::list_conversation_tags,
                 conversation_tags::create_conversation_tag,
                 conversation_tags::update_conversation_tag,

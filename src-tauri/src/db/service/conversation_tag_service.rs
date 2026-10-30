@@ -35,8 +35,8 @@ use std::collections::HashMap;
 use chrono::Utc;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection,
-    DbErr, EntityTrait, QueryFilter, QueryOrder, Set, SqlErr, TransactionTrait,
+    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, Condition, ConnectionTrait,
+    DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder, Set, SqlErr, TransactionTrait,
 };
 
 use crate::db::entities::folder::FolderKind;
@@ -142,7 +142,10 @@ pub async fn root_folder_id<C: ConnectionTrait>(
 /// itself was removed while this worktree lives on — that root is still the
 /// scope the worktree's conversations resolve to (`folder.parent_id`), so
 /// owning the tag anywhere else would make it unusable on them.
-async fn resolve_owner_folder(conn: &DatabaseConnection, folder_id: i32) -> Result<i32, TagError> {
+async fn resolve_owner_folder<C: ConnectionTrait>(
+    conn: &C,
+    folder_id: i32,
+) -> Result<i32, TagError> {
     let row = folder::Entity::find_by_id(folder_id)
         .filter(folder::Column::DeletedAt.is_null())
         .one(conn)
@@ -155,8 +158,8 @@ async fn resolve_owner_folder(conn: &DatabaseConnection, folder_id: i32) -> Resu
 }
 
 /// Every tag of one scope (`None` = global), in display order.
-async fn tags_in_scope(
-    conn: &DatabaseConnection,
+async fn tags_in_scope<C: ConnectionTrait>(
+    conn: &C,
     scope: Option<i32>,
 ) -> Result<Vec<conversation_tag::Model>, DbErr> {
     let query = conversation_tag::Entity::find();
@@ -198,8 +201,8 @@ pub async fn list_tags(conn: &DatabaseConnection) -> Result<Vec<ConversationTagD
 
 /// Create a tag at the end of its scope. `folder_id` names the folder the user
 /// was looking at; a worktree child resolves to its root.
-pub async fn create_tag(
-    conn: &DatabaseConnection,
+pub async fn create_tag<C: ConnectionTrait>(
+    conn: &C,
     folder_id: Option<i32>,
     name: &str,
     color: &str,
@@ -344,6 +347,25 @@ pub async fn reorder_tags(conn: &DatabaseConnection, ordered_ids: &[i32]) -> Res
     })
 }
 
+/// 谁提议了这条标签关联。它记的是"提议者"而不是"确认者"——真正写入的永远
+/// 是人（AI 只能建议），但这个区分让"撤销 AI 打的那一批"成为可能。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TagSource {
+    /// 人自己贴的。
+    User,
+    /// AI 建议、人确认后贴上的。
+    Ai,
+}
+
+impl TagSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            TagSource::User => "user",
+            TagSource::Ai => "ai",
+        }
+    }
+}
+
 /// Put tags on / take tags off one conversation. A delta rather than the full
 /// set, so two windows toggling different tags at the same moment both land
 /// instead of the later write erasing the earlier one. An id in both lists
@@ -355,6 +377,19 @@ pub async fn update_conversation_tags(
     conversation_id: i32,
     add: &[i32],
     remove: &[i32],
+) -> Result<(), TagError> {
+    update_conversation_tags_with_source(conn, conversation_id, add, remove, TagSource::User).await
+}
+
+/// The same delta write, recording who proposed the links it adds. Only the
+/// ADDED links carry `source`; removing a tag says nothing about who once put
+/// it there, so a link that stays put keeps the source it had.
+pub async fn update_conversation_tags_with_source<C: ConnectionTrait + TransactionTrait>(
+    conn: &C,
+    conversation_id: i32,
+    add: &[i32],
+    remove: &[i32],
+    source: TagSource,
 ) -> Result<(), TagError> {
     let conv = conversation::Entity::find_by_id(conversation_id)
         .filter(conversation::Column::DeletedAt.is_null())
@@ -413,11 +448,15 @@ pub async fn update_conversation_tags(
                 }
                 if !add.is_empty() {
                     let now = Utc::now();
-                    let rows = add.into_iter().map(|tag_id| conversation_tag_link::ActiveModel {
-                        conversation_id: Set(conversation_id),
-                        tag_id: Set(tag_id),
-                        created_at: Set(now),
-                    });
+                    let source = source.as_str().to_string();
+                    let rows = add
+                        .into_iter()
+                        .map(|tag_id| conversation_tag_link::ActiveModel {
+                            conversation_id: Set(conversation_id),
+                            tag_id: Set(tag_id),
+                            source: Set(source.clone()),
+                            created_at: Set(now),
+                        });
                     conversation_tag_link::Entity::insert_many(rows)
                         .on_conflict(
                             OnConflict::columns([
@@ -467,6 +506,48 @@ pub async fn update_conversation_tags(
         }
         _ => Err(err.into()),
     }
+}
+
+/// Every tag that may be put on one conversation: the global ones plus the ones
+/// its folder family owns, in display order.
+///
+/// This is the pool the AI assistant is allowed to pick from. It exists as its
+/// own query because "which tags fit this conversation" is a rule of the domain
+/// (folder tags follow their root into every worktree; a chat folder owns none),
+/// and the suggestion flow must not re-derive it with a slightly different
+/// filter than the write path enforces.
+pub async fn available_tags_for_conversation(
+    conn: &DatabaseConnection,
+    conversation_id: i32,
+) -> Result<Vec<ConversationTagDetail>, TagError> {
+    let conv = conversation::Entity::find_by_id(conversation_id)
+        .filter(conversation::Column::DeletedAt.is_null())
+        .one(conn)
+        .await?
+        .ok_or(TagError::ConversationNotFound(conversation_id))?;
+
+    // A worktree child resolves to its root; a chat folder owns no tags, so a
+    // chat-mode conversation ends up with the global ones only — which is
+    // exactly what the write path would accept.
+    let root = root_folder_id(conn, conv.folder_id).await?;
+    let query = match root {
+        Some(root) => conversation_tag::Entity::find().filter(
+            Condition::any()
+                .add(conversation_tag::Column::FolderId.is_null())
+                .add(conversation_tag::Column::FolderId.eq(root)),
+        ),
+        None => {
+            conversation_tag::Entity::find().filter(conversation_tag::Column::FolderId.is_null())
+        }
+    };
+
+    let rows = query
+        .order_by_asc(conversation_tag::Column::FolderId)
+        .order_by_asc(conversation_tag::Column::SortOrder)
+        .order_by_asc(conversation_tag::Column::Id)
+        .all(conn)
+        .await?;
+    Ok(rows.into_iter().map(to_detail).collect())
 }
 
 /// Tag ids per conversation for `conversation_ids`, each list ascending. One
@@ -564,6 +645,9 @@ pub async fn copy_conversation_tags<C: ConnectionTrait>(
         .map(|link| conversation_tag_link::ActiveModel {
             conversation_id: Set(to),
             tag_id: Set(link.tag_id),
+            // The split copies the link, so it copies who proposed it too: the
+            // whole point of the column is to survive a fork.
+            source: Set(link.source),
             // When the tag was put on the conversation, not when it was split.
             created_at: Set(link.created_at),
         });
@@ -624,7 +708,10 @@ mod tests {
     #[test]
     fn names_are_trimmed_capped_and_never_blank() {
         assert_eq!(normalize_tag_name("  bug  ").unwrap(), "bug");
-        assert!(matches!(normalize_tag_name(" \t "), Err(TagError::EmptyName)));
+        assert!(matches!(
+            normalize_tag_name(" \t "),
+            Err(TagError::EmptyName)
+        ));
         let long: String = "长".repeat(MAX_TAG_NAME_CHARS + 10);
         assert_eq!(
             normalize_tag_name(&long).unwrap().chars().count(),
@@ -683,7 +770,11 @@ mod tests {
         let owned = create_tag(&db.conn, Some(worktree), "Review", "#0e8a16")
             .await
             .expect("folder tag");
-        assert_eq!(owned.folder_id, Some(repo), "owned by the root, not the child");
+        assert_eq!(
+            owned.folder_id,
+            Some(repo),
+            "owned by the root, not the child"
+        );
 
         // Same family, same name: refused, whichever member asks.
         assert!(matches!(
@@ -909,7 +1000,10 @@ mod tests {
         }
 
         assert!(delete_tag(&db.conn, doomed.id).await.unwrap());
-        assert!(!delete_tag(&db.conn, doomed.id).await.unwrap(), "already gone");
+        assert!(
+            !delete_tag(&db.conn, doomed.id).await.unwrap(),
+            "already gone"
+        );
         for conv in [one, two] {
             assert_eq!(tag_ids(&db.conn, conv).await, vec![kept.id]);
         }
@@ -962,11 +1056,7 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(
-            in_folder
-                .iter()
-                .find(|s| s.id == parent)
-                .unwrap()
-                .tag_ids,
+            in_folder.iter().find(|s| s.id == parent).unwrap().tag_ids,
             vec![tag.id]
         );
         let children = conversation_service::list_children(&db.conn, parent)
@@ -1082,5 +1172,140 @@ mod tests {
             get_branch_tag(&db.conn).await.unwrap(),
             branch_tag(true, DEFAULT_BRANCH_TAG_COLOR)
         );
+    }
+
+    /// 谁提议的这件事必须落库：它是将来"撤销 AI 打的那一批"唯一的依据。
+    async fn link_sources(conn: &DatabaseConnection, conversation_id: i32) -> Vec<(i32, String)> {
+        conversation_tag_link::Entity::find()
+            .filter(conversation_tag_link::Column::ConversationId.eq(conversation_id))
+            .order_by_asc(conversation_tag_link::Column::TagId)
+            .all(conn)
+            .await
+            .expect("links")
+            .into_iter()
+            .map(|link| (link.tag_id, link.source))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_hand_made_link_is_recorded_as_user() {
+        let db = fresh_in_memory_db().await;
+        let folder = seed_folder(&db, "/tmp/tags-source-user").await;
+        let conv = seed_conversation(&db, folder, AgentType::ClaudeCode).await;
+        let tag = global(&db.conn, "bug").await;
+
+        update_conversation_tags(&db.conn, conv, &[tag.id], &[])
+            .await
+            .expect("tag it");
+
+        assert_eq!(
+            link_sources(&db.conn, conv).await,
+            vec![(tag.id, "user".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_ai_suggested_link_is_recorded_as_ai() {
+        let db = fresh_in_memory_db().await;
+        let folder = seed_folder(&db, "/tmp/tags-source-ai").await;
+        let conv = seed_conversation(&db, folder, AgentType::ClaudeCode).await;
+        let tag = global(&db.conn, "性能").await;
+
+        update_conversation_tags_with_source(&db.conn, conv, &[tag.id], &[], TagSource::Ai)
+            .await
+            .expect("tag it from ai");
+
+        assert_eq!(
+            link_sources(&db.conn, conv).await,
+            vec![(tag.id, "ai".to_string())]
+        );
+    }
+
+    /// 一条已经存在的关联不会被"重新加一次"改写来源：加是幂等的，来源属于
+    /// 第一次贴上去的那一下。
+    #[tokio::test]
+    async fn re_adding_an_existing_link_keeps_its_original_source() {
+        let db = fresh_in_memory_db().await;
+        let folder = seed_folder(&db, "/tmp/tags-source-keep").await;
+        let conv = seed_conversation(&db, folder, AgentType::ClaudeCode).await;
+        let tag = global(&db.conn, "重构").await;
+
+        update_conversation_tags(&db.conn, conv, &[tag.id], &[])
+            .await
+            .expect("tag by hand");
+        update_conversation_tags_with_source(&db.conn, conv, &[tag.id], &[], TagSource::Ai)
+            .await
+            .expect("ai adds it again");
+
+        assert_eq!(
+            link_sources(&db.conn, conv).await,
+            vec![(tag.id, "user".to_string())]
+        );
+    }
+
+    /// AI 能挑的池子必须和写入时的校验完全一致：错了就会出现"AI 建议了一个
+    /// 打不上的标签"。
+    #[tokio::test]
+    async fn the_suggestion_pool_is_global_plus_the_conversations_family() {
+        let db = fresh_in_memory_db().await;
+        let repo = seed_folder(&db, "/tmp/tags-pool-repo").await;
+        let worktree = worktree_of(&db, "/tmp/tags-pool-wt", repo).await;
+        let other = seed_folder(&db, "/tmp/tags-pool-other").await;
+        let conv = seed_conversation(&db, worktree, AgentType::ClaudeCode).await;
+
+        let shared = global(&db.conn, "共享").await;
+        let family = create_tag(&db.conn, Some(repo), "仓库", "#0e8a16")
+            .await
+            .expect("family tag");
+        let foreign = create_tag(&db.conn, Some(other), "别处", "#111111")
+            .await
+            .expect("foreign tag");
+
+        let pool: Vec<i32> = available_tags_for_conversation(&db.conn, conv)
+            .await
+            .expect("pool")
+            .iter()
+            .map(|tag| tag.id)
+            .collect();
+
+        assert!(pool.contains(&shared.id), "global tags are always offered");
+        assert!(
+            pool.contains(&family.id),
+            "a worktree conversation gets its root's tags"
+        );
+        assert!(
+            !pool.contains(&foreign.id),
+            "another folder family's tags must not be offered"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_suggestion_pool_of_a_chat_conversation_is_global_only() {
+        let db = fresh_in_memory_db().await;
+        let chat = folder_service::add_chat_folder(&db.conn, "/tmp/tags-pool-chat")
+            .await
+            .expect("chat folder")
+            .id;
+        let conv = seed_conversation(&db, chat, AgentType::ClaudeCode).await;
+        let shared = global(&db.conn, "共享").await;
+
+        let pool: Vec<i32> = available_tags_for_conversation(&db.conn, conv)
+            .await
+            .expect("pool")
+            .iter()
+            .map(|tag| tag.id)
+            .collect();
+
+        assert_eq!(pool, vec![shared.id]);
+    }
+
+    #[tokio::test]
+    async fn the_suggestion_pool_of_an_unknown_conversation_is_refused() {
+        let db = fresh_in_memory_db().await;
+
+        assert!(matches!(
+            available_tags_for_conversation(&db.conn, 424242).await,
+            Err(TagError::ConversationNotFound(424242))
+        ));
     }
 }

@@ -378,6 +378,34 @@ pub fn build_router_with_proxy_auth(
             post(handlers::assistants::assistant_reorder),
         )
         .route(
+            "/get_ai_assistant_settings",
+            post(handlers::ai_assistant::get_ai_assistant_settings),
+        )
+        .route(
+            "/update_ai_assistant_settings",
+            post(handlers::ai_assistant::update_ai_assistant_settings),
+        )
+        .route(
+            "/get_ai_assistant_availability",
+            post(handlers::ai_assistant::get_ai_assistant_availability),
+        )
+        .route(
+            "/suggest_conversation_tags",
+            post(handlers::ai_assistant::suggest_conversation_tags),
+        )
+        .route(
+            "/apply_suggested_tags",
+            post(handlers::ai_assistant::apply_suggested_tags),
+        )
+        .route(
+            "/generate_conversation_title",
+            post(handlers::ai_assistant::generate_conversation_title),
+        )
+        .route(
+            "/test_ai_assistant_connection",
+            post(handlers::ai_assistant::test_ai_assistant_connection),
+        )
+        .route(
             "/list_conversation_tags",
             post(handlers::conversation_tags::list_conversation_tags),
         )

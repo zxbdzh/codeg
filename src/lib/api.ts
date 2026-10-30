@@ -216,6 +216,10 @@ import type {
   TokenUsageReport,
   TokenUsageSyncResult,
   TokenUsageSyncStatus,
+  AiAssistantSettings,
+  AiAssistantAvailability,
+  AiAssistantTagSuggestion,
+  AiAssistantNewTagRequest,
 } from "./types"
 
 export async function listConversations(params?: {
@@ -6590,4 +6594,67 @@ export async function forgeAutoScanNow(
   folderId: number
 ): Promise<ForgeAutoScanReport> {
   return getTransport().call("forge_auto_scan_now", { folderId })
+}
+
+// ─── Codeg AI 助手 ───────────────────────────────────────────────────────
+//
+// 薄封装：只透传命令名与参数，不做任何请求、判断或重试，路由仍由 transport
+// （Tauri invoke / Web fetch / remote）统一处理。后端在
+// src-tauri/src/commands/ai_assistant.rs。
+
+/** 助手设置（所选模型提供者、标签/标题模型、限流与上下文轮数）。 */
+export async function getAiAssistantSettings(): Promise<AiAssistantSettings> {
+  return getTransport().call("get_ai_assistant_settings")
+}
+
+/** 整份覆盖保存助手设置，返回存储后的值（trim / 归一化后）。 */
+export async function updateAiAssistantSettings(
+  settings: AiAssistantSettings
+): Promise<AiAssistantSettings> {
+  return getTransport().call("update_ai_assistant_settings", { settings })
+}
+
+/** 助手当前能否用于生成：是否选了提供者、提供者是否还在、模型是否配了。
+ *  返回 snake_case 判定字符串，文案映射留给 UI。 */
+export async function getAiAssistantAvailability(): Promise<AiAssistantAvailability> {
+  return getTransport().call("get_ai_assistant_availability")
+}
+
+/** 让 AI 为会话建议标签：已存在的（按名字）与需要新建的分开返回。 */
+export async function suggestConversationTags(
+  conversationId: number
+): Promise<AiAssistantTagSuggestion> {
+  return getTransport().call("suggest_conversation_tags", { conversationId })
+}
+
+/** 把选中的建议落到会话上：贴上已有标签、按需创建新标签，返回更新后的
+ *  会话摘要（这样调用方无需再全量刷新列表）。 */
+export async function applySuggestedTags(args: {
+  conversationId: number
+  existingTagIds: number[]
+  newTags: AiAssistantNewTagRequest[]
+}): Promise<DbConversationSummary> {
+  return getTransport().call("apply_suggested_tags", {
+    conversationId: args.conversationId,
+    existingTagIds: args.existingTagIds,
+    newTags: args.newTags,
+  })
+}
+
+/** 为会话生成标题；`force` 跳过最小间隔限流。返回 `null` 表示后端判断
+ *  无需生成（例如标题已由用户锁定，或仍在限流窗口内）。 */
+export async function generateConversationTitle(
+  conversationId: number,
+  force = false
+): Promise<string | null> {
+  return getTransport().call("generate_conversation_title", {
+    conversationId,
+    force,
+  })
+}
+
+/** 用当前设置打一次模型提供者连通性测试，仅把失败原因交给调用方（错误
+ *  消息由后端给出）。 */
+export async function testAiAssistantConnection(): Promise<void> {
+  return getTransport().call("test_ai_assistant_connection")
 }

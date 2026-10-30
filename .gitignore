@@ -65,3 +65,6 @@ src-tauri/binaries/
 # executable then sits untracked in the repo root — which is enough to fail a
 # work task's "worktree is clean" check at delivery.
 /rust_out
+
+# Archify 本地图表与规格（不随仓库分发）
+.archify/
