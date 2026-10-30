@@ -67,7 +67,8 @@
       "browser": "Browsernutzung",
       "computer_use": "Computernutzung",
       "quick_messages": "Schnellnachrichten",
-      "logs": "Laufzeitprotokolle"
+      "logs": "Laufzeitprotokolle",
+      "ai_assistant": "KI-Assistent"
     }
   },
   "AppearanceSettings": {
@@ -7644,5 +7645,67 @@
         "probeFailed": "Der integrierte Browser konnte nicht bestätigen, dass er den entfernten Host über den Tunnel erreicht. Versuche es gleich noch einmal."
       }
     }
+  },
+  "AiAssistantSettings": {
+    "title": "KI-Assistent",
+    "description": "Codegs eigene Modellaufrufe für Tag-Vorschläge und Gesprächstitel. Endpunkt und Schlüssel eines vorhandenen Modellproviders werden wiederverwendet – es gibt keinen zweiten Schlüssel, der synchron bleiben müsste.",
+    "loadFailed": "Die KI-Assistent-Einstellungen konnten nicht geladen werden.",
+    "saved": "Gespeichert",
+    "saveFailed": "Konnte nicht speichern",
+    "save": "Speichern",
+    "saving": "Speichern…",
+    "provider": "Modellprovider",
+    "providerHint": "Welchen gespeicherten Provider der Assistent aufruft. Adresse und Schlüssel werden unverändert übernommen.",
+    "noProvider": "Nicht ausgewählt",
+    "protocol": "Protokoll",
+    "protocolHint": "Wählen Sie das Endpunktprotokoll nur für den KI-Assistenten.",
+    "protocolOpenai": "OpenAI-kompatibel",
+    "protocolAnthropic": "Anthropic",
+    "keyHeader": "Schlüssel-Header",
+    "keyHeaderHint": "Standard des Protokolls verwenden oder für einen Relay überschreiben.",
+    "keyHeaderDefault": "Protokollstandard",
+    "retry": "Erneut versuchen",
+    "keyHeaderBearer": "Authorization: Bearer",
+    "keyHeaderXApiKey": "x-api-key",
+    "keyHeaderXGoogApiKey": "x-goog-api-key",
+    "statusReady": "Bereit",
+    "statusNoProvider": "Noch kein Modellprovider ausgewählt",
+    "statusProviderMissing": "Der gewählte Modellprovider wurde gelöscht",
+    "statusNoModel": "Kein Modellname konfiguriert",
+    "statusUnsupportedProtocol": "Das Protokoll des gewählten Providers unterstützt keine Generierung",
+    "tagModel": "Tag-Modell",
+    "tagModelHint": "Modellname für Tag-Vorschläge.",
+    "titleModel": "Titel-Modell",
+    "titleModelHint": "Modellname für Gesprächstitel.",
+    "titleModelFallback": "Wie das Tag-Modell",
+    "modelPlaceholder": "Modellname",
+    "titleSource": "Titelquelle",
+    "titleSourceHint": "Wer für den Titel eines Gesprächs zuständig ist.",
+    "titleSource_codeg": "Codeg",
+    "titleSource_agent": "Begleitender Agent",
+    "titleSource_fallback": "Nur wenn er fehlt",
+    "contextTurns": "Kontextrunden",
+    "contextTurnsHint": "Wie viele letzte Runden eine Anfrage mitbringt ({min}–{max}).",
+    "titleInterval": "Titelintervall (Sekunden)",
+    "titleIntervalHint": "Mindestabstand zwischen zwei automatischen Titeln desselben Gesprächs ({min}–{max}).",
+    "autoSuggestTags": "Tags automatisch vorschlagen",
+    "autoSuggestTagsHint": "Demnächst – der Schalter tut noch nichts.",
+    "testConnection": "Verbindung testen",
+    "testSucceeded": "Die Verbindung funktioniert",
+    "testFailed": "Der Verbindungstest ist fehlgeschlagen",
+    "testNeedsSave": "Erst speichern: der Test verwendet die gespeicherte Konfiguration."
+  },
+  "AiAssistant": {
+    "ready": "Bereit",
+    "noProvider": "Noch kein Modellprovider ausgewählt",
+    "providerMissing": "Der gewählte Modellprovider wurde gelöscht",
+    "noModel": "Kein Modellname konfiguriert",
+    "unsupportedProtocol": "Das Protokoll des gewählten Providers unterstützt keine Generierung",
+    "errorUnauthorized": "Der Schlüssel wurde abgewiesen (HTTP 401/403)",
+    "errorNotFound": "Der Endpunkt wurde nicht gefunden (HTTP 404)",
+    "errorTransport": "Die Anfrage konnte nicht gesendet werden",
+    "errorMalformed": "Die Antwort des Modells war nicht verständlich",
+    "conversationNotFound": "Dieses Gespräch existiert nicht mehr",
+    "emptyConversation": "Dieses Gespräch hat keinen verwertbaren Inhalt"
   }
 }

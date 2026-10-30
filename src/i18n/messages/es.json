@@ -67,7 +67,8 @@
       "browser": "Uso del navegador",
       "computer_use": "Uso del ordenador",
       "quick_messages": "Mensajes rápidos",
-      "logs": "Registros de ejecución"
+      "logs": "Registros de ejecución",
+      "ai_assistant": "Asistente de IA"
     }
   },
   "AppearanceSettings": {
@@ -7644,5 +7645,67 @@
         "probeFailed": "El navegador integrado no pudo confirmar que llega al host remoto a través del túnel. Vuelve a intentarlo en un momento."
       }
     }
+  },
+  "AiAssistantSettings": {
+    "title": "Asistente de IA",
+    "description": "Las llamadas a modelos propias de Codeg para sugerencias de etiquetas y títulos de conversación. Reutiliza el punto de acceso y la clave de un proveedor de modelos existente: no hay una segunda clave que mantener sincronizada.",
+    "loadFailed": "No se pudieron cargar los ajustes del asistente de IA.",
+    "saved": "Guardado",
+    "saveFailed": "No se pudo guardar",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "provider": "Proveedor de modelos",
+    "providerHint": "Qué proveedor guardado llama el asistente. Su dirección y su clave se reutilizan tal cual.",
+    "noProvider": "Sin seleccionar",
+    "protocol": "Protocolo",
+    "protocolHint": "Elige el protocolo del endpoint solo para el asistente de IA.",
+    "protocolOpenai": "Compatible con OpenAI",
+    "protocolAnthropic": "Anthropic",
+    "keyHeader": "Cabecera de la clave",
+    "keyHeaderHint": "Usa el valor del protocolo o cámbialo para un servicio intermediario.",
+    "keyHeaderDefault": "Predeterminado del protocolo",
+    "retry": "Reintentar",
+    "keyHeaderBearer": "Authorization: Bearer",
+    "keyHeaderXApiKey": "x-api-key",
+    "keyHeaderXGoogApiKey": "x-goog-api-key",
+    "statusReady": "Listo",
+    "statusNoProvider": "Todavía no hay un proveedor de modelos seleccionado",
+    "statusProviderMissing": "El proveedor de modelos seleccionado se eliminó",
+    "statusNoModel": "No hay un nombre de modelo configurado",
+    "statusUnsupportedProtocol": "El protocolo del proveedor seleccionado no admite la generación",
+    "tagModel": "Modelo de etiquetas",
+    "tagModelHint": "Nombre del modelo usado para sugerir etiquetas.",
+    "titleModel": "Modelo de títulos",
+    "titleModelHint": "Nombre del modelo usado para los títulos de conversación.",
+    "titleModelFallback": "El mismo que el de etiquetas",
+    "modelPlaceholder": "nombre-del-modelo",
+    "titleSource": "Origen del título",
+    "titleSourceHint": "Quién es responsable del título de una conversación.",
+    "titleSource_codeg": "Codeg",
+    "titleSource_agent": "Agente acompañante",
+    "titleSource_fallback": "Solo cuando falta",
+    "contextTurns": "Turnos de contexto",
+    "contextTurnsHint": "Cuántos turnos recientes se envían con una petición ({min}–{max}).",
+    "titleInterval": "Intervalo de título (segundos)",
+    "titleIntervalHint": "Tiempo mínimo entre dos títulos automáticos de una misma conversación ({min}–{max}).",
+    "autoSuggestTags": "Sugerir etiquetas automáticamente",
+    "autoSuggestTagsHint": "Próximamente: el interruptor todavía no hace nada.",
+    "testConnection": "Probar conexión",
+    "testSucceeded": "La conexión funciona",
+    "testFailed": "La prueba de conexión falló",
+    "testNeedsSave": "Guarda primero: la prueba usa la configuración guardada."
+  },
+  "AiAssistant": {
+    "ready": "Listo",
+    "noProvider": "Todavía no hay un proveedor de modelos seleccionado",
+    "providerMissing": "El proveedor de modelos seleccionado se eliminó",
+    "noModel": "No hay un nombre de modelo configurado",
+    "unsupportedProtocol": "El protocolo del proveedor seleccionado no admite la generación",
+    "errorUnauthorized": "Se rechazó la clave (HTTP 401/403)",
+    "errorNotFound": "No se encontró el punto de acceso (HTTP 404)",
+    "errorTransport": "No se pudo enviar la petición",
+    "errorMalformed": "No se entendió la respuesta del modelo",
+    "conversationNotFound": "Esa conversación ya no existe",
+    "emptyConversation": "Esa conversación no tiene contenido que usar"
   }
 }

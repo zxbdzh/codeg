@@ -67,7 +67,8 @@
       "browser": "브라우저 사용",
       "computer_use": "컴퓨터 사용",
       "quick_messages": "빠른 메시지",
-      "logs": "실행 로그"
+      "logs": "실행 로그",
+      "ai_assistant": "AI 어시스턴트"
     }
   },
   "AppearanceSettings": {
@@ -7644,5 +7645,67 @@
         "probeFailed": "내장 브라우저가 터널을 통해 원격 호스트에 도달하는지 확인할 수 없습니다. 잠시 후 다시 시도하세요."
       }
     }
+  },
+  "AiAssistantSettings": {
+    "title": "AI 어시스턴트",
+    "description": "태그 제안과 대화 제목을 위한 Codeg 자체 모델 호출입니다. 기존 모델 공급자의 엔드포인트와 키를 그대로 재사용하므로 두 번째 키를 관리할 필요가 없습니다.",
+    "loadFailed": "AI 어시스턴트 설정을 불러올 수 없습니다.",
+    "saved": "저장됨",
+    "saveFailed": "저장할 수 없습니다",
+    "save": "저장",
+    "saving": "저장 중…",
+    "provider": "모델 공급자",
+    "providerHint": "어시스턴트가 호출할 저장된 공급자입니다. 주소와 키는 그대로 재사용됩니다.",
+    "noProvider": "선택 안 함",
+    "protocol": "프로토콜",
+    "protocolHint": "AI 어시스턴트에서 사용할 엔드포인트 프로토콜을 선택합니다.",
+    "protocolOpenai": "OpenAI 호환",
+    "protocolAnthropic": "Anthropic",
+    "keyHeader": "키 헤더",
+    "keyHeaderHint": "프로토콜 기본값을 사용하거나 중계 서비스에 맞게 변경합니다.",
+    "keyHeaderDefault": "프로토콜 기본값",
+    "retry": "다시 시도",
+    "keyHeaderBearer": "Authorization: Bearer",
+    "keyHeaderXApiKey": "x-api-key",
+    "keyHeaderXGoogApiKey": "x-goog-api-key",
+    "statusReady": "사용 가능",
+    "statusNoProvider": "모델 공급자를 아직 선택하지 않았습니다",
+    "statusProviderMissing": "선택한 모델 공급자가 삭제되었습니다",
+    "statusNoModel": "모델 이름이 설정되지 않았습니다",
+    "statusUnsupportedProtocol": "선택한 공급자의 프로토콜은 생성을 지원하지 않습니다",
+    "tagModel": "태그 모델",
+    "tagModelHint": "태그 제안에 쓰는 모델 이름.",
+    "titleModel": "제목 모델",
+    "titleModelHint": "대화 제목에 쓰는 모델 이름.",
+    "titleModelFallback": "태그 모델과 동일",
+    "modelPlaceholder": "모델 이름",
+    "titleSource": "제목 담당",
+    "titleSourceHint": "대화 제목을 누가 맡는지.",
+    "titleSource_codeg": "Codeg",
+    "titleSource_agent": "동반 에이전트",
+    "titleSource_fallback": "없을 때만 보충",
+    "contextTurns": "맥락 라운드 수",
+    "contextTurnsHint": "한 요청에 넣을 최근 라운드 수({min}–{max}).",
+    "titleInterval": "제목 간격(초)",
+    "titleIntervalHint": "같은 대화에서 두 자동 제목 사이의 최소 간격({min}–{max}).",
+    "autoSuggestTags": "태그 자동 제안",
+    "autoSuggestTagsHint": "곧 지원 예정 — 이 스위치는 아직 아무 일도 하지 않습니다.",
+    "testConnection": "연결 테스트",
+    "testSucceeded": "연결이 됩니다",
+    "testFailed": "연결 테스트에 실패했습니다",
+    "testNeedsSave": "먼저 저장하세요. 테스트는 저장된 설정을 사용합니다."
+  },
+  "AiAssistant": {
+    "ready": "사용 가능",
+    "noProvider": "모델 공급자를 아직 선택하지 않았습니다",
+    "providerMissing": "선택한 모델 공급자가 삭제되었습니다",
+    "noModel": "모델 이름이 설정되지 않았습니다",
+    "unsupportedProtocol": "선택한 공급자의 프로토콜은 생성을 지원하지 않습니다",
+    "errorUnauthorized": "키가 거부되었습니다(HTTP 401/403)",
+    "errorNotFound": "엔드포인트를 찾을 수 없습니다(HTTP 404)",
+    "errorTransport": "요청을 보낼 수 없습니다",
+    "errorMalformed": "모델의 응답을 이해할 수 없습니다",
+    "conversationNotFound": "해당 대화가 더 이상 존재하지 않습니다",
+    "emptyConversation": "해당 대화에 쓸 내용이 없습니다"
   }
 }

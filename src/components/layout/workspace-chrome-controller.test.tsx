@@ -6,6 +6,8 @@ import {
   waitFor,
 } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { NextIntlClientProvider } from "next-intl"
+import messages from "@/i18n/messages/en.json"
 
 import { DEFAULT_SHORTCUTS } from "@/lib/keyboard-shortcuts"
 import {
@@ -119,6 +121,7 @@ vi.mock("@/lib/transport", () => ({
 }))
 vi.mock("@/lib/platform", () => ({
   closeCurrentWindow: spies.closeCurrentWindow,
+  subscribe: spies.subscribe,
 }))
 vi.mock("@/lib/browser/window-label", () => ({
   getCurrentWindowLabel: () => "main",
@@ -128,7 +131,11 @@ vi.mock("@/lib/browser/window-label", () => ({
 async function renderController(): Promise<
   (payload: CloseShortcutPayload) => void
 > {
-  render(<WorkspaceChromeController />)
+  render(
+    <NextIntlClientProvider locale="en" messages={messages}>
+      <WorkspaceChromeController />
+    </NextIntlClientProvider>
+  )
   await waitFor(() =>
     expect(state.listeners.has(CLOSE_SHORTCUT_EVENT)).toBe(true)
   )
@@ -307,14 +314,25 @@ describe("WorkspaceChromeController — ⌘W from the app menu", () => {
 
   it("listens only in the desktop app", () => {
     state.desktop = false
-    render(<WorkspaceChromeController />)
-    expect(spies.subscribe).not.toHaveBeenCalled()
+    render(
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <WorkspaceChromeController />
+      </NextIntlClientProvider>
+    )
+    expect(spies.subscribe).not.toHaveBeenCalledWith(
+      CLOSE_SHORTCUT_EVENT,
+      expect.any(Function)
+    )
   })
 })
 
 describe("WorkspaceChromeController — ⌘W the page hears", () => {
   it("closes the active pane's tab and keeps the keystroke from the menu", () => {
-    render(<WorkspaceChromeController />)
+    render(
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <WorkspaceChromeController />
+      </NextIntlClientProvider>
+    )
     const event = createEvent.keyDown(document, { key: "w", metaKey: true })
     fireEvent(document, event)
     expect(spies.closeTab).toHaveBeenCalledWith("conv-1")
@@ -324,7 +342,11 @@ describe("WorkspaceChromeController — ⌘W the page hears", () => {
   it("closes the conversation tab while the conversation is maximized, whatever the pane", () => {
     state.activePane = "files"
     state.conversationMaximized = true
-    render(<WorkspaceChromeController />)
+    render(
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <WorkspaceChromeController />
+      </NextIntlClientProvider>
+    )
     const event = createEvent.keyDown(document, { key: "w", metaKey: true })
     fireEvent(document, event)
     expect(spies.closeTab).toHaveBeenCalledWith("conv-1")
@@ -338,7 +360,11 @@ describe("WorkspaceChromeController — ⌘W the page hears", () => {
   it("keeps the other tab shortcuts off the hidden file strip while the conversation is maximized", () => {
     state.activePane = "files"
     state.conversationMaximized = true
-    render(<WorkspaceChromeController />)
+    render(
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <WorkspaceChromeController />
+      </NextIntlClientProvider>
+    )
 
     const jump = createEvent.keyDown(document, {
       key: "1",
@@ -363,7 +389,11 @@ describe("WorkspaceChromeController — ⌘W the page hears", () => {
   it("lets it through when the active pane has nothing to close", () => {
     state.activePane = "files"
     state.activeFileTabId = null
-    render(<WorkspaceChromeController />)
+    render(
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <WorkspaceChromeController />
+      </NextIntlClientProvider>
+    )
     const event = createEvent.keyDown(document, { key: "w", metaKey: true })
     fireEvent(document, event)
     expect(spies.closeFileTab).not.toHaveBeenCalled()

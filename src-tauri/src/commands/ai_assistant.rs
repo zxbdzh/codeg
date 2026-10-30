@@ -281,6 +281,15 @@ pub async fn generate_conversation_title_core(
     .await
     .map_err(to_app_error)?;
 
+    finish_title_generation(emitter, db, conversation_id, outcome).await
+}
+
+async fn finish_title_generation(
+    emitter: &EventEmitter,
+    db: &AppDatabase,
+    conversation_id: i32,
+    outcome: TitleOutcome,
+) -> Result<Option<String>, AppCommandError> {
     let TitleOutcome::Generated(title) = outcome else {
         return Ok(None);
     };
@@ -304,6 +313,85 @@ pub async fn generate_conversation_title_core(
         },
     );
     Ok(Some(title))
+}
+
+/// 每轮结束后的后台生成：共享手动请求的节流与连接池，但不阻塞 lifecycle
+/// 的状态落库/委托完成；完成轮的正文快照补上尚未刷盘的尾部。
+pub async fn generate_completed_title_core(
+    emitter: &EventEmitter,
+    db: &AppDatabase,
+    client: &dyn crate::ai::client::AiClient,
+    throttle: &TitleThrottle,
+    conversation_id: i32,
+    completed_turns: &[crate::models::message::MessageTurn],
+) -> Result<Option<String>, AppCommandError> {
+    let (detail, _) =
+        crate::commands::conversations::get_folder_conversation_core(&db.conn, conversation_id)
+            .await?;
+    let turns = crate::ai::completed_turn::merge_completed_turn(detail.turns, completed_turns);
+    let outcome = crate::ai::title_gen::generate_title_from_turns(
+        &db.conn,
+        client,
+        throttle,
+        conversation_id,
+        &turns,
+        false,
+        chrono::Utc::now(),
+    )
+    .await
+    .map_err(to_app_error)?;
+    finish_title_generation(emitter, db, conversation_id, outcome).await
+}
+
+pub fn spawn_completed_title_generation(
+    emitter: EventEmitter,
+    conn: sea_orm::DatabaseConnection,
+    conversation_id: i32,
+    completed_turns: Vec<crate::models::message::MessageTurn>,
+) {
+    tokio::spawn(async move {
+        let db = AppDatabase { conn };
+        let settings = match settings::load(&db.conn).await {
+            Ok(settings) => settings,
+            Err(error) => {
+                tracing::warn!(conversation_id, %error, "could not read automatic title settings");
+                return;
+            }
+        };
+        if settings.title_source == crate::ai::gate::TitleSource::Agent
+            || !settings::availability(&db.conn, &settings)
+                .await
+                .is_ok_and(|status| status.is_ready())
+        {
+            return;
+        }
+        let result = match client() {
+            Ok(client) => {
+                generate_completed_title_core(
+                    &emitter,
+                    &db,
+                    client,
+                    &TITLE_THROTTLE,
+                    conversation_id,
+                    &completed_turns,
+                )
+                .await
+            }
+            Err(error) => Err(to_app_error(error)),
+        };
+        if let Err(error) = result {
+            tracing::warn!(conversation_id, %error, "automatic session title generation failed");
+            // 独立提示通道，不发 ACP Error：改标题失败不等于编码会话失败。
+            emit_event(
+                &emitter,
+                "ai-assistant://error",
+                serde_json::json!({
+                    "conversationId": conversation_id,
+                    "error": error,
+                }),
+            );
+        }
+    });
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -437,6 +525,65 @@ mod tests {
         assert_eq!(
             get_ai_assistant_settings_core(&db).await.expect("read"),
             saved
+        );
+    }
+
+    #[tokio::test]
+    async fn completed_title_generation_uses_unpersisted_prose_and_broadcasts_the_saved_title() {
+        use crate::models::message::{ContentBlock, MessageTurn, TurnRole};
+        let db = fresh_in_memory_db().await;
+        let folder = seed_folder(&db, "/tmp/ai-completed-title").await;
+        let conv = seed_conversation(&db, folder, AgentType::ClaudeCode).await;
+        let provider = crate::db::service::model_provider_service::create(
+            &db.conn,
+            "test".into(),
+            "https://example.com/v1".into(),
+            "test-key".into(),
+            "codex".into(),
+            None,
+        )
+        .await
+        .unwrap();
+        update_ai_assistant_settings_core(&db, settings_with_provider(provider.id))
+            .await
+            .unwrap();
+        let before = crate::db::service::conversation_service::get_by_id(&db.conn, conv)
+            .await
+            .unwrap();
+        let client = crate::ai::fake::FakeAiClient::replying("标题：修复未失效的标签缓存");
+        let throttle = TitleThrottle::new();
+        let broadcaster = Arc::new(WebEventBroadcaster::new());
+        let mut rx = broadcaster.subscribe();
+        let emitter = EventEmitter::test_web_only(broadcaster);
+        let turns = vec![MessageTurn {
+            id: "new-unpersisted-prompt".into(),
+            role: TurnRole::User,
+            blocks: vec![ContentBlock::Text {
+                text: "排查标签缓存为什么没有失效".into(),
+            }],
+            timestamp: chrono::Utc::now(),
+            usage: None,
+            duration_ms: None,
+            model: None,
+            completed_at: None,
+            agent_message_id: None,
+        }];
+
+        let title = generate_completed_title_core(&emitter, &db, &client, &throttle, conv, &turns)
+            .await
+            .unwrap();
+
+        assert_eq!(title.as_deref(), Some("修复未失效的标签缓存"));
+        assert!(client.prompts()[0].contains("排查标签缓存为什么没有失效"));
+        let stored = crate::db::service::conversation_service::get_by_id(&db.conn, conv)
+            .await
+            .unwrap();
+        assert_eq!(stored.title, title);
+        assert!(!stored.title_locked);
+        assert_eq!(stored.updated_at, before.updated_at);
+        assert_eq!(
+            rx.try_recv().unwrap().payload["summary"]["title"],
+            "修复未失效的标签缓存"
         );
     }
 

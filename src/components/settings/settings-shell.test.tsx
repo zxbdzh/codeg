@@ -34,4 +34,11 @@ describe("settingsNavItemsFor", () => {
     expect(labels).toContain("web_service")
     expect(labels).toContain("browser")
   })
+
+  it("offers the AI assistant page next to the providers it reuses", () => {
+    const labels = settingsNavItemsFor("tauri").map((item) => item.labelKey)
+    // AI 助手不另存密钥，直接用某条 AI 提供方的端点与密钥
+    // （docs/adr/0001），所以它的入口紧挨着模型提供方页。
+    expect(labels[labels.indexOf("model_providers") + 1]).toBe("ai_assistant")
+  })
 })

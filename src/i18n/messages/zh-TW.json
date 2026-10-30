@@ -67,7 +67,8 @@
       "browser": "瀏覽器操作",
       "computer_use": "電腦操作",
       "quick_messages": "快捷訊息",
-      "logs": "執行日誌"
+      "logs": "執行日誌",
+      "ai_assistant": "AI 助手"
     }
   },
   "AppearanceSettings": {
@@ -7644,5 +7645,67 @@
         "probeFailed": "內建瀏覽器無法確認它能透過通道連到遠端主機。請稍後再試。"
       }
     }
+  },
+  "AiAssistantSettings": {
+    "title": "AI 助手",
+    "description": "Codeg 自己的模型呼叫，用於標籤建議與對話標題。它沿用既有模型提供方的端點與金鑰——不需要維護第二份金鑰。",
+    "loadFailed": "無法載入 AI 助手設定。",
+    "saved": "已儲存",
+    "saveFailed": "儲存失敗",
+    "save": "儲存",
+    "saving": "儲存中…",
+    "provider": "模型提供方",
+    "providerHint": "助手要呼叫哪一條已儲存的提供方。它的位址與金鑰原樣沿用。",
+    "noProvider": "尚未選擇",
+    "protocol": "協定",
+    "protocolHint": "選擇提供方端點使用的協定，此設定只影響 AI 助手。",
+    "protocolOpenai": "OpenAI 相容",
+    "protocolAnthropic": "Anthropic",
+    "keyHeader": "金鑰標頭",
+    "keyHeaderHint": "預設依協定傳遞金鑰；中轉服務要求 Bearer 時可單獨覆寫。",
+    "keyHeaderDefault": "協定預設值",
+    "retry": "重試",
+    "keyHeaderBearer": "Authorization: Bearer",
+    "keyHeaderXApiKey": "x-api-key",
+    "keyHeaderXGoogApiKey": "x-goog-api-key",
+    "statusReady": "可用",
+    "statusNoProvider": "尚未選擇模型提供方",
+    "statusProviderMissing": "所選的模型提供方已被刪除",
+    "statusNoModel": "尚未填寫模型名稱",
+    "statusUnsupportedProtocol": "所選提供方的協定不支援生成",
+    "tagModel": "標籤模型",
+    "tagModelHint": "標籤建議使用的模型名稱。",
+    "titleModel": "標題模型",
+    "titleModelHint": "對話標題使用的模型名稱。",
+    "titleModelFallback": "與標籤模型相同",
+    "modelPlaceholder": "模型名稱",
+    "titleSource": "標題來源",
+    "titleSourceHint": "一條對話的標題由誰負責。",
+    "titleSource_codeg": "Codeg",
+    "titleSource_agent": "同伴智能體",
+    "titleSource_fallback": "僅在缺少時補上",
+    "contextTurns": "上下文輪數",
+    "contextTurnsHint": "一次請求帶入最近幾輪對話（{min}–{max}）。",
+    "titleInterval": "標題間隔（秒）",
+    "titleIntervalHint": "同一條對話兩次自動標題之間的最短間隔（{min}–{max}）。",
+    "autoSuggestTags": "自動建議標籤",
+    "autoSuggestTagsHint": "即將支援——這個開關目前沒有任何作用。",
+    "testConnection": "測試連線",
+    "testSucceeded": "連線正常",
+    "testFailed": "連線測試失敗",
+    "testNeedsSave": "請先儲存：測試用的是已儲存的設定。"
+  },
+  "AiAssistant": {
+    "ready": "可用",
+    "noProvider": "尚未選擇模型提供方",
+    "providerMissing": "所選的模型提供方已被刪除",
+    "noModel": "尚未設定模型名稱",
+    "unsupportedProtocol": "所選提供方的協定不支援生成",
+    "errorUnauthorized": "金鑰被拒（HTTP 401/403）",
+    "errorNotFound": "找不到端點（HTTP 404）",
+    "errorTransport": "請求無法送出",
+    "errorMalformed": "看不懂模型的回覆",
+    "conversationNotFound": "該對話已不存在",
+    "emptyConversation": "該對話沒有可用的內容"
   }
 }

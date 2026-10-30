@@ -67,7 +67,8 @@
       "browser": "Utilisation du navigateur",
       "computer_use": "Utilisation de l'ordinateur",
       "quick_messages": "Messages rapides",
-      "logs": "Journaux d'exécution"
+      "logs": "Journaux d'exécution",
+      "ai_assistant": "Assistant IA"
     }
   },
   "AppearanceSettings": {
@@ -7644,5 +7645,67 @@
         "probeFailed": "Le navigateur intégré n'a pas pu confirmer qu'il atteint l'hôte distant par le tunnel. Réessayez dans un instant."
       }
     }
+  },
+  "AiAssistantSettings": {
+    "title": "Assistant IA",
+    "description": "Les appels de modèle propres à Codeg, pour les suggestions de tags et les titres de conversation. Il réutilise le point d'accès et la clé d'un fournisseur de modèles existant — pas de seconde clé à garder synchronisée.",
+    "loadFailed": "Impossible de charger les réglages de l'assistant IA.",
+    "saved": "Enregistré",
+    "saveFailed": "Enregistrement impossible",
+    "save": "Enregistrer",
+    "saving": "Enregistrement…",
+    "provider": "Fournisseur de modèles",
+    "providerHint": "Le fournisseur enregistré que l'assistant appelle. Son adresse et sa clé sont réutilisées telles quelles.",
+    "noProvider": "Non sélectionné",
+    "protocol": "Protocole",
+    "protocolHint": "Choisissez le protocole du point d'accès pour l'assistant IA uniquement.",
+    "protocolOpenai": "Compatible OpenAI",
+    "protocolAnthropic": "Anthropic",
+    "keyHeader": "En-tête de la clé",
+    "keyHeaderHint": "Suivez le protocole par défaut ou adaptez l'en-tête pour un relais.",
+    "keyHeaderDefault": "Par défaut du protocole",
+    "retry": "Réessayer",
+    "keyHeaderBearer": "Authorization: Bearer",
+    "keyHeaderXApiKey": "x-api-key",
+    "keyHeaderXGoogApiKey": "x-goog-api-key",
+    "statusReady": "Prêt",
+    "statusNoProvider": "Aucun fournisseur de modèles sélectionné",
+    "statusProviderMissing": "Le fournisseur de modèles sélectionné a été supprimé",
+    "statusNoModel": "Aucun nom de modèle configuré",
+    "statusUnsupportedProtocol": "Le protocole du fournisseur sélectionné ne permet pas la génération",
+    "tagModel": "Modèle de tags",
+    "tagModelHint": "Nom du modèle utilisé pour les suggestions de tags.",
+    "titleModel": "Modèle de titres",
+    "titleModelHint": "Nom du modèle utilisé pour les titres de conversation.",
+    "titleModelFallback": "Le même que celui des tags",
+    "modelPlaceholder": "nom-du-modele",
+    "titleSource": "Source du titre",
+    "titleSourceHint": "Qui est responsable du titre d'une conversation.",
+    "titleSource_codeg": "Codeg",
+    "titleSource_agent": "Agent compagnon",
+    "titleSource_fallback": "Seulement s'il manque",
+    "contextTurns": "Tours de contexte",
+    "contextTurnsHint": "Nombre de tours récents envoyés avec une requête ({min}–{max}).",
+    "titleInterval": "Intervalle des titres (secondes)",
+    "titleIntervalHint": "Temps minimum entre deux titres automatiques d'une même conversation ({min}–{max}).",
+    "autoSuggestTags": "Suggérer des tags automatiquement",
+    "autoSuggestTagsHint": "Bientôt disponible — l'interrupteur ne fait encore rien.",
+    "testConnection": "Tester la connexion",
+    "testSucceeded": "La connexion fonctionne",
+    "testFailed": "Le test de connexion a échoué",
+    "testNeedsSave": "Enregistrez d'abord : le test utilise la configuration enregistrée."
+  },
+  "AiAssistant": {
+    "ready": "Prêt",
+    "noProvider": "Aucun fournisseur de modèles sélectionné",
+    "providerMissing": "Le fournisseur de modèles sélectionné a été supprimé",
+    "noModel": "Aucun nom de modèle configuré",
+    "unsupportedProtocol": "Le protocole du fournisseur sélectionné ne permet pas la génération",
+    "errorUnauthorized": "La clé a été refusée (HTTP 401/403)",
+    "errorNotFound": "Point d'accès introuvable (HTTP 404)",
+    "errorTransport": "La requête n'a pas pu être envoyée",
+    "errorMalformed": "La réponse du modèle est incompréhensible",
+    "conversationNotFound": "Cette conversation n'existe plus",
+    "emptyConversation": "Cette conversation n'a aucun contenu exploitable"
   }
 }

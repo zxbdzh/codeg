@@ -15,6 +15,7 @@
 //! - [`client`] 唯一会发网络请求的地方，也是唯一新增的跨层 seam。
 
 pub mod client;
+pub mod completed_turn;
 pub mod context;
 pub mod gate;
 pub mod output;

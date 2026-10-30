@@ -697,6 +697,11 @@ pub struct SessionState {
     /// `delegation_call_id`-bound child outcome. Cleared on the next prompt.
     pub last_assistant_text: Option<String>,
 
+    /// 刚完成一轮的有界正文快照（不含附件/工具/思考）。标题任务异步运行时
+    /// transcript 可能尚未落盘；它不能借用下一轮的 pending_user_message。
+    /// 仅后端使用，不进入客户端 snapshot。
+    pub completed_title_turns: Vec<crate::models::message::MessageTurn>,
+
     /// The just-completed turn's tool-call progress ([`Self::turn_progress`]),
     /// captured at TurnComplete beside `last_assistant_text` — by the time the
     /// delegation broker records a finished child's result, the turn's tool
@@ -937,6 +942,7 @@ impl SessionState {
             async_tasks: BTreeMap::new(),
             async_task_activity_at: None,
             last_assistant_text: None,
+            completed_title_turns: Vec::new(),
             last_turn_progress: None,
             pending_user_message: None,
             pending_user_message_started_at: None,
@@ -1405,6 +1411,40 @@ impl SessionState {
                         .join("");
                     if !assembled.trim().is_empty() {
                         self.last_assistant_text = Some(assembled);
+                    }
+                }
+                // 在 pending/live 清空前冻结正文；重复 TurnComplete 没有新 prompt，
+                // 不得抹掉首个完成事件的快照，也不保留图片等大载荷。
+                if let Some(pending) = self.pending_user_message.as_ref() {
+                    use crate::acp::types::UserMessageBlock;
+                    use crate::models::message::{ContentBlock, MessageTurn, TurnRole};
+                    let make_turn = |id: String, role, text: String, timestamp| MessageTurn {
+                        id, role, blocks: vec![ContentBlock::Text { text }], timestamp,
+                        usage: None, duration_ms: None, model: None, completed_at: None,
+                        agent_message_id: None,
+                    };
+                    let user_text = pending.blocks.iter().filter_map(|block| match block {
+                        UserMessageBlock::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    }).collect::<Vec<_>>().join("\n");
+                    let user_text: String = user_text.chars().take(12_000).collect();
+                    self.completed_title_turns.clear();
+                    if !user_text.trim().is_empty() {
+                        let started_at = self.pending_user_message_started_at.unwrap_or_else(Utc::now);
+                        self.completed_title_turns.push(make_turn(
+                            pending.message_id.clone(), TurnRole::User, user_text, started_at,
+                        ));
+                        let assistant_text = self.live_message.as_ref().map(|live| live.content.iter()
+                            .filter_map(|block| match block {
+                                LiveContentBlock::Text { text, parent_tool_use_id: None } => Some(text.as_str()),
+                                _ => None,
+                            }).collect::<Vec<_>>().join("")).unwrap_or_default();
+                        if !assistant_text.trim().is_empty() {
+                            self.completed_title_turns.push(make_turn(
+                                format!("ai-title-reply:{}", pending.message_id),
+                                TurnRole::Assistant, assistant_text.chars().take(12_000).collect(), Utc::now(),
+                            ));
+                        }
                     }
                 }
                 self.live_message = None;
@@ -3501,6 +3541,27 @@ mod tests {
             s.pending_user_message_started_at.is_none(),
             "the turn-start instant is cleared in lockstep with the pending prompt"
         );
+    }
+
+    #[test]
+    fn a_completed_title_round_survives_the_pending_prompt_clear() {
+        let mut s = fresh_state();
+        s.apply_event(&text_user_message("title-user-1", "继续排查缓存"));
+        s.apply_event(&AcpEvent::ContentDelta {
+            text: "确认是标签缓存未失效。".into(), parent_tool_use_id: None,
+        });
+        s.apply_event(&AcpEvent::TurnComplete {
+            session_id: "session".into(), stop_reason: "end_turn".into(), agent_type: "claude_code".into(),
+        });
+
+        assert!(s.pending_user_message.is_none());
+        assert_eq!(s.completed_title_turns.len(), 2);
+        assert_eq!(s.completed_title_turns[0].id, "title-user-1");
+        assert!(matches!(&s.completed_title_turns[1].blocks[0],
+            crate::models::message::ContentBlock::Text { text } if text == "确认是标签缓存未失效。"));
+        s.apply_event(&text_user_message("title-user-2", "下一步"));
+        assert_eq!(s.completed_title_turns[0].id, "title-user-1",
+            "下一轮开始不能抢走上轮后台标题任务的输入");
     }
 
     #[test]

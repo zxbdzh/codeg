@@ -442,7 +442,7 @@ async fn refresh_existing(
             .map(str::trim)
             .filter(|t| !t.is_empty() && existing.title.as_deref() != Some(*t))
         {
-            wrote |= conversation_service::refresh_auto_title(conn, existing.id, title.to_string())
+            wrote |= conversation_service::refresh_agent_title(conn, existing.id, title.to_string())
                 .await?;
         }
     }
@@ -767,6 +767,28 @@ mod tests {
             .expect("get");
         assert_eq!(got.title.as_deref(), Some("AI Summary"));
         assert!(!got.title_locked, "auto refresh must not lock the title");
+    }
+
+    #[tokio::test]
+    async fn reimport_keeps_the_title_when_codeg_has_taken_ownership() {
+        use crate::ai::settings::{self, AiAssistantSettings};
+        use crate::db::service::model_provider_service;
+        let db = fresh_in_memory_db().await;
+        let folder = seed_folder(&db, "/tmp/codeg-import-owner").await;
+        import_one_skip(&db.conn, folder, &AgentType::ClaudeCode,
+            &summary("owned-import", Some("Codeg 标题"))).await.unwrap();
+        let id = find_id(&db.conn, "owned-import").await;
+        let provider = model_provider_service::create(
+            &db.conn, "test".into(), "https://example.com/v1".into(), "test-key".into(), "codex".into(), None,
+        ).await.unwrap();
+        settings::save(&db.conn, &AiAssistantSettings {
+            provider_id: Some(provider.id), tag_model: "test".into(), ..AiAssistantSettings::default()
+        }).await.unwrap();
+
+        import_one_skip(&db.conn, folder, &AgentType::ClaudeCode,
+            &summary("owned-import", Some("重扫拿到的同伴标题"))).await.unwrap();
+
+        assert_eq!(conversation_service::get_by_id(&db.conn, id).await.unwrap().title.as_deref(), Some("Codeg 标题"));
     }
 
     #[tokio::test]

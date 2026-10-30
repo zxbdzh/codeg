@@ -333,7 +333,7 @@ pub(crate) async fn handle_event(
             else {
                 return Ok(());
             };
-            let (conversation_id, last_text, claimed) = {
+            let (conversation_id, last_text, completed_title_turns, claimed) = {
                 let mut snap = state_arc.write().await;
                 // Re-entrant for this worker: a retry of this same envelope
                 // claims again and goes on. Only a CLI run's fallback that
@@ -342,6 +342,7 @@ pub(crate) async fn handle_event(
                 (
                     snap.conversation_id,
                     snap.last_assistant_text.clone(),
+                    snap.completed_title_turns.clone(),
                     claimed,
                 )
             };
@@ -367,6 +368,13 @@ pub(crate) async fn handle_event(
                     last_text,
                 )
                 .await;
+            }
+            if stop_reason == "end_turn" && !completed_title_turns.is_empty() {
+                // 在上面的同一状态快照中捕获正文，不能在 DB/委托 await 后再读：
+                // 下一轮可能已经结束并替换了这份完成快照。
+                crate::commands::ai_assistant::spawn_completed_title_generation(
+                    emitter, db_conn.clone(), cid, completed_title_turns,
+                );
             }
             Ok(())
         }
@@ -394,7 +402,7 @@ pub(crate) async fn handle_event(
             // can still replace this. Identical repeats are filtered at emit
             // time so CodeBuddy's per-turn fallback cannot ping-pong the
             // sidebar. Soft-deleted rows are skipped by the UPDATE predicate.
-            if conversation_service::refresh_auto_title(db_conn, cid, title.clone()).await? {
+            if conversation_service::refresh_agent_title(db_conn, cid, title.clone()).await? {
                 crate::commands::conversations::emit_conversation_upsert(&emitter, db_conn, cid)
                     .await;
                 if let Some(ccm) = manager.chat_channel() {
@@ -3663,6 +3671,44 @@ mod tests {
         let p = &*evt.payload;
         assert_eq!(p["kind"], "upsert");
         assert_eq!(p["summary"]["title"], "Fix login flow");
+    }
+
+    #[tokio::test]
+    async fn a_configured_codeg_title_owner_ignores_native_titles() {
+        use crate::ai::settings::{self, AiAssistantSettings};
+        use crate::db::service::model_provider_service;
+        use crate::web::event_bridge::WebEventBroadcaster;
+
+        let db = test_helpers::fresh_in_memory_db().await;
+        let folder = test_helpers::seed_folder(&db, "/tmp/codeg-title-owner").await;
+        let conv = conversation_service::create(
+            &db.conn, folder, AgentType::ClaudeCode, Some("Codeg 已生成的标题".into()), None,
+        ).await.unwrap();
+        let provider = model_provider_service::create(
+            &db.conn, "test".into(), "https://example.com/v1".into(),
+            "test-key".into(), "codex".into(), None,
+        ).await.unwrap();
+        settings::save(&db.conn, &AiAssistantSettings {
+            provider_id: Some(provider.id), tag_model: "test-model".into(),
+            ..AiAssistantSettings::default()
+        }).await.unwrap();
+        let broadcaster = Arc::new(WebEventBroadcaster::new());
+        let mut rx = broadcaster.subscribe();
+        let mgr = ConnectionManager::new();
+        let mut connection = fake_connection_with_state("owner", Some(conv.id));
+        connection.emitter = EventEmitter::test_web_only(broadcaster);
+        mgr.connections.lock().await.insert("owner".into(), connection);
+
+        handle_event(&db.conn, &mgr, &EventEnvelope {
+            seq: 1, connection_id: "owner".into(),
+            payload: AcpEvent::NativeSessionTitle { title: "迟到的同伴标题".into() },
+        }, None).await.unwrap();
+
+        let stored = conversation_service::get_by_id(&db.conn, conv.id).await.unwrap();
+        assert_eq!(stored.title.as_deref(), Some("Codeg 已生成的标题"));
+        assert_eq!(stored.updated_at, conv.updated_at);
+        assert!(!stored.title_locked);
+        assert!(rx.try_recv().is_err(), "被忽略的标题不能向侧栏广播");
     }
 
     #[tokio::test]

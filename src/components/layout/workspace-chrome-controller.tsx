@@ -41,6 +41,7 @@ import { getShellTransport, isDesktop } from "@/lib/transport"
 import { SearchCommandDialog } from "@/components/conversations/search-command-dialog"
 import { useVisibleConversationTabs } from "@/stores/tab-store"
 import { WorkspaceFolderDialog } from "@/components/layout/workspace-folder-dialog"
+import { AiAssistantNotifications } from "@/components/layout/ai-assistant-notifications"
 
 /**
  * Headless owner of the workspace's global keyboard shortcuts and the two
@@ -422,6 +423,7 @@ export function WorkspaceChromeController() {
 
   return (
     <>
+      <AiAssistantNotifications />
       <SearchCommandDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <WorkspaceFolderDialog open={browserOpen} onOpenChange={setBrowserOpen} />
     </>

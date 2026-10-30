@@ -67,7 +67,8 @@
       "browser": "استخدام المتصفح",
       "computer_use": "استخدام الحاسوب",
       "quick_messages": "رسائل سريعة",
-      "logs": "سجلات التشغيل"
+      "logs": "سجلات التشغيل",
+      "ai_assistant": "مساعد الذكاء الاصطناعي"
     }
   },
   "AppearanceSettings": {
@@ -7644,5 +7645,67 @@
         "probeFailed": "تعذّر على المتصفح المدمج التأكد من أنه يصل إلى المضيف البعيد عبر النفق. حاول مرة أخرى بعد قليل."
       }
     }
+  },
+  "AiAssistantSettings": {
+    "title": "مساعد الذكاء الاصطناعي",
+    "description": "نداءات النموذج التي يطلقها Codeg نفسه لاقتراح الوسوم وعناوين المحادثات. يعيد استخدام نقطة النهاية والمفتاح لمزوّد نماذج محفوظ — فلا مفتاح ثانٍ يحتاج مزامنة.",
+    "loadFailed": "تعذّر تحميل إعدادات مساعد الذكاء الاصطناعي.",
+    "saved": "تم الحفظ",
+    "saveFailed": "تعذّر الحفظ",
+    "save": "حفظ",
+    "saving": "جارٍ الحفظ…",
+    "provider": "مزوّد النماذج",
+    "providerHint": "المزوّد المحفوظ الذي يناديه المساعد. عنوانه ومفتاحه يُستخدمان كما هما.",
+    "noProvider": "غير محدّد",
+    "protocol": "البروتوكول",
+    "protocolHint": "اختر بروتوكول نقطة النهاية لمساعد الذكاء الاصطناعي فقط.",
+    "protocolOpenai": "متوافق مع OpenAI",
+    "protocolAnthropic": "Anthropic",
+    "keyHeader": "ترويسة المفتاح",
+    "keyHeaderHint": "استخدم القيمة الافتراضية للبروتوكول أو غيّرها لخدمة وسيطة.",
+    "keyHeaderDefault": "القيمة الافتراضية للبروتوكول",
+    "retry": "إعادة المحاولة",
+    "keyHeaderBearer": "Authorization: Bearer",
+    "keyHeaderXApiKey": "x-api-key",
+    "keyHeaderXGoogApiKey": "x-goog-api-key",
+    "statusReady": "جاهز",
+    "statusNoProvider": "لم يُحدَّد مزوّد نماذج بعد",
+    "statusProviderMissing": "حُذف مزوّد النماذج المحدّد",
+    "statusNoModel": "لا يوجد اسم نموذج مضبوط",
+    "statusUnsupportedProtocol": "بروتوكول المزوّد المحدّد لا يدعم التوليد",
+    "tagModel": "نموذج الوسوم",
+    "tagModelHint": "اسم النموذج المستخدم لاقتراح الوسوم.",
+    "titleModel": "نموذج العناوين",
+    "titleModelHint": "اسم النموذج المستخدم لعناوين المحادثات.",
+    "titleModelFallback": "نفس نموذج الوسوم",
+    "modelPlaceholder": "اسم-النموذج",
+    "titleSource": "مصدر العنوان",
+    "titleSourceHint": "من المسؤول عن عنوان المحادثة.",
+    "titleSource_codeg": "Codeg",
+    "titleSource_agent": "الوكيل المرافق",
+    "titleSource_fallback": "فقط عند غيابه",
+    "contextTurns": "عدد الأدوار السياقية",
+    "contextTurnsHint": "كم دورًا حديثًا يُرسل مع كل طلب ({min}–{max}).",
+    "titleInterval": "فاصل العناوين (ثوان)",
+    "titleIntervalHint": "أقل زمن بين عنوانين تلقائيين لنفس المحادثة ({min}–{max}).",
+    "autoSuggestTags": "اقتراح الوسوم تلقائيًا",
+    "autoSuggestTagsHint": "قريبًا — المفتاح لا يفعل شيئًا بعد.",
+    "testConnection": "اختبار الاتصال",
+    "testSucceeded": "الاتصال يعمل",
+    "testFailed": "فشل اختبار الاتصال",
+    "testNeedsSave": "احفظ أولًا: الاختبار يستخدم الإعدادات المحفوظة."
+  },
+  "AiAssistant": {
+    "ready": "جاهز",
+    "noProvider": "لم يُحدَّد مزوّد نماذج بعد",
+    "providerMissing": "حُذف مزوّد النماذج المحدّد",
+    "noModel": "لا يوجد اسم نموذج مضبوط",
+    "unsupportedProtocol": "بروتوكول المزوّد المحدّد لا يدعم التوليد",
+    "errorUnauthorized": "رُفض المفتاح (HTTP 401/403)",
+    "errorNotFound": "لم يُعثر على نقطة النهاية (HTTP 404)",
+    "errorTransport": "تعذّر إرسال الطلب",
+    "errorMalformed": "تعذّر فهم رد النموذج",
+    "conversationNotFound": "تلك المحادثة لم تعد موجودة",
+    "emptyConversation": "لا يوجد في تلك المحادثة ما يمكن العمل عليه"
   }
 }

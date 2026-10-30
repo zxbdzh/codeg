@@ -26,6 +26,7 @@ import {
   Server,
   Settings,
   SlidersHorizontal,
+  Sparkles,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { usePathname } from "next/navigation"
@@ -59,6 +60,7 @@ interface SettingsNavItem {
     | "shortcuts"
     | "version_control"
     | "chat_channels"
+    | "ai_assistant"
     | "system"
     | "web_service"
     | "logs"
@@ -105,6 +107,11 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     href: "/settings/model-providers",
     labelKey: "model_providers",
     icon: Server,
+  },
+  {
+    href: "/settings/ai-assistant",
+    labelKey: "ai_assistant",
+    icon: Sparkles,
   },
   {
     href: "/settings/quick-messages",

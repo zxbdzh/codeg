@@ -67,7 +67,8 @@
       "browser": "ブラウザ操作",
       "computer_use": "コンピューター操作",
       "quick_messages": "クイックメッセージ",
-      "logs": "実行ログ"
+      "logs": "実行ログ",
+      "ai_assistant": "AIアシスタント"
     }
   },
   "AppearanceSettings": {
@@ -7644,5 +7645,67 @@
         "probeFailed": "内蔵ブラウザーがトンネル経由でリモートホストに届くことを確認できませんでした。しばらくしてからもう一度お試しください。"
       }
     }
+  },
+  "AiAssistantSettings": {
+    "title": "AIアシスタント",
+    "description": "タグ提案と会話タイトルのための Codeg 独自のモデル呼び出し。既存のモデルプロバイダーのエンドポイントとキーをそのまま使います。第二のキーを管理する必要はありません。",
+    "loadFailed": "AIアシスタントの設定を読み込めませんでした。",
+    "saved": "保存しました",
+    "saveFailed": "保存できませんでした",
+    "save": "保存",
+    "saving": "保存中…",
+    "provider": "モデルプロバイダー",
+    "providerHint": "アシスタントが呼び出す保存済みプロバイダー。そのアドレスとキーをそのまま使います。",
+    "noProvider": "未選択",
+    "protocol": "プロトコル",
+    "protocolHint": "AI アシスタント専用のエンドポイントのプロトコルを選びます。",
+    "protocolOpenai": "OpenAI 互換",
+    "protocolAnthropic": "Anthropic",
+    "keyHeader": "キーのヘッダー",
+    "keyHeaderHint": "プロトコルの既定値を使うか、中継サービス向けに変更できます。",
+    "keyHeaderDefault": "プロトコルの既定値",
+    "retry": "再試行",
+    "keyHeaderBearer": "Authorization: Bearer",
+    "keyHeaderXApiKey": "x-api-key",
+    "keyHeaderXGoogApiKey": "x-goog-api-key",
+    "statusReady": "利用できます",
+    "statusNoProvider": "モデルプロバイダーが未選択です",
+    "statusProviderMissing": "選択したモデルプロバイダーは削除されました",
+    "statusNoModel": "モデル名が未設定です",
+    "statusUnsupportedProtocol": "選択したプロバイダーのプロトコルは生成に対応していません",
+    "tagModel": "タグモデル",
+    "tagModelHint": "タグ提案に使うモデル名。",
+    "titleModel": "タイトルモデル",
+    "titleModelHint": "会話タイトルに使うモデル名。",
+    "titleModelFallback": "タグモデルと同じ",
+    "modelPlaceholder": "モデル名",
+    "titleSource": "タイトルの担当",
+    "titleSourceHint": "会話タイトルを誰が担当するか。",
+    "titleSource_codeg": "Codeg",
+    "titleSource_agent": "仲間のエージェント",
+    "titleSource_fallback": "無いときだけ補う",
+    "contextTurns": "文脈のラウンド数",
+    "contextTurnsHint": "1 回のリクエストに含める直近のラウンド数（{min}–{max}）。",
+    "titleInterval": "タイトル間隔（秒）",
+    "titleIntervalHint": "同じ会話で 2 回の自動タイトルの最短間隔（{min}–{max}）。",
+    "autoSuggestTags": "タグを自動提案",
+    "autoSuggestTagsHint": "近日対応——このスイッチはまだ何もしません。",
+    "testConnection": "接続テスト",
+    "testSucceeded": "接続できました",
+    "testFailed": "接続テストに失敗しました",
+    "testNeedsSave": "先に保存してください。テストは保存済みの設定を使います。"
+  },
+  "AiAssistant": {
+    "ready": "利用できます",
+    "noProvider": "モデルプロバイダーが未選択です",
+    "providerMissing": "選択したモデルプロバイダーは削除されました",
+    "noModel": "モデル名が未設定です",
+    "unsupportedProtocol": "選択したプロバイダーのプロトコルは生成に対応していません",
+    "errorUnauthorized": "キーが拒否されました（HTTP 401/403）",
+    "errorNotFound": "エンドポイントが見つかりません（HTTP 404）",
+    "errorTransport": "リクエストを送信できませんでした",
+    "errorMalformed": "モデルの応答を解釈できませんでした",
+    "conversationNotFound": "その会話はもう存在しません",
+    "emptyConversation": "その会話には使える内容がありません"
   }
 }

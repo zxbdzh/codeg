@@ -2076,7 +2076,7 @@ pub async fn get_folder_conversation_with_live_core(
     if !detail.summary.title_locked {
         if let Some(parsed) = parsed_title.as_deref().map(str::trim) {
             if !parsed.is_empty() && detail.summary.title.as_deref() != Some(parsed) {
-                match conversation_service::refresh_auto_title(
+                match conversation_service::refresh_agent_title(
                     conn,
                     conversation_id,
                     parsed.to_string(),

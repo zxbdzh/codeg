@@ -236,6 +236,19 @@ pub async fn refresh_auto_title(
     Ok(res.rows_affected > 0)
 }
 
+/// 同伴/解析器标题的统一写入口。Codeg 接管后，无论标题来自 ACP、详情重读
+/// 还是导入重扫，都不能再次覆盖它；AI 自己仍走 refresh_auto_title。
+pub async fn refresh_agent_title(
+    conn: &DatabaseConnection,
+    conversation_id: i32,
+    title: String,
+) -> Result<bool, DbError> {
+    if crate::ai::settings::codeg_owns_titles(conn).await? {
+        return Ok(false);
+    }
+    refresh_auto_title(conn, conversation_id, title).await
+}
+
 /// First-prompt seed: write `title` ONLY when the row is unlocked AND still
 /// empty. Unlike [`refresh_auto_title`], this will not replace an existing
 /// name — a later user prompt must not overwrite the first one, and an
@@ -409,6 +422,10 @@ async fn refresh_codex_auto_title_candidate(
         return Ok(false);
     };
     if title.is_empty() || candidate.title.as_deref() == Some(title) {
+        return Ok(false);
+    }
+    // 索引刷新是另一条同伴标题入口，不能绕过已启用的 Codeg 接管。
+    if crate::ai::settings::codeg_owns_titles(conn).await? {
         return Ok(false);
     }
 
@@ -2879,6 +2896,29 @@ mod tests {
         );
         let summary = get_by_id(&db.conn, row.id).await.expect("get");
         assert_eq!(summary.title.as_deref(), Some("same"));
+    }
+
+    #[tokio::test]
+    async fn codex_index_refresh_respects_a_configured_codeg_title_owner() {
+        use crate::ai::settings::{self, AiAssistantSettings};
+        use crate::db::service::model_provider_service;
+        let db = fresh_in_memory_db().await;
+        let folder = seed_folder(&db, "/tmp/codeg-codex-title-owner").await;
+        let row = create(&db.conn, folder, AgentType::Codex, Some("Codeg 标题".into()), None)
+            .await.unwrap();
+        bind_external_id(&db.conn, row.id, "owned-session", &[]).await.unwrap();
+        let provider = model_provider_service::create(
+            &db.conn, "test".into(), "https://example.com/v1".into(), "test-key".into(), "codex".into(), None,
+        ).await.unwrap();
+        settings::save(&db.conn, &AiAssistantSettings {
+            provider_id: Some(provider.id), tag_model: "test".into(), ..AiAssistantSettings::default()
+        }).await.unwrap();
+
+        let changed = refresh_codex_auto_titles(&db.conn,
+            &HashMap::from([("owned-session".into(), "索引里的同伴标题".into())])).await;
+
+        assert!(changed.is_empty());
+        assert_eq!(get_by_id(&db.conn, row.id).await.unwrap().title.as_deref(), Some("Codeg 标题"));
     }
 
     #[tokio::test]

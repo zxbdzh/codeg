@@ -67,7 +67,8 @@
       "browser": "Uso do navegador",
       "computer_use": "Uso do computador",
       "quick_messages": "Mensagens rápidas",
-      "logs": "Registros de execução"
+      "logs": "Registros de execução",
+      "ai_assistant": "Assistente de IA"
     }
   },
   "AppearanceSettings": {
@@ -7644,5 +7645,67 @@
         "probeFailed": "O navegador integrado não conseguiu confirmar que alcança o host remoto pelo túnel. Tente novamente em instantes."
       }
     }
+  },
+  "AiAssistantSettings": {
+    "title": "Assistente de IA",
+    "description": "As chamadas de modelo próprias do Codeg para sugestões de tags e títulos de conversa. Reutiliza o endpoint e a chave de um provedor de modelos existente — não há uma segunda chave para manter em sincronia.",
+    "loadFailed": "Não foi possível carregar as configurações do assistente de IA.",
+    "saved": "Salvo",
+    "saveFailed": "Não foi possível salvar",
+    "save": "Salvar",
+    "saving": "Salvando…",
+    "provider": "Provedor de modelos",
+    "providerHint": "Qual provedor salvo o assistente chama. O endereço e a chave dele são reutilizados como estão.",
+    "noProvider": "Não selecionado",
+    "protocol": "Protocolo",
+    "protocolHint": "Escolha o protocolo do endpoint apenas para o assistente de IA.",
+    "protocolOpenai": "Compatível com OpenAI",
+    "protocolAnthropic": "Anthropic",
+    "keyHeader": "Cabeçalho da chave",
+    "keyHeaderHint": "Use o padrão do protocolo ou ajuste para um serviço intermediário.",
+    "keyHeaderDefault": "Padrão do protocolo",
+    "retry": "Tentar novamente",
+    "keyHeaderBearer": "Authorization: Bearer",
+    "keyHeaderXApiKey": "x-api-key",
+    "keyHeaderXGoogApiKey": "x-goog-api-key",
+    "statusReady": "Pronto",
+    "statusNoProvider": "Nenhum provedor de modelos selecionado ainda",
+    "statusProviderMissing": "O provedor de modelos selecionado foi excluído",
+    "statusNoModel": "Nenhum nome de modelo configurado",
+    "statusUnsupportedProtocol": "O protocolo do provedor selecionado não suporta geração",
+    "tagModel": "Modelo de tags",
+    "tagModelHint": "Nome do modelo usado para sugerir tags.",
+    "titleModel": "Modelo de títulos",
+    "titleModelHint": "Nome do modelo usado para títulos de conversa.",
+    "titleModelFallback": "O mesmo do modelo de tags",
+    "modelPlaceholder": "nome-do-modelo",
+    "titleSource": "Origem do título",
+    "titleSourceHint": "Quem responde pelo título de uma conversa.",
+    "titleSource_codeg": "Codeg",
+    "titleSource_agent": "Agente companheiro",
+    "titleSource_fallback": "Só quando estiver faltando",
+    "contextTurns": "Turnos de contexto",
+    "contextTurnsHint": "Quantos turnos recentes vão em uma requisição ({min}–{max}).",
+    "titleInterval": "Intervalo de título (segundos)",
+    "titleIntervalHint": "Tempo mínimo entre dois títulos automáticos da mesma conversa ({min}–{max}).",
+    "autoSuggestTags": "Sugerir tags automaticamente",
+    "autoSuggestTagsHint": "Em breve — a chave ainda não faz nada.",
+    "testConnection": "Testar conexão",
+    "testSucceeded": "A conexão funciona",
+    "testFailed": "O teste de conexão falhou",
+    "testNeedsSave": "Salve primeiro: o teste usa a configuração salva."
+  },
+  "AiAssistant": {
+    "ready": "Pronto",
+    "noProvider": "Nenhum provedor de modelos selecionado ainda",
+    "providerMissing": "O provedor de modelos selecionado foi excluído",
+    "noModel": "Nenhum nome de modelo configurado",
+    "unsupportedProtocol": "O protocolo do provedor selecionado não suporta geração",
+    "errorUnauthorized": "A chave foi recusada (HTTP 401/403)",
+    "errorNotFound": "Endpoint não encontrado (HTTP 404)",
+    "errorTransport": "Não foi possível enviar a requisição",
+    "errorMalformed": "A resposta do modelo não pôde ser entendida",
+    "conversationNotFound": "Essa conversa não existe mais",
+    "emptyConversation": "Essa conversa não tem conteúdo utilizável"
   }
 }
