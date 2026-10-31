@@ -546,6 +546,14 @@
         "title": "Zeilenumbruch einfügen",
         "description": "Einen Zeilenumbruch im Eingabefeld einfügen"
       },
+      "ai_suggest_tags": {
+        "title": "Suggest tags with AI",
+        "description": "Read recent rounds and open the tag confirmation dialog"
+      },
+      "prompt_stash": {
+        "title": "Collect or restore prompt",
+        "description": "Collect nonempty input, or restore a template into empty input"
+      },
       "toggle_custom_style": {
         "title": "Eigenen Stil aussetzen/fortsetzen",
         "description": "Notausstieg: schaltet alle eigenen Farben und CSS aus und wieder ein"
@@ -7707,5 +7715,39 @@
     "errorMalformed": "Die Antwort des Modells war nicht verständlich",
     "conversationNotFound": "Dieses Gespräch existiert nicht mehr",
     "emptyConversation": "Dieses Gespräch hat keinen verwertbaren Inhalt"
+  },
+  "AiTagging": {
+    "title": "AI tag suggestions",
+    "description": "Nothing changes until you confirm. New tags start unchecked.",
+    "loading": "Reading recent rounds…",
+    "newTags": "Proposed new tags",
+    "name": "Tag name",
+    "color": "Tag color",
+    "scope": "Tag scope",
+    "global": "Global",
+    "folder": "This folder family",
+    "empty": "No suggestions for this conversation.",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "apply": "Apply selected tags",
+    "applying": "Applying…",
+    "action": "Suggest tags with AI",
+    "refreshTitle": "Refresh title with AI",
+    "titleSkipped": "Title unchanged: manual lock, title source or no new title.",
+    "unavailable": "Configure the AI assistant in Settings first.",
+    "failed": "AI assistant failed",
+    "refreshDone": "Title updated"
+  },
+  "PromptStash": {
+    "action": "Collect or restore prompt",
+    "title": "Prompt collection",
+    "loading": "Loading…",
+    "empty": "No collected prompts yet. Write a prompt and collect it first.",
+    "saved": "Prompt collected",
+    "failed": "Could not collect prompt",
+    "inputChanged": "Input changed; nothing was overwritten.",
+    "attachmentOnly": "Attachments",
+    "attachments": "{count} attachments",
+    "retry": "Retry"
   }
 }

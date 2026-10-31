@@ -136,6 +136,8 @@ import type { Editor, JSONContent } from "@tiptap/core"
 import { useReferenceSearch } from "@/components/chat/composer/use-reference-search"
 import { useComposerMentionLabels } from "@/components/chat/composer/use-composer-mention-labels"
 import { ComposerAddMenu } from "@/components/chat/composer/composer-add-menu"
+import { PromptStashControl } from "./prompt-stash-control"
+import type { PromptStashSnapshot } from "@/lib/types"
 import { ComposerImageThumbnails } from "@/components/chat/composer/composer-image-thumbnails"
 import { useComposerAttachments } from "@/components/chat/composer/use-composer-attachments"
 import { useComposerShortcuts } from "@/components/chat/composer/use-composer-shortcuts"
@@ -1622,6 +1624,62 @@ export function MessageInput({
     draftStorageKey: effectiveDraftStorageKey,
   }
 
+  const stashCapture = useCallback((): PromptStashSnapshot | null => {
+    const editor = editorRef.current
+    if (!editor || (editor.isEmpty() && !attachments.length)) return null
+    return {
+      text: editor.getText(),
+      doc: editor.getJSON(),
+      attachments,
+      embeddedPayloads: Object.fromEntries(embeddedPayloadsRef.current),
+    }
+  }, [attachments, embeddedPayloadsRef])
+  const stashCurrent = useRef({
+    stashCapture,
+    draftKey: effectiveDraftStorageKey,
+  })
+  stashCurrent.current = { stashCapture, draftKey: effectiveDraftStorageKey }
+  const stashEditor = editorRef.current?.getEditor()
+  const stashClear = useCallback(
+    (snapshot: PromptStashSnapshot) => {
+      const current = stashCurrent.current
+      if (
+        current.draftKey === effectiveDraftStorageKey &&
+        editorRef.current?.getEditor() === stashEditor &&
+        JSON.stringify(current.stashCapture()) === JSON.stringify(snapshot)
+      )
+        resetComposer()
+    },
+    [effectiveDraftStorageKey, resetComposer, stashEditor]
+  )
+  const stashRestore = useCallback(
+    (snapshot: PromptStashSnapshot) => {
+      const current = stashCurrent.current
+      if (
+        current.draftKey !== effectiveDraftStorageKey ||
+        current.stashCapture() ||
+        attach.intakePending
+      )
+        return false
+      if (!editorRef.current?.getEditor()) return false
+      clearAttachments()
+      for (const [key, block] of Object.entries(snapshot.embeddedPayloads))
+        embeddedPayloadsRef.current.set(key, block)
+      editorRef.current.setDoc(snapshot.doc)
+      attach.setAttachments(snapshot.attachments)
+      syncComposerEmpty()
+      editorRef.current.focus()
+      return true
+    },
+    [
+      effectiveDraftStorageKey,
+      attach,
+      clearAttachments,
+      embeddedPayloadsRef,
+      syncComposerEmpty,
+    ]
+  )
+
   const handleSend = useCallback(() => {
     // The editor stays editable while `disabled` (the agent is busy) so the user
     // can keep typing, but a plain send is blocked — only enqueue / queue-edit
@@ -2195,6 +2253,14 @@ export function MessageInput({
                     slashCommands={slashCommands}
                     onAddFeedback={onAddFeedback}
                     feedbackAddDisabled={feedbackAddDisabled}
+                  />
+                  <PromptStashControl
+                    capture={stashCapture}
+                    clearIfUnchanged={stashClear}
+                    restoreIfEmpty={stashRestore}
+                    anchor={containerRef}
+                    shortcut={shortcuts.prompt_stash}
+                    pending={attach.intakePending || hasUploadingImage}
                   />
                   {hasAnySelector && (
                     <SessionSettingsPicker

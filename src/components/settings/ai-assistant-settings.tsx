@@ -233,6 +233,7 @@ export function AiAssistantSettingsSection() {
           : applied
       )
       setSaved(applied)
+      window.dispatchEvent(new Event("codeg:ai-settings-changed"))
       const status = await getAiAssistantAvailability()
       setAvailability(status)
       toast.success(t("saved"))

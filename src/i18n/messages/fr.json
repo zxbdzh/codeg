@@ -546,6 +546,14 @@
         "title": "Retour à la ligne",
         "description": "Insérer un retour à la ligne dans la zone de saisie"
       },
+      "ai_suggest_tags": {
+        "title": "Suggest tags with AI",
+        "description": "Read recent rounds and open the tag confirmation dialog"
+      },
+      "prompt_stash": {
+        "title": "Collect or restore prompt",
+        "description": "Collect nonempty input, or restore a template into empty input"
+      },
       "toggle_custom_style": {
         "title": "Suspendre/réactiver le style personnalisé",
         "description": "Issue de secours : désactive toutes les couleurs et le CSS personnalisés, puis les réactive"
@@ -7707,5 +7715,39 @@
     "errorMalformed": "La réponse du modèle est incompréhensible",
     "conversationNotFound": "Cette conversation n'existe plus",
     "emptyConversation": "Cette conversation n'a aucun contenu exploitable"
+  },
+  "AiTagging": {
+    "title": "AI tag suggestions",
+    "description": "Nothing changes until you confirm. New tags start unchecked.",
+    "loading": "Reading recent rounds…",
+    "newTags": "Proposed new tags",
+    "name": "Tag name",
+    "color": "Tag color",
+    "scope": "Tag scope",
+    "global": "Global",
+    "folder": "This folder family",
+    "empty": "No suggestions for this conversation.",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "apply": "Apply selected tags",
+    "applying": "Applying…",
+    "action": "Suggest tags with AI",
+    "refreshTitle": "Refresh title with AI",
+    "titleSkipped": "Title unchanged: manual lock, title source or no new title.",
+    "unavailable": "Configure the AI assistant in Settings first.",
+    "failed": "AI assistant failed",
+    "refreshDone": "Title updated"
+  },
+  "PromptStash": {
+    "action": "Collect or restore prompt",
+    "title": "Prompt collection",
+    "loading": "Loading…",
+    "empty": "No collected prompts yet. Write a prompt and collect it first.",
+    "saved": "Prompt collected",
+    "failed": "Could not collect prompt",
+    "inputChanged": "Input changed; nothing was overwritten.",
+    "attachmentOnly": "Attachments",
+    "attachments": "{count} attachments",
+    "retry": "Retry"
   }
 }

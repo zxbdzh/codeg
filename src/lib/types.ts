@@ -6211,3 +6211,17 @@ export interface AiAssistantNewTagRequest {
   color: string
   folderId: number | null
 }
+
+/** 收藏保留完整富文本文档与附件，不复用会话草稿的本地存储。 */
+export interface PromptStashSnapshot {
+  text: string
+  doc: import("@tiptap/core").JSONContent
+  attachments: import("@/components/chat/message-input-attachments").InputAttachment[]
+  embeddedPayloads: Record<string, PromptInputBlock>
+}
+export interface PromptStashEntry {
+  id: number
+  preview: string
+  updatedAt: string
+  attachmentCount: number
+}

@@ -546,6 +546,14 @@
         "title": "訊息換行",
         "description": "在輸入框中插入換行符"
       },
+      "ai_suggest_tags": {
+        "title": "AI 建议标签",
+        "description": "读取当前会话最近几轮并打开标签确认框"
+      },
+      "prompt_stash": {
+        "title": "收藏或恢复输入框",
+        "description": "有内容时收藏，空白时选择收藏项回填"
+      },
       "toggle_custom_style": {
         "title": "停用/恢復自訂樣式",
         "description": "逃生艙：一鍵關閉全部自訂配色與 CSS，再按一次恢復"
@@ -7707,5 +7715,39 @@
     "errorMalformed": "看不懂模型的回覆",
     "conversationNotFound": "該對話已不存在",
     "emptyConversation": "該對話沒有可用的內容"
+  },
+  "AiTagging": {
+    "title": "AI 建议标签",
+    "description": "确认后才会生效；拟新建的标签默认不勾选。",
+    "loading": "正在读取最近几轮…",
+    "newTags": "拟新建标签",
+    "name": "标签名称",
+    "color": "标签颜色",
+    "scope": "标签作用域",
+    "global": "全局",
+    "folder": "当前文件夹族",
+    "empty": "当前会话没有建议标签。",
+    "retry": "重试",
+    "cancel": "取消",
+    "apply": "应用所选标签",
+    "applying": "正在应用…",
+    "action": "AI 建议标签",
+    "refreshTitle": "AI 刷新标题",
+    "titleSkipped": "标题未变：手动锁定、标题来源或模型未产生新标题。",
+    "unavailable": "请先在设置中配置 AI 助手。",
+    "failed": "AI 助手操作失败",
+    "refreshDone": "标题已更新"
+  },
+  "PromptStash": {
+    "action": "收藏或恢复输入框",
+    "title": "输入框收藏",
+    "loading": "正在加载…",
+    "empty": "还没有收藏。在输入框写好内容后点击收藏。",
+    "saved": "已收藏输入框",
+    "failed": "收藏输入框失败",
+    "inputChanged": "输入框已有新内容，未覆盖。",
+    "attachmentOnly": "附件",
+    "attachments": "{count} 个附件",
+    "retry": "重试"
   }
 }

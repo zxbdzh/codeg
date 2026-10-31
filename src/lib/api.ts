@@ -6658,3 +6658,19 @@ export async function generateConversationTitle(
 export async function testAiAssistantConnection(): Promise<void> {
   return getTransport().call("test_ai_assistant_connection")
 }
+
+export async function savePromptStash(
+  snapshot: import("./types").PromptStashSnapshot
+): Promise<{ entry: import("./types").PromptStashEntry; created: boolean }> {
+  return getTransport().call("save_prompt_stash", { snapshot })
+}
+export async function listPromptStash(): Promise<
+  import("./types").PromptStashEntry[]
+> {
+  return getTransport().call("list_prompt_stash")
+}
+export async function restorePromptStash(
+  id: number
+): Promise<import("./types").PromptStashSnapshot> {
+  return getTransport().call("restore_prompt_stash", { id })
+}

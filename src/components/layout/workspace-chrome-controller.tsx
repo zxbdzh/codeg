@@ -42,6 +42,10 @@ import { SearchCommandDialog } from "@/components/conversations/search-command-d
 import { useVisibleConversationTabs } from "@/stores/tab-store"
 import { WorkspaceFolderDialog } from "@/components/layout/workspace-folder-dialog"
 import { AiAssistantNotifications } from "@/components/layout/ai-assistant-notifications"
+import {
+  AiTagSuggestionsHost,
+  openAiTagSuggestions,
+} from "@/components/conversations/ai-conversation-actions"
 
 /**
  * Headless owner of the workspace's global keyboard shortcuts and the two
@@ -210,6 +214,23 @@ export function WorkspaceChromeController() {
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      if (
+        !e.isComposing &&
+        !e.repeat &&
+        matchShortcutEvent(e, shortcuts.ai_suggest_tags)
+      ) {
+        if (document.querySelector('[role="dialog"], [role="alertdialog"]'))
+          return
+        const target = tabs.find((tab) => tab.id === activeTabId)
+        if (target?.conversationId != null) {
+          e.preventDefault()
+          openAiTagSuggestions({
+            conversationId: target.conversationId,
+            folderId: target.folderId,
+          })
+        }
+        return
+      }
       if (matchShortcutEvent(e, shortcuts.toggle_search)) {
         e.preventDefault()
         setSearchOpen((prev) => !prev)
@@ -424,6 +445,7 @@ export function WorkspaceChromeController() {
   return (
     <>
       <AiAssistantNotifications />
+      <AiTagSuggestionsHost />
       <SearchCommandDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <WorkspaceFolderDialog open={browserOpen} onOpenChange={setBrowserOpen} />
     </>

@@ -546,6 +546,14 @@
         "title": "메시지 줄바꿈",
         "description": "입력창에 줄바꿈을 삽입"
       },
+      "ai_suggest_tags": {
+        "title": "Suggest tags with AI",
+        "description": "Read recent rounds and open the tag confirmation dialog"
+      },
+      "prompt_stash": {
+        "title": "Collect or restore prompt",
+        "description": "Collect nonempty input, or restore a template into empty input"
+      },
       "toggle_custom_style": {
         "title": "사용자 지정 스타일 중지/재개",
         "description": "비상 탈출구: 모든 사용자 지정 색상과 CSS를 끄고, 다시 누르면 되돌립니다"
@@ -7707,5 +7715,39 @@
     "errorMalformed": "모델의 응답을 이해할 수 없습니다",
     "conversationNotFound": "해당 대화가 더 이상 존재하지 않습니다",
     "emptyConversation": "해당 대화에 쓸 내용이 없습니다"
+  },
+  "AiTagging": {
+    "title": "AI tag suggestions",
+    "description": "Nothing changes until you confirm. New tags start unchecked.",
+    "loading": "Reading recent rounds…",
+    "newTags": "Proposed new tags",
+    "name": "Tag name",
+    "color": "Tag color",
+    "scope": "Tag scope",
+    "global": "Global",
+    "folder": "This folder family",
+    "empty": "No suggestions for this conversation.",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "apply": "Apply selected tags",
+    "applying": "Applying…",
+    "action": "Suggest tags with AI",
+    "refreshTitle": "Refresh title with AI",
+    "titleSkipped": "Title unchanged: manual lock, title source or no new title.",
+    "unavailable": "Configure the AI assistant in Settings first.",
+    "failed": "AI assistant failed",
+    "refreshDone": "Title updated"
+  },
+  "PromptStash": {
+    "action": "Collect or restore prompt",
+    "title": "Prompt collection",
+    "loading": "Loading…",
+    "empty": "No collected prompts yet. Write a prompt and collect it first.",
+    "saved": "Prompt collected",
+    "failed": "Could not collect prompt",
+    "inputChanged": "Input changed; nothing was overwritten.",
+    "attachmentOnly": "Attachments",
+    "attachments": "{count} attachments",
+    "retry": "Retry"
   }
 }

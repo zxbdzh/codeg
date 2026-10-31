@@ -546,6 +546,14 @@
         "title": "メッセージ内で改行",
         "description": "入力欄で改行を挿入する"
       },
+      "ai_suggest_tags": {
+        "title": "Suggest tags with AI",
+        "description": "Read recent rounds and open the tag confirmation dialog"
+      },
+      "prompt_stash": {
+        "title": "Collect or restore prompt",
+        "description": "Collect nonempty input, or restore a template into empty input"
+      },
       "toggle_custom_style": {
         "title": "カスタムスタイルの停止/再開",
         "description": "緊急脱出用: カスタム配色と CSS をすべてオフにし、再度押すと元に戻します"
@@ -7707,5 +7715,39 @@
     "errorMalformed": "モデルの応答を解釈できませんでした",
     "conversationNotFound": "その会話はもう存在しません",
     "emptyConversation": "その会話には使える内容がありません"
+  },
+  "AiTagging": {
+    "title": "AI tag suggestions",
+    "description": "Nothing changes until you confirm. New tags start unchecked.",
+    "loading": "Reading recent rounds…",
+    "newTags": "Proposed new tags",
+    "name": "Tag name",
+    "color": "Tag color",
+    "scope": "Tag scope",
+    "global": "Global",
+    "folder": "This folder family",
+    "empty": "No suggestions for this conversation.",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "apply": "Apply selected tags",
+    "applying": "Applying…",
+    "action": "Suggest tags with AI",
+    "refreshTitle": "Refresh title with AI",
+    "titleSkipped": "Title unchanged: manual lock, title source or no new title.",
+    "unavailable": "Configure the AI assistant in Settings first.",
+    "failed": "AI assistant failed",
+    "refreshDone": "Title updated"
+  },
+  "PromptStash": {
+    "action": "Collect or restore prompt",
+    "title": "Prompt collection",
+    "loading": "Loading…",
+    "empty": "No collected prompts yet. Write a prompt and collect it first.",
+    "saved": "Prompt collected",
+    "failed": "Could not collect prompt",
+    "inputChanged": "Input changed; nothing was overwritten.",
+    "attachmentOnly": "Attachments",
+    "attachments": "{count} attachments",
+    "retry": "Retry"
   }
 }

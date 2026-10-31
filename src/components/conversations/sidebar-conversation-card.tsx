@@ -68,6 +68,7 @@ import { ConversationStatusDot } from "./conversation-status-dot"
 import { SessionDetailsDialog } from "./session-details-dialog"
 import { SidebarConversationHoverDetails } from "./sidebar-conversation-hover-details"
 import { ConversationTagChips } from "./conversation-tag-chip"
+import { AiConversationMenuItems } from "./ai-conversation-actions"
 import {
   ConversationTagContextSubmenu,
   NewConversationTagDialog,
@@ -723,6 +724,13 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
               {t("attachToCurrentSession")}
             </ContextMenuItem>
             <ContextMenuSeparator />
+            {!isSubsession && (
+              <AiConversationMenuItems
+                context
+                conversationId={conversation.id}
+                folderId={conversation.folder_id}
+              />
+            )}
             {/* Sub-sessions opt out like they do of pinning: a sub-agent run
                 is not a conversation the user files away, and the sidebar
                 filter only ever matches root rows. */}

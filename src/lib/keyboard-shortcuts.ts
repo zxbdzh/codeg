@@ -25,6 +25,8 @@ export type ShortcutActionId =
   | "send_message"
   | "newline_in_message"
   | "toggle_custom_style"
+  | "ai_suggest_tags"
+  | "prompt_stash"
   | "zoom_in"
   | "zoom_out"
   | "zoom_reset"
@@ -94,6 +96,8 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
   {
     id: "toggle_custom_style",
   },
+  { id: "ai_suggest_tags" },
+  { id: "prompt_stash" },
   {
     id: "zoom_in",
   },
@@ -161,6 +165,8 @@ export const DEFAULT_SHORTCUTS: ShortcutSettings = {
   // 自定义样式的逃生舱：用户把界面改到不可用时，这一路必须仍然按得动，所以选一个
   // 三修饰键组合（不会与任何常用操作撞车），并在捕获阶段监听。
   toggle_custom_style: "mod+alt+shift+s",
+  ai_suggest_tags: "mod+shift+a",
+  prompt_stash: "mod+shift+s",
   // Same rungs as Settings → Window zoom. `=` is what US keyboards fire for
   // Ctrl/+ without Shift; `+` is Shift+= and the numpad.
   zoom_in: "mod+=",

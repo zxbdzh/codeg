@@ -63,6 +63,7 @@ import {
 } from "./active-session-details"
 import { SessionDetailsDialog } from "./session-details-dialog"
 import { ConversationHeaderTags } from "./conversation-tag-picker"
+import { AiTagButton, AiConversationMenuItems } from "./ai-conversation-actions"
 import { useIsMobile } from "@/hooks/use-mobile"
 
 interface ConversationDetailHeaderProps {
@@ -298,6 +299,9 @@ export const ConversationDetailHeader = memo(function ConversationDetailHeader({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center">
+        {taggable && conversationId != null && (
+          <AiTagButton conversationId={conversationId} folderId={folderId} />
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -310,6 +314,12 @@ export const ConversationDetailHeader = memo(function ConversationDetailHeader({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {persisted && conversationId != null && (
+              <AiConversationMenuItems
+                conversationId={conversationId}
+                folderId={folderId}
+              />
+            )}
             <DropdownMenuItem
               disabled={!folderPath}
               onSelect={handleNewConversation}
