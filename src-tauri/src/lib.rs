@@ -1878,6 +1878,7 @@ mod tauri_app {
                 crate::commands::prompt_stash::save_prompt_stash,
                 crate::commands::prompt_stash::list_prompt_stash,
                 crate::commands::prompt_stash::restore_prompt_stash,
+                crate::commands::prompt_stash::remove_prompt_stash,
                 conversation_tags::list_conversation_tags,
                 conversation_tags::create_conversation_tag,
                 conversation_tags::update_conversation_tag,

@@ -6674,3 +6674,7 @@ export async function restorePromptStash(
 ): Promise<import("./types").PromptStashSnapshot> {
   return getTransport().call("restore_prompt_stash", { id })
 }
+/** 取用一条收藏后调用：删除收藏及其附件副本，让列表里不再保留。 */
+export async function removePromptStash(id: number): Promise<void> {
+  return getTransport().call("remove_prompt_stash", { id })
+}

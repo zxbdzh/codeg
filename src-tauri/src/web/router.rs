@@ -409,6 +409,7 @@ pub fn build_router_with_proxy_auth(
         .route("/save_prompt_stash", post(handlers::ai_assistant::save_prompt_stash).layer(axum::extract::DefaultBodyLimit::max(crate::commands::prompt_stash::STASH_BODY_LIMIT_BYTES)))
         .route("/list_prompt_stash", post(handlers::ai_assistant::list_prompt_stash))
         .route("/restore_prompt_stash", post(handlers::ai_assistant::restore_prompt_stash))
+        .route("/remove_prompt_stash", post(handlers::ai_assistant::remove_prompt_stash))
         .route(
             "/list_conversation_tags",
             post(handlers::conversation_tags::list_conversation_tags),

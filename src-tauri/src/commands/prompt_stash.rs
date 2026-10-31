@@ -332,9 +332,38 @@ pub async fn save_core(
 fn root_parent(dir: &Path) -> &Path {
     dir.parent().expect("bucket always has parent")
 }
+fn file_uri(path: &Path) -> Result<String, AppCommandError> {
+    let canonical = std::fs::canonicalize(path).map_err(AppCommandError::io)?;
+    url::Url::from_file_path(crate::paths::simplify_verbatim_path(&canonical))
+        .map(|url| url.to_string())
+        .map_err(|_| invalid("Invalid collection path"))
+}
+/// 按“旧地址→新地址”精确替换文档里的附件地址。精确匹配而非前缀拼接，
+/// 因为收藏目录与恢复目录的规范路径形态可能不同（Windows 的 `\\?\` 前缀）。
+fn replace_asset_uris(value: &mut Value, pairs: &[(String, String)]) {
+    match value {
+        Value::Object(map) => {
+            for child in map.values_mut() {
+                replace_asset_uris(child, pairs);
+            }
+        }
+        Value::Array(items) => {
+            for child in items {
+                replace_asset_uris(child, pairs);
+            }
+        }
+        Value::String(text) => {
+            if let Some((_, replacement)) = pairs.iter().find(|(old, _)| old == text) {
+                *text = replacement.clone();
+            }
+        }
+        _ => {}
+    }
+}
 pub async fn restore_core(
     db: &AppDatabase,
     root: &Path,
+    uploads_root: &Path,
     id: i32,
 ) -> Result<StashSnapshot, AppCommandError> {
     let _guard = STASH_LOCK.lock().await;
@@ -342,11 +371,35 @@ pub async fn restore_core(
         .await?
         .ok_or_else(|| AppCommandError::not_found("Collection no longer exists"))?;
     let dir = bucket(root, &row.fingerprint)?;
+    let asset_count = serde_json::from_str::<Vec<Value>>(&row.attachments_json)
+        .map(|manifest| manifest.len())
+        .unwrap_or(0);
+    let uploads_root = uploads_root.to_owned();
     let snapshot =
         tokio::task::spawn_blocking(move || -> Result<StashSnapshot, AppCommandError> {
             let mut value: Value =
                 serde_json::from_str(&row.doc_json).map_err(|e| invalid(&e.to_string()))?;
             hydrate(&mut value, &dir)?;
+            // 把附件**复制**到上传 jail 的独立目录并改写地址：恢复后前端持有
+            // 的 uri 必须长期有效（发送时按 uri 再内联）。这里不移动源文件，
+            // 所以“输入框非空、放弃恢复”之后仍可原样再取一次。
+            if asset_count > 0 && dir.is_dir() {
+                let target = uploads_root
+                    .join(RESTORED_DIR_NAME)
+                    .join(uuid::Uuid::new_v4().to_string());
+                std::fs::create_dir_all(&target).map_err(AppCommandError::io)?;
+                let mut pairs = Vec::new();
+                for index in 0..asset_count {
+                    let source = dir.join(index.to_string());
+                    if !source.is_file() {
+                        continue;
+                    }
+                    let destination = target.join(index.to_string());
+                    std::fs::copy(&source, &destination).map_err(AppCommandError::io)?;
+                    pairs.push((file_uri(&source)?, file_uri(&destination)?));
+                }
+                replace_asset_uris(&mut value, &pairs);
+            }
             serde_json::from_value(value).map_err(|e| invalid(&e.to_string()))
         })
         .await
@@ -354,10 +407,31 @@ pub async fn restore_core(
     service::touch(&db.conn, id).await?;
     Ok(snapshot)
 }
-// 放在已有上传 jail 内，恢复的图片才能继续走服务器发送时的安全再内联链路。
+/// 删除一条收藏及其附件目录。恢复成功后前端会调用它，实现“取走即消失”。
+pub async fn remove_core(
+    db: &AppDatabase,
+    root: &Path,
+    id: i32,
+) -> Result<(), AppCommandError> {
+    let _guard = STASH_LOCK.lock().await;
+    let Some(row) = service::remove(&db.conn, id).await? else {
+        return Ok(());
+    };
+    if let Ok(dir) = bucket(root, &row.fingerprint) {
+        if dir.is_dir() {
+            if let Err(error) = std::fs::remove_dir_all(&dir) {
+                tracing::warn!(%error, "could not remove collection assets");
+            }
+        }
+    }
+    Ok(())
+}
+// 放在上传目录下的独立位置：恢复后的附件必须能被服务器发送链路再次内联。
 pub fn stash_root() -> PathBuf {
     crate::paths::codeg_home_dir().join("prompt-stash")
 }
+/// 恢复出来的附件副本目录名（在 `codeg_uploads_root()` 下）。
+pub const RESTORED_DIR_NAME: &str = "prompt-stash-restored";
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
@@ -380,7 +454,21 @@ pub async fn restore_prompt_stash(
     db: tauri::State<'_, AppDatabase>,
     id: i32,
 ) -> Result<StashSnapshot, AppCommandError> {
-    restore_core(&db, &stash_root(), id).await
+    restore_core(
+        &db,
+        &stash_root(),
+        &crate::paths::codeg_uploads_root(),
+        id,
+    )
+    .await
+}
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn remove_prompt_stash(
+    db: tauri::State<'_, AppDatabase>,
+    id: i32,
+) -> Result<(), AppCommandError> {
+    remove_core(&db, &stash_root(), id).await
 }
 
 #[cfg(test)]
@@ -388,9 +476,10 @@ mod tests {
     use super::*;
     use crate::db::test_helpers::fresh_in_memory_db;
     #[tokio::test]
-    async fn image_bytes_survive_capture_and_restore_without_deleting_the_template() {
+    async fn restoring_hands_out_durable_attachment_copies_and_removal_clears_the_template() {
         let db = fresh_in_memory_db().await;
-        let temp = tempfile::tempdir().unwrap();
+        let stash = tempfile::tempdir().unwrap();
+        let uploads = tempfile::tempdir().unwrap();
         let snapshot = StashSnapshot {
             text: "模板".into(),
             doc: json!({"type":"doc","content":[]}),
@@ -399,16 +488,29 @@ mod tests {
             ],
             embedded_payloads: Default::default(),
         };
-        let saved = save_core(&db, temp.path(), snapshot.clone(), true).await.unwrap();
+        let saved = save_core(&db, stash.path(), snapshot.clone(), true)
+            .await
+            .unwrap();
         assert!(saved.created);
-        let restored = restore_core(&db, temp.path(), saved.entry.id)
+
+        let restored = restore_core(&db, stash.path(), uploads.path(), saved.entry.id)
             .await
             .unwrap();
         assert_eq!(restored.attachments[0]["data"], "aGVsbG8=");
         assert_eq!(restored.text, "模板");
+        // 恢复后 uri 必须指向上传目录里的副本，删除收藏目录也不影响它。
+        let uri = restored.attachments[0]["uri"].as_str().unwrap();
+        assert!(
+            uri.contains(RESTORED_DIR_NAME),
+            "restored uri should live under the uploads jail: {uri}"
+        );
+        // 恢复本身不删除：放弃恢复时模板还在，可以再取一次。
         assert_eq!(list_core(&db).await.unwrap().len(), 1);
-        let duplicate = save_core(&db, temp.path(), snapshot, true).await.unwrap();
-        assert!(!duplicate.created);
-        assert_eq!(duplicate.entry.id, saved.entry.id);
+
+        remove_core(&db, stash.path(), saved.entry.id).await.unwrap();
+        assert!(list_core(&db).await.unwrap().is_empty());
+        // 取走后再收藏同样内容是一条新收藏。
+        let again = save_core(&db, stash.path(), snapshot, true).await.unwrap();
+        assert!(again.created);
     }
 }

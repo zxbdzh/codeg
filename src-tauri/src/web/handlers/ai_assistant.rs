@@ -116,7 +116,11 @@ pub async fn list_prompt_stash(Extension(state): Extension<Arc<AppState>>) -> Re
     Ok(Json(crate::commands::prompt_stash::list_core(&state.db).await?))
 }
 pub async fn restore_prompt_stash(Extension(state): Extension<Arc<AppState>>, Json(params): Json<RestoreStashParams>) -> Result<Json<crate::commands::prompt_stash::StashSnapshot>, AppCommandError> {
-    Ok(Json(crate::commands::prompt_stash::restore_core(&state.db, &crate::commands::prompt_stash::stash_root(), params.id).await?))
+    Ok(Json(crate::commands::prompt_stash::restore_core(&state.db, &crate::commands::prompt_stash::stash_root(), &crate::paths::codeg_uploads_root(), params.id).await?))
+}
+pub async fn remove_prompt_stash(Extension(state): Extension<Arc<AppState>>, Json(params): Json<RestoreStashParams>) -> Result<Json<()>, AppCommandError> {
+    crate::commands::prompt_stash::remove_core(&state.db, &crate::commands::prompt_stash::stash_root(), params.id).await?;
+    Ok(Json(()))
 }
 
 pub async fn test_ai_assistant_connection(

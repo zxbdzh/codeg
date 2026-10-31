@@ -7748,6 +7748,12 @@
     "inputChanged": "Input changed; nothing was overwritten.",
     "attachmentOnly": "Attachments",
     "attachments": "{count} attachments",
-    "retry": "Retry"
+    "retry": "Retry",
+    "delete": "Delete",
+    "deleteTitle": "Delete this collected prompt?",
+    "deleteConfirm": "Delete",
+    "cancel": "Cancel",
+    "deleted": "Collected prompt deleted",
+    "deleteFailed": "Could not delete collected prompt"
   }
 }

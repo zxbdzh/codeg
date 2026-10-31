@@ -7748,6 +7748,12 @@
     "inputChanged": "输入框已有新内容，未覆盖。",
     "attachmentOnly": "附件",
     "attachments": "{count} 个附件",
-    "retry": "重试"
+    "retry": "重试",
+    "delete": "删除",
+    "deleteTitle": "删除这条收藏？",
+    "deleteConfirm": "删除",
+    "cancel": "取消",
+    "deleted": "已删除收藏",
+    "deleteFailed": "删除收藏失败"
   }
 }
