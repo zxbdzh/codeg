@@ -195,12 +195,11 @@ pub async fn availability(
     Ok(AiAvailability::Ready)
 }
 
-/// 只有已配好生成能力时才接管；未配置的新安装继续使用同伴的标题，避免
-/// 默认值 Codeg 让升级后的用户突然失去所有自动命名。
+/// 标题来源是 Codeg 就接管同伴标题发布链路；是否已配置模型只决定
+/// Codeg 自己能否生成新标题，不应重新授予同伴写权限。
 pub async fn codeg_owns_titles(conn: &DatabaseConnection) -> Result<bool, DbError> {
-    let settings = load(conn).await?;
-    Ok(settings.title_source == TitleSource::Codeg
-        && availability(conn, &settings).await?.is_ready())
+    let raw = app_metadata_service::get_value(conn, AI_ASSISTANT_SETTINGS_KEY).await?;
+    Ok(raw.is_some_and(|raw| parse_settings(Some(&raw)).title_source == TitleSource::Codeg))
 }
 
 #[cfg(test)]

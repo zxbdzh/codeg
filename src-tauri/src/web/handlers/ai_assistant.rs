@@ -110,7 +110,7 @@ pub struct SaveStashParams { pub snapshot: crate::commands::prompt_stash::StashS
 #[derive(Deserialize)]
 pub struct RestoreStashParams { pub id: i32 }
 pub async fn save_prompt_stash(Extension(state): Extension<Arc<AppState>>, Json(params): Json<SaveStashParams>) -> Result<Json<crate::commands::prompt_stash::SavedStash>, AppCommandError> {
-    Ok(Json(crate::commands::prompt_stash::save_core(&state.db, &crate::commands::prompt_stash::stash_root(), params.snapshot).await?))
+    Ok(Json(crate::commands::prompt_stash::save_core(&state.db, &crate::commands::prompt_stash::stash_root(), params.snapshot, false).await?))
 }
 pub async fn list_prompt_stash(Extension(state): Extension<Arc<AppState>>) -> Result<Json<Vec<crate::commands::prompt_stash::StashEntry>>, AppCommandError> {
     Ok(Json(crate::commands::prompt_stash::list_core(&state.db).await?))

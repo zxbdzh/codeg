@@ -40,7 +40,10 @@ const spies = vi.hoisted(() => ({
   subscribe: vi.fn(),
 }))
 
-vi.mock("@/lib/api", () => ({ openSettingsWindow: vi.fn() }))
+vi.mock("@/lib/api", () => ({
+  openSettingsWindow: vi.fn(),
+  getAiAssistantAvailability: vi.fn(async () => "no_provider"),
+}))
 vi.mock("@/contexts/active-folder-context", () => ({
   useActiveFolder: () => ({ activeFolder: { id: 1, path: "/repo" } }),
 }))

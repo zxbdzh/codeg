@@ -64,10 +64,8 @@ const CONTEXT_TURNS_MAX = 50
 const INTERVAL_MIN = 5
 const INTERVAL_MAX = 3600
 
-/** 协议可选项。`gemini` 是后端既有 enum，但 Gemini 端不实现生成类请求
- *  （后端 `availability` 会把它判为 `unsupported_protocol`），所以这里连
- *  可选项都不给它——选了一条 gemini 提供方就是"不可用"，而不是"能配"。
- *  只列两种也正好说明这两个字段是设置页自己保存的，不是从 provider 读的。 */
+/** 仅保留后端已实现的两种生成协议。协议和密钥头是兼容性设置，
+ * 用于复用已有提供方的端点，不新增密钥存储。 */
 const PROTOCOL_OPTIONS: AiAssistantProtocol[] = ["openai", "anthropic"]
 
 /** 密钥头的显示名，与后端 `KeyHeader` 的序列化值一致。 */

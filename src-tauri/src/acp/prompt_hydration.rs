@@ -89,9 +89,22 @@ pub async fn hydrate_prompt_blocks(
     blocks: &mut [PromptInputBlock],
     uploads_root: &Path,
 ) -> Result<(), AcpError> {
+    hydrate_prompt_blocks_from_roots(blocks, vec![uploads_root.to_path_buf()]).await
+}
+
+pub async fn hydrate_prompt_blocks_from_roots(
+    blocks: &mut [PromptInputBlock],
+    allowed_roots: Vec<std::path::PathBuf>,
+) -> Result<(), AcpError> {
     // Pass 1: resolve each marker to a validated canonical path.
     let mut resolved: Vec<(usize, std::path::PathBuf)> = Vec::new();
-    let mut canonical_root: Option<std::path::PathBuf> = None;
+    let canonical_roots: Vec<std::path::PathBuf> = futures_util::future::join_all(
+        allowed_roots.iter().map(tokio::fs::canonicalize),
+    )
+    .await
+    .into_iter()
+    .filter_map(Result::ok)
+    .collect();
     let mut total_bytes: u64 = 0;
     for (idx, block) in blocks.iter().enumerate() {
         let uri = match block {
@@ -114,29 +127,17 @@ pub async fn hydrate_prompt_blocks(
             continue;
         };
 
-        // Canonicalize the root once, lazily — only prompts that actually
-        // carry markers pay for it. A missing root means the referenced
-        // upload cannot exist either.
-        if canonical_root.is_none() {
-            canonical_root = Some(tokio::fs::canonicalize(uploads_root).await.map_err(|e| {
-                AcpError::protocol(format!(
-                    "image attachment unavailable: uploads directory not accessible ({e})"
-                ))
-            })?);
-        }
-        let root = canonical_root.as_ref().expect("set above");
-
         // Canonicalize the target so symlinks / `..` segments can't sneak a
-        // read outside the jail.
+        // read outside one of Codeg's own attachment roots.
         let canonical = tokio::fs::canonicalize(&path).await.map_err(|e| {
             AcpError::protocol(format!(
                 "image attachment unavailable: {} ({e})",
                 path.display()
             ))
         })?;
-        if !canonical.starts_with(root) {
+        if !canonical_roots.iter().any(|root| canonical.starts_with(root)) {
             return Err(AcpError::protocol(format!(
-                "image attachment unavailable: {} is outside the uploads directory",
+                "image attachment unavailable: {} is outside Codeg attachment directories",
                 canonical.display()
             )));
         }

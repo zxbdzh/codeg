@@ -406,7 +406,7 @@ pub fn build_router_with_proxy_auth(
             post(handlers::ai_assistant::test_ai_assistant_connection),
         )
         // 收藏请求可含 10MB 附件的 base64；仅此端点放宽默认 2MB 限制。
-        .route("/save_prompt_stash", post(handlers::ai_assistant::save_prompt_stash).layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)))
+        .route("/save_prompt_stash", post(handlers::ai_assistant::save_prompt_stash).layer(axum::extract::DefaultBodyLimit::max(crate::commands::prompt_stash::STASH_BODY_LIMIT_BYTES)))
         .route("/list_prompt_stash", post(handlers::ai_assistant::list_prompt_stash))
         .route("/restore_prompt_stash", post(handlers::ai_assistant::restore_prompt_stash))
         .route(

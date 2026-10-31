@@ -36,9 +36,10 @@ pub struct SavedStash {
 
 // 文件复制、DB 写入和淘汰共用一把异步锁；避免并发去重把另一请求的副本删掉。
 static STASH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-const MAX_JSON_BYTES: usize = 16 * 1024 * 1024;
+pub const STASH_BODY_LIMIT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_JSON_BYTES: usize = STASH_BODY_LIMIT_BYTES;
 
-fn entry(row: &crate::db::entities::prompt_stash::Model) -> StashEntry {
+fn to_stash_entry(row: &crate::db::entities::prompt_stash::Model) -> StashEntry {
     StashEntry {
         id: row.id,
         preview: row.preview.clone(),
@@ -49,7 +50,7 @@ fn entry(row: &crate::db::entities::prompt_stash::Model) -> StashEntry {
     }
 }
 pub async fn list_core(db: &AppDatabase) -> Result<Vec<StashEntry>, AppCommandError> {
-    Ok(service::list(&db.conn).await?.iter().map(entry).collect())
+    Ok(service::list(&db.conn).await?.iter().map(to_stash_entry).collect())
 }
 struct Asset {
     bytes: Vec<u8>,
@@ -58,12 +59,19 @@ struct Asset {
 fn invalid(message: &str) -> AppCommandError {
     AppCommandError::invalid_input(message)
 }
-fn read_asset(uri: &str) -> Result<Vec<u8>, AppCommandError> {
+fn read_asset(uri: &str, uploads_root: &Path, allow_local_paths: bool) -> Result<Vec<u8>, AppCommandError> {
     use std::io::Read;
     let url = url::Url::parse(uri).map_err(|_| invalid("Invalid attachment URI"))?;
     let path = url
         .to_file_path()
         .map_err(|_| invalid("Only local file attachments can be copied"))?;
+    if !allow_local_paths {
+        let canonical = std::fs::canonicalize(&path).map_err(AppCommandError::io)?;
+        let uploads = std::fs::canonicalize(uploads_root).map_err(AppCommandError::io)?;
+        if !canonical.starts_with(&uploads) {
+            return Err(invalid("Only uploaded attachments can be collected"));
+        }
+    }
     let file = std::fs::File::open(path).map_err(AppCommandError::io)?;
     if !file.metadata().map_err(AppCommandError::io)?.is_file() {
         return Err(invalid("Only regular files can be collected"));
@@ -78,6 +86,8 @@ fn collect(
     value: &mut Value,
     assets: &mut Vec<Asset>,
     total: &mut usize,
+    uploads_root: &Path,
+    allow_local_paths: bool,
 ) -> Result<(), AppCommandError> {
     if let Some(object) = value.as_object_mut() {
         if object.contains_key("stashAsset") || object.contains_key("stashPayload") {
@@ -121,7 +131,9 @@ fn collect(
                 raw.as_bytes().to_vec()
             })
         } else {
-            uri.as_deref().map(read_asset).transpose()?
+            uri.as_deref()
+                .map(|uri| read_asset(uri, uploads_root, allow_local_paths))
+                .transpose()?
         };
         if let Some(bytes) = bytes {
             *total += bytes.len();
@@ -145,12 +157,12 @@ fn collect(
         }
         for (key, child) in object.iter_mut() {
             if key != "stashPayload" {
-                collect(child, assets, total)?;
+                collect(child, assets, total, uploads_root, allow_local_paths)?;
             }
         }
     } else if let Some(array) = value.as_array_mut() {
         for child in array {
-            collect(child, assets, total)?;
+            collect(child, assets, total, uploads_root, allow_local_paths)?;
         }
     }
     Ok(())
@@ -218,9 +230,11 @@ pub async fn save_core(
     db: &AppDatabase,
     root: &Path,
     snapshot: StashSnapshot,
+    allow_local_paths: bool,
 ) -> Result<SavedStash, AppCommandError> {
     let _guard = STASH_LOCK.lock().await;
     let root = root.to_owned();
+    let uploads_root = crate::paths::codeg_uploads_root();
     let (snapshot, manifest, total, dir, preexisting) =
         tokio::task::spawn_blocking(move || -> Result<_, AppCommandError> {
             let mut value = serde_json::to_value(snapshot).map_err(|e| invalid(&e.to_string()))?;
@@ -229,7 +243,13 @@ pub async fn save_core(
             }
             let mut assets = Vec::new();
             let mut total = 0;
-            collect(&mut value, &mut assets, &mut total)?;
+            collect(
+                &mut value,
+                &mut assets,
+                &mut total,
+                &uploads_root,
+                allow_local_paths,
+            )?;
             let manifest: Vec<_> = assets
                 .iter()
                 .map(|a| json!({"sha256":format!("{:x}", Sha256::digest(&a.bytes))}))
@@ -297,7 +317,7 @@ pub async fn save_core(
                 }
             }
             Ok(SavedStash {
-                entry: entry(&outcome.entry),
+                entry: to_stash_entry(&outcome.entry),
                 created: outcome.created,
             })
         }
@@ -336,7 +356,7 @@ pub async fn restore_core(
 }
 // 放在已有上传 jail 内，恢复的图片才能继续走服务器发送时的安全再内联链路。
 pub fn stash_root() -> PathBuf {
-    crate::paths::codeg_uploads_root().join("prompt-stash")
+    crate::paths::codeg_home_dir().join("prompt-stash")
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -345,7 +365,7 @@ pub async fn save_prompt_stash(
     db: tauri::State<'_, AppDatabase>,
     snapshot: StashSnapshot,
 ) -> Result<SavedStash, AppCommandError> {
-    save_core(&db, &stash_root(), snapshot).await
+    save_core(&db, &stash_root(), snapshot, true).await
 }
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
@@ -379,7 +399,7 @@ mod tests {
             ],
             embedded_payloads: Default::default(),
         };
-        let saved = save_core(&db, temp.path(), snapshot.clone()).await.unwrap();
+        let saved = save_core(&db, temp.path(), snapshot.clone(), true).await.unwrap();
         assert!(saved.created);
         let restored = restore_core(&db, temp.path(), saved.entry.id)
             .await
@@ -387,7 +407,7 @@ mod tests {
         assert_eq!(restored.attachments[0]["data"], "aGVsbG8=");
         assert_eq!(restored.text, "模板");
         assert_eq!(list_core(&db).await.unwrap().len(), 1);
-        let duplicate = save_core(&db, temp.path(), snapshot).await.unwrap();
+        let duplicate = save_core(&db, temp.path(), snapshot, true).await.unwrap();
         assert!(!duplicate.created);
         assert_eq!(duplicate.entry.id, saved.entry.id);
     }

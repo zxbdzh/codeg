@@ -1449,10 +1449,14 @@ impl ConnectionManager {
         // before the `user_blocks_from_prompt` projection below, so a failure
         // aborts cleanly and the viewer broadcast, the sender echo, and the
         // agent all see the full bytes.
-        crate::acp::prompt_hydration::hydrate_prompt_blocks(
-            &mut blocks,
-            &crate::paths::codeg_uploads_root(),
-        )
+        {
+            let uploads_root = crate::paths::codeg_uploads_root();
+            let stash_root = crate::commands::prompt_stash::stash_root();
+            crate::acp::prompt_hydration::hydrate_prompt_blocks_from_roots(
+                &mut blocks,
+                vec![uploads_root, stash_root],
+            )
+        }
         .await?;
 
         // CANCELLATION SHIELD around the first link, same shape and for the same
@@ -3527,10 +3531,14 @@ impl ConnectionManager {
         let had_blocks = blocks.is_some();
         let wire_blocks = match blocks {
             Some(mut blocks) => {
-                crate::acp::prompt_hydration::hydrate_prompt_blocks(
-                    &mut blocks,
-                    &crate::paths::codeg_uploads_root(),
-                )
+                {
+                    let uploads_root = crate::paths::codeg_uploads_root();
+                    let stash_root = crate::commands::prompt_stash::stash_root();
+                    crate::acp::prompt_hydration::hydrate_prompt_blocks_from_roots(
+                        &mut blocks,
+                        vec![uploads_root, stash_root],
+                    )
+                }
                 .await?;
                 // Hydration is the ONLY await this path puts between admission
                 // and the enqueue, and it runs for as long as reading the

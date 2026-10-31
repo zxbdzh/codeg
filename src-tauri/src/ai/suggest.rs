@@ -77,9 +77,16 @@ pub fn build_tag_prompt(context: &str, available: &[ConversationTagDetail]) -> S
 
 /// 上下文指纹。内容不变就不必再问一次模型——同一个会话连点两下，第二下应当
 /// 是免费且相同的。
-pub fn context_fingerprint(context: &str) -> String {
+pub fn context_fingerprint(context: &str, available: &[ConversationTagDetail]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(context.as_bytes());
+    hasher.update([0u8]);
+    // 标签池也是模型输出的输入；池子变化时必须重新窄化缓存结果。
+    for tag in available {
+        hasher.update(tag.id.to_le_bytes());
+        hasher.update(tag.name.as_bytes());
+        hasher.update([0u8]);
+    }
     format!("{:x}", hasher.finalize())
 }
 
@@ -232,17 +239,16 @@ pub async fn suggest_tags(
         return Err(AiFlowError::EmptyConversation);
     }
 
-    let fingerprint = context_fingerprint(&context);
-    if let Some(hit) = cache.get(conversation_id, &fingerprint) {
-        return Ok(hit);
-    }
-
     let available =
         conversation_tag_service::available_tags_for_conversation(conn, conversation_id)
             .await
             .map_err(|error| {
                 AiFlowError::Conversation(format!("conversation {conversation_id}: {error}"))
             })?;
+    let fingerprint = context_fingerprint(&context, &available);
+    if let Some(hit) = cache.get(conversation_id, &fingerprint) {
+        return Ok(hit);
+    }
     let input = SuggestionInput { context, available };
 
     let suggestion = request_suggestion(client, &settings, &provider, &input).await?;
@@ -332,9 +338,13 @@ mod tests {
     }
 
     #[test]
-    fn the_fingerprint_tracks_the_text() {
-        assert_eq!(context_fingerprint("abc"), context_fingerprint("abc"));
-        assert_ne!(context_fingerprint("abc"), context_fingerprint("abd"));
+    fn the_fingerprint_tracks_the_text_and_tag_pool() {
+        assert_eq!(context_fingerprint("abc", &[]), context_fingerprint("abc", &[]));
+        assert_ne!(context_fingerprint("abc", &[]), context_fingerprint("abd", &[]));
+        assert_ne!(
+            context_fingerprint("abc", &[tag(1, "bug")]),
+            context_fingerprint("abc", &[tag(2, "bug")])
+        );
     }
 
     #[tokio::test]

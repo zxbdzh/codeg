@@ -45,6 +45,7 @@ import { AiAssistantNotifications } from "@/components/layout/ai-assistant-notif
 import {
   AiTagSuggestionsHost,
   openAiTagSuggestions,
+  useAiAvailability,
 } from "@/components/conversations/ai-conversation-actions"
 
 /**
@@ -81,6 +82,7 @@ export function WorkspaceChromeController() {
   } = useWorkspaceActions()
   const { openConversations } = useWorkbenchRoute()
   const { shortcuts } = useShortcutSettings()
+  const aiTaggingReady = useAiAvailability()
   // Search open-state is shared (see search-dialog-context): the trigger lives
   // in the sidebar, but this always-mounted controller owns the dialog and the
   // ⌘K shortcut so search works even when the sidebar is collapsed.
@@ -217,6 +219,8 @@ export function WorkspaceChromeController() {
       if (
         !e.isComposing &&
         !e.repeat &&
+        aiTaggingReady &&
+        shortcuts.ai_suggest_tags &&
         matchShortcutEvent(e, shortcuts.ai_suggest_tags)
       ) {
         if (document.querySelector('[role="dialog"], [role="alertdialog"]'))
@@ -425,6 +429,7 @@ export function WorkspaceChromeController() {
     openBrowserTab,
     setSearchOpen,
     shortcuts,
+    aiTaggingReady,
     toggle,
     toggleAuxPanel,
     toggleTerminal,
