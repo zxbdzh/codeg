@@ -88,6 +88,16 @@ pub async fn fetch_latest_manifest() -> Result<LatestManifest, AppCommandError> 
     })
 }
 
+/// 本地扩展版只跟随官方源码；安装官方整包会丢失扩展，必须在后端拦截。
+pub fn ensure_official_install_allowed() -> Result<(), AppCommandError> {
+    if env!("CARGO_PKG_VERSION").contains("-local.") {
+        return Err(AppCommandError::invalid_input(
+            "Local extension builds cannot install official packages. Merge upstream/main and rebuild locally.",
+        ));
+    }
+    Ok(())
+}
+
 pub fn trim_v_prefix(v: &str) -> &str {
     v.strip_prefix('v').unwrap_or(v)
 }
@@ -99,6 +109,8 @@ pub fn trim_v_prefix(v: &str) -> &str {
 /// "already latest".
 pub fn is_newer(latest: &str, current: &str) -> bool {
     use semver::Version;
+    // 扩展序号不是官方预发布版本：同一基线的正式版不应触发更新提示。
+    let current = current.split_once("-local.").map_or(current, |(base, _)| base);
     match (
         Version::parse(trim_v_prefix(latest)),
         Version::parse(trim_v_prefix(current)),
@@ -111,6 +123,21 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_extension_tracks_its_official_baseline() {
+        assert!(!is_newer("0.41.3", "0.41.3-local.1"));
+        assert!(is_newer("0.41.4", "0.41.3-local.1"));
+        assert!(!is_newer("0.41.2", "0.41.3-local.1"));
+    }
+
+    #[test]
+    fn installation_policy_matches_the_build_channel() {
+        assert_eq!(
+            ensure_official_install_allowed().is_err(),
+            env!("CARGO_PKG_VERSION").contains("-local.")
+        );
+    }
 
     #[test]
     fn newer_by_semver() {

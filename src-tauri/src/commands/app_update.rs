@@ -41,6 +41,7 @@ pub async fn perform_app_update(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppUpdateStateHandle>,
 ) -> Result<AppUpdateState, AppCommandError> {
+    crate::update::version::ensure_official_install_allowed()?;
     let handle = state.inner().clone();
     let emitter = EventEmitter::Tauri(app.clone());
 

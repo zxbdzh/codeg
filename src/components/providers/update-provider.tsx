@@ -22,6 +22,7 @@ import {
   getCurrentAppVersion,
   getRunningServerVersion,
   getServerUpdateStatus,
+  isLocalExtensionVersion,
   normalizeAppUpdateError,
   readServerVersionStrict,
   restartApp,
@@ -930,9 +931,11 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   // detached live-progress protocol (older ones would block on the legacy
   // endpoint) and reports nothing in the way (an in-place update it already
   // knows would fail), so anything else falls back to a "view release" link.
+  // 保留官方版本提示，但本地扩展版绝不安装官方整包，防止覆盖自用功能。
   const canInstallInPlace =
-    usesTauriUpdater() ||
-    (selfUpdateSupported && liveProgress && !selfUpdateBlocker)
+    !isLocalExtensionVersion(currentVersion) &&
+    (usesTauriUpdater() ||
+      (selfUpdateSupported && liveProgress && !selfUpdateBlocker))
 
   const value = useMemo<UpdateContextValue>(
     () => ({

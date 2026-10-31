@@ -11,6 +11,11 @@ export function usesTauriUpdater(): boolean {
   return isDesktop() && !isRemoteDesktopMode()
 }
 
+/** 本地扩展只能合并源码再打包，不能被官方安装包替换；远端按其自身版本判断。 */
+export function isLocalExtensionVersion(version: string | null): boolean {
+  return version?.includes("-local.") ?? false
+}
+
 // All updater imports are dynamic to avoid crashing in non-Tauri browsers.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Update = any
@@ -333,6 +338,13 @@ export async function checkAppUpdateInfo(): Promise<AppUpdateCheckResult> {
   ])
   if (!update) return { currentVersion, update: null }
   try {
+    // 本地后缀不是落后于同版官方：只提示高于扩展所基于的官方版本。
+    if (
+      isLocalExtensionVersion(currentVersion) &&
+      update.version.replace(/^v/, "") === currentVersion.split("-local.")[0]
+    ) {
+      return { currentVersion, update: null }
+    }
     return {
       currentVersion,
       update: {

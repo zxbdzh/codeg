@@ -126,6 +126,7 @@ async fn perform_impl(state: Arc<AppState>) -> Result<AppUpdateState, AppCommand
     use crate::update::install::UpdatePhase;
     use crate::update::state as update_state;
 
+    crate::update::version::ensure_official_install_allowed()?;
     ensure_supported()?;
 
     // Perform-vs-perform mutual exclusion is the atomic `update_state` claim:

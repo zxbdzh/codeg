@@ -25,6 +25,7 @@ const ReleaseNotes = dynamic(
   { ssr: false }
 )
 
+// Local extension builds keep the official release page as a read-only source.
 const RELEASES_URL = "https://github.com/spacering-net/codeg/releases/latest"
 
 function Spinner({ className }: { className?: string }) {

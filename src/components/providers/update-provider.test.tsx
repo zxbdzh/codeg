@@ -299,6 +299,30 @@ const checkCalls = () =>
   call.mock.calls.filter(([e]) => e === "check_app_update").length
 
 describe("UpdateProvider — availability", () => {
+  it("shows newer official releases for a local extension without enabling install", async () => {
+    checkResult = () => ({
+      currentVersion: "0.41.3-local.1",
+      update: { version: "0.41.4", body: "official notes", date: null },
+      selfUpdateSupported: true,
+      liveProgress: true,
+      runtime: "standalone",
+      rollbackAvailable: false,
+    })
+    render(availabilityTree())
+    await waitFor(() => expect(ctx).not.toBeNull())
+    await act(async () => {
+      await ctx!.checkNow()
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId("available").textContent).toBe("0.41.4")
+    )
+    expect(screen.getByTestId("in-place").textContent).toBe("false")
+    expect(offers[offers.length - 1]).toEqual({
+      version: "0.41.4",
+      inPlace: false,
+    })
+  })
+
   it("restores the last result from storage so a reload isn't briefly blind", async () => {
     // Only the timestamp used to be cached, which made a throttled reload claim
     // "you're up to date" for an update the previous check had already found.

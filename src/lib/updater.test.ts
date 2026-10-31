@@ -31,11 +31,20 @@ import {
   getRunningServerVersion,
   getServerUpdateStatus,
   isOwnServerRestartRunning,
+  isLocalExtensionVersion,
   normalizeAppUpdateError,
   readServerVersionStrict,
   subscribeOwnServerRestart,
   waitForServerHealthy,
 } from "@/lib/updater"
+
+describe("local extension releases", () => {
+  it("recognizes only local extension versions", () => {
+    expect(isLocalExtensionVersion("0.41.3-local.1")).toBe(true)
+    expect(isLocalExtensionVersion("0.41.3")).toBe(false)
+    expect(isLocalExtensionVersion(null)).toBe(false)
+  })
+})
 
 describe("beginOwnServerRestart", () => {
   it("marks the page's own restart until every one of them has ended", () => {
@@ -294,6 +303,30 @@ describe("checkAppUpdateInfo", () => {
     expect(close).toHaveBeenCalledTimes(1)
     // Never reaches the server endpoint in desktop mode.
     expect(call).not.toHaveBeenCalled()
+  })
+
+  it("ignores the official release matching a local extension baseline", async () => {
+    desktop = true
+    tauriGetVersion.mockResolvedValueOnce("0.41.3-local.1")
+    const close = vi.fn(async () => {})
+    tauriCheck.mockResolvedValueOnce({ version: "0.41.3", close })
+
+    await expect(checkAppUpdateInfo()).resolves.toEqual({
+      currentVersion: "0.41.3-local.1",
+      update: null,
+    })
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps newer official release notifications for a local extension", async () => {
+    desktop = true
+    tauriGetVersion.mockResolvedValueOnce("0.41.3-local.1")
+    const close = vi.fn(async () => {})
+    tauriCheck.mockResolvedValueOnce({ version: "0.41.4", close })
+
+    const result = await checkAppUpdateInfo()
+    expect(result.update?.version).toBe("0.41.4")
+    expect(close).toHaveBeenCalledTimes(1)
   })
 
   it("reports no update (and closes nothing) when desktop is up to date", async () => {
