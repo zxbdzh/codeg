@@ -9,7 +9,11 @@ import {
   getAiAssistantAvailability,
   generateConversationTitle,
 } from "@/lib/api"
-import { toErrorMessage } from "@/lib/app-error"
+import {
+  showTitleFailure,
+  titleFailureOf,
+  TitleFailureHost,
+} from "./title-failure-dialog"
 import { ContextMenuItem } from "@/components/ui/context-menu"
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import {
@@ -27,13 +31,19 @@ export function openAiTagSuggestions(target: AiTagTarget) {
 }
 export function AiTagSuggestionsHost() {
   const target = useDialog((s) => s.target)
-  return target ? (
-    <AiTagSuggestionDialog
-      key={target.conversationId}
-      {...target}
-      onClose={() => useDialog.setState({ target: null })}
-    />
-  ) : null
+  return (
+    <>
+      {target ? (
+        <AiTagSuggestionDialog
+          key={target.conversationId}
+          {...target}
+          onClose={() => useDialog.setState({ target: null })}
+        />
+      ) : null}
+      {/* 标题生成失败弹窗也要常驻：失败是异步回来的，而触发它的菜单已卸载。 */}
+      <TitleFailureHost />
+    </>
+  )
 }
 
 // 同一帧挂载的多个入口共用一次状态查询，避免侧栏每张卡都请求后端。
@@ -99,7 +109,9 @@ export function AiConversationMenuItems({
       const title = await generateConversationTitle(conversationId, true)
       toast.info(title ? t("refreshDone") : t("titleSkipped"))
     } catch (err) {
-      toast.error(t("failed"), { description: toErrorMessage(err) })
+      // 失败原因各不相同（超时、401、模型不存在、没有新内容），
+      // 弹窗把它原样摆出来并提供一键复制，方便用户把细节发回来。
+      showTitleFailure(titleFailureOf(err, conversationId))
     } finally {
       setRefreshing(false)
     }

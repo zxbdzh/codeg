@@ -21,6 +21,8 @@ const h = vi.hoisted(() => ({
   openNewConversationTab: vi.fn(),
   updateConversationLocal: vi.fn(),
   refreshConversations: vi.fn(),
+  // 头部菜单里的 AI 入口会问一次可用性；这里给一个确定答案，避免打到真实后端。
+  getAiAssistantAvailability: vi.fn(async () => "no_provider"),
 }))
 
 vi.mock("@/lib/api", () => ({
@@ -28,6 +30,7 @@ vi.mock("@/lib/api", () => ({
   deleteConversation: h.deleteConversation,
   updateConversationStatus: h.updateConversationStatus,
   updateConversationPinned: h.updateConversationPinned,
+  getAiAssistantAvailability: h.getAiAssistantAvailability,
 }))
 vi.mock("@/contexts/tab-context", () => ({
   useTabActions: () => ({

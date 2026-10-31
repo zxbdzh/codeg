@@ -7737,7 +7737,13 @@
     "unavailable": "请先在设置中配置 AI 助手。",
     "failed": "AI 助手操作失败",
     "refreshDone": "标题已更新",
-    "refresh": "换一批"
+    "refresh": "换一批",
+    "titleFailed": "标题生成失败",
+    "titleFailedHint": "失败原因如下，点「复制错误详情」发回来，便于定位具体问题。",
+    "errorCode": "错误码：{code}",
+    "copyDetails": "复制错误详情",
+    "copied": "已复制",
+    "close": "关闭"
   },
   "PromptStash": {
     "action": "收藏或恢复输入框",

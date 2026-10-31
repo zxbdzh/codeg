@@ -7737,7 +7737,13 @@
     "unavailable": "Configure the AI assistant in Settings first.",
     "failed": "AI assistant failed",
     "refreshDone": "Title updated",
-    "refresh": "Suggest again"
+    "refresh": "Suggest again",
+    "titleFailed": "Could not generate a title",
+    "titleFailedHint": "The reason is below. Copy it and send it back so the exact failure can be traced.",
+    "errorCode": "Error code: {code}",
+    "copyDetails": "Copy error details",
+    "copied": "Copied",
+    "close": "Close"
   },
   "PromptStash": {
     "action": "Collect or restore prompt",
