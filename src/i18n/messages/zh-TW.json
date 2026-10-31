@@ -7736,7 +7736,8 @@
     "titleSkipped": "标题未变：手动锁定、标题来源或模型未产生新标题。",
     "unavailable": "请先在设置中配置 AI 助手。",
     "failed": "AI 助手操作失败",
-    "refreshDone": "标题已更新"
+    "refreshDone": "标题已更新",
+    "refresh": "换一批"
   },
   "PromptStash": {
     "action": "收藏或恢复输入框",

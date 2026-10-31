@@ -154,9 +154,10 @@ pub async fn test_ai_assistant_connection_core(
 pub async fn suggest_conversation_tags_core(
     db: &AppDatabase,
     conversation_id: i32,
+    force: bool,
 ) -> Result<crate::ai::output::TagSuggestion, AppCommandError> {
     let client = client().map_err(to_app_error)?;
-    suggest_tags(&db.conn, client, &TAG_SUGGESTIONS, conversation_id)
+    suggest_tags(&db.conn, client, &TAG_SUGGESTIONS, conversation_id, force)
         .await
         .map_err(to_app_error)
 }
@@ -424,8 +425,9 @@ pub async fn get_ai_assistant_availability(
 pub async fn suggest_conversation_tags(
     db: State<'_, AppDatabase>,
     conversation_id: i32,
+    force: Option<bool>,
 ) -> Result<crate::ai::output::TagSuggestion, AppCommandError> {
-    suggest_conversation_tags_core(&db, conversation_id).await
+    suggest_conversation_tags_core(&db, conversation_id, force.unwrap_or(false)).await
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -638,7 +640,7 @@ mod tests {
         let folder = seed_folder(&db, "/tmp/ai-cmd-gate").await;
         let conv = seed_conversation(&db, folder, AgentType::ClaudeCode).await;
 
-        let error = suggest_conversation_tags_core(&db, conv)
+        let error = suggest_conversation_tags_core(&db, conv, false)
             .await
             .expect_err("must fail");
 
@@ -666,7 +668,7 @@ mod tests {
             .await
             .expect("settings");
 
-        let error = suggest_conversation_tags_core(&db, 424242)
+        let error = suggest_conversation_tags_core(&db, 424242, false)
             .await
             .expect_err("must fail");
 

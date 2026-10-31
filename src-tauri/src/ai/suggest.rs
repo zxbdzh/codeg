@@ -221,6 +221,7 @@ pub async fn suggest_tags(
     client: &dyn AiClient,
     cache: &SuggestionCache,
     conversation_id: i32,
+    force: bool,
 ) -> Result<TagSuggestion, AiFlowError> {
     let settings = settings::load(conn).await?;
     let availability = settings::availability(conn, &settings).await?;
@@ -246,8 +247,12 @@ pub async fn suggest_tags(
                 AiFlowError::Conversation(format!("conversation {conversation_id}: {error}"))
             })?;
     let fingerprint = context_fingerprint(&context, &available);
-    if let Some(hit) = cache.get(conversation_id, &fingerprint) {
-        return Ok(hit);
+    // force = 用户点了「换一批」：同一份上下文也重新问一次模型，
+    // 否则缓存会把上一次的答案原样还回去。
+    if !force {
+        if let Some(hit) = cache.get(conversation_id, &fingerprint) {
+            return Ok(hit);
+        }
     }
     let input = SuggestionInput { context, available };
 

@@ -7736,7 +7736,8 @@
     "titleSkipped": "Title unchanged: manual lock, title source or no new title.",
     "unavailable": "Configure the AI assistant in Settings first.",
     "failed": "AI assistant failed",
-    "refreshDone": "Title updated"
+    "refreshDone": "Title updated",
+    "refresh": "Suggest again"
   },
   "PromptStash": {
     "action": "Collect or restore prompt",

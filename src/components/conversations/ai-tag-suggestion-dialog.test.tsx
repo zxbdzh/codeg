@@ -72,3 +72,21 @@ it("cancel leaves every tag untouched", async () => {
   expect(close).toHaveBeenCalled()
   expect(h.apply).not.toHaveBeenCalled()
 })
+it("asks again with the cache bypassed when the user wants other suggestions", async () => {
+  const user = userEvent.setup()
+  show()
+  await screen.findByText("A regression was fixed")
+  // 首次进入走缓存路径。
+  expect(h.suggest).toHaveBeenCalledWith(12, false)
+  h.suggest.mockResolvedValueOnce({
+    tags: [{ name: "Bug", reason: "Another angle: flaky test" }],
+    new_tags: [],
+  })
+
+  await user.click(screen.getByRole("button", { name: "Suggest again" }))
+
+  await screen.findByText("Another angle: flaky test")
+  expect(h.suggest).toHaveBeenLastCalledWith(12, true)
+  // 换一批仍然只是建议，确认前不写任何标签。
+  expect(h.apply).not.toHaveBeenCalled()
+})

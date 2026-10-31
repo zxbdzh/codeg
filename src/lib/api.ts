@@ -6622,9 +6622,14 @@ export async function getAiAssistantAvailability(): Promise<AiAssistantAvailabil
 
 /** 让 AI 为会话建议标签：已存在的（按名字）与需要新建的分开返回。 */
 export async function suggestConversationTags(
-  conversationId: number
+  conversationId: number,
+  /** 换一批：跳过服务端建议缓存，重新问一次模型。 */
+  force = false
 ): Promise<AiAssistantTagSuggestion> {
-  return getTransport().call("suggest_conversation_tags", { conversationId })
+  return getTransport().call("suggest_conversation_tags", {
+    conversationId,
+    force,
+  })
 }
 
 /** 把选中的建议落到会话上：贴上已有标签、按需创建新标签，返回更新后的

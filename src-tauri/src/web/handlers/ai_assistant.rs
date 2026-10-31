@@ -45,6 +45,9 @@ pub async fn get_ai_assistant_availability(
 #[serde(rename_all = "camelCase")]
 pub struct ConversationParams {
     pub conversation_id: i32,
+    /// 「换一批」：跳过建议缓存，重新问一次模型。
+    #[serde(default)]
+    pub force: bool,
 }
 
 pub async fn suggest_conversation_tags(
@@ -52,7 +55,12 @@ pub async fn suggest_conversation_tags(
     Json(params): Json<ConversationParams>,
 ) -> Result<Json<TagSuggestion>, AppCommandError> {
     Ok(Json(
-        commands::suggest_conversation_tags_core(&state.db, params.conversation_id).await?,
+        commands::suggest_conversation_tags_core(
+            &state.db,
+            params.conversation_id,
+            params.force,
+        )
+        .await?,
     ))
 }
 

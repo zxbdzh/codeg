@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { RefreshCw } from "lucide-react"
 import { useTranslations } from "next-intl"
 import {
   applySuggestedTags,
@@ -51,12 +52,14 @@ export function AiTagSuggestionDialog({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
+  // 「换一批」要绕过服务端缓存，否则同一段上下文会拿回同一份建议。
+  const [forceRefreshing, setForceRefreshing] = useState(false)
   useEffect(() => {
     let disposed = false
     setLoading(true)
     setError(null)
     Promise.all([
-      suggestConversationTags(conversationId),
+      suggestConversationTags(conversationId, forceRefreshing),
       listConversationTags(),
     ])
       .then(([suggestion, tags]) => {
@@ -95,7 +98,13 @@ export function AiTagSuggestionDialog({
     return () => {
       disposed = true
     }
-  }, [conversationId, scope, retry])
+  }, [conversationId, scope, retry, forceRefreshing])
+  /** 重新要一批建议；选中的内容会按新结果重建（未确认过，不会写库）。 */
+  const refresh = () => {
+    if (loading || saving) return
+    setForceRefreshing(true)
+    setRetry((n) => n + 1)
+  }
   const count =
     existing.filter((row) => row.selected).length +
     proposed.filter((row) => row.selected && row.name.trim()).length
@@ -262,6 +271,15 @@ export function AiTagSuggestionDialog({
           </div>
         )}
         <DialogFooter>
+          <Button
+            variant="ghost"
+            className="sm:mr-auto"
+            disabled={loading || saving}
+            onClick={refresh}
+          >
+            <RefreshCw className={loading ? "size-4 animate-spin" : "size-4"} />
+            {t("refresh")}
+          </Button>
           <Button variant="outline" disabled={saving} onClick={onClose}>
             {t("cancel")}
           </Button>
