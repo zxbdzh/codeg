@@ -537,7 +537,6 @@ export function AiAssistantSettingsSection() {
               aria-label={t("autoSuggestTags")}
               checked={draft.autoSuggestTags}
               onCheckedChange={(checked) => patch({ autoSuggestTags: checked })}
-              disabled
             />
           }
         />

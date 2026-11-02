@@ -628,6 +628,7 @@ async fn async_main(
         .await;
 
     // Spawn the LifecycleSubscriber for cross-connection DB writes. The
+    tokio::spawn(codeg_lib::ai::tag_jobs::worker(state.db.conn.clone(), state.connection_manager.clone_ref(), state.emitter.clone()));
     // broker is supplied so TurnComplete on a delegation child resolves the
     // parent's pending `delegate_to_agent` tool_use_id and emits
     // `DelegationCompleted`.

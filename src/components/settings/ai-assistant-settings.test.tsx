@@ -91,6 +91,24 @@ beforeEach(() => {
 })
 
 describe("AiAssistantSettingsSection", () => {
+  it("allows enabling automatic suggestions and saves the choice", async () => {
+    const user = userEvent.setup()
+    mockGetSettings.mockResolvedValue(
+      settings({ providerId: 7, tagModel: "m" })
+    )
+    mockUpdateSettings.mockImplementation(async (next) => next)
+    renderWithIntl()
+    const control = await screen.findByRole("switch", {
+      name: enMessages.AiAssistantSettings.autoSuggestTags,
+    })
+    await user.click(control)
+    await user.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() =>
+      expect(mockUpdateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ autoSuggestTags: true })
+      )
+    )
+  })
   it("loads the saved settings and the providers it can reuse", async () => {
     mockGetSettings.mockResolvedValue(
       settings({ providerId: 7, tagModel: "gpt-4o-mini" })

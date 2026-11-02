@@ -57,6 +57,7 @@ pub async fn suggest_conversation_tags(
     Ok(Json(
         commands::suggest_conversation_tags_core(
             &state.db,
+            &state.connection_manager,
             params.conversation_id,
             params.force,
         )

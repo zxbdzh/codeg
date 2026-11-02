@@ -1,4 +1,19 @@
 {
+  "AutoTagSuggestions": {
+    "scopeName": "{name} 的作用域",
+    "chooseScope": "请选择作用域",
+    "global": "全局",
+    "folder": "当前文件夹",
+    "restore": "恢复推荐",
+    "restoreName": "恢复推荐 {name}",
+    "ignore": "忽略",
+    "ignoreName": "忽略 {name}",
+    "skip": "跳过本批",
+    "pending": "有标签建议",
+    "failed": "标签建议生成失败",
+    "generating": "正在生成标签建议…",
+    "ignored": "已忽略标签"
+  },
   "HtmlCodePreview": {
     "code": "代码",
     "preview": "预览",
@@ -114,7 +129,7 @@
     "titleInterval": "标题间隔（秒）",
     "titleIntervalHint": "同一条会话两次自动生成标题之间的最小间隔（{min}–{max}）。",
     "autoSuggestTags": "自动建议标签",
-    "autoSuggestTagsHint": "即将支持——这个开关目前没有任何作用。",
+    "autoSuggestTagsHint": "成功完成一轮后自动建议，同一会话至少间隔 2 分钟；确认后才贴标签。",
     "testConnection": "测试连接",
     "testSucceeded": "连接正常",
     "testFailed": "连接测试失败",

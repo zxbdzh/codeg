@@ -91,6 +91,62 @@ pub fn build_context(turns: &[MessageTurn], rounds: usize, max_chars: usize) -> 
         .join("\n")
 }
 
+/// 为标签建议保留会话主线：最早一条有效用户请求，加上最近的对话窗口。
+///
+/// 标题只需要描述当前窗口，标签则需要知道这条会话长期在做什么；两者不能共用
+/// 同一个“只取最近 N 轮”的裁剪口径。
+pub fn build_tag_context(turns: &[MessageTurn], rounds: usize, max_chars: usize) -> String {
+    if rounds == 0 {
+        return String::new();
+    }
+    let entries = collect_entries(turns);
+    if entries.is_empty() {
+        return String::new();
+    }
+
+    let window = rounds.saturating_mul(2);
+    let recent_start = entries.len().saturating_sub(window);
+    let first_user = entries
+        .iter()
+        .position(|entry| entry.speaker == Speaker::User);
+    let anchor_is_recent = first_user.is_some_and(|index| index >= recent_start);
+
+    let mut selected: Vec<&ContextEntry> = Vec::new();
+    if let Some(index) = first_user.filter(|_| !anchor_is_recent) {
+        selected.push(&entries[index]);
+    }
+    selected.extend(entries[recent_start..].iter());
+
+    while selected.len() > 2 && total_chars(&selected) > max_chars {
+        // 保留主线和最新发言，只从中间的旧窗口开始裁剪。
+        selected.remove(1);
+    }
+
+    let has_anchor = first_user.is_some() && !anchor_is_recent;
+    let recent_offset = usize::from(has_anchor);
+    let recent = &selected[recent_offset..];
+    let mut output = String::new();
+    if has_anchor {
+        output.push_str("<会话主线>\n");
+        output.push_str(&format_entry(selected[0]));
+        output.push_str("\n</会话主线>\n\n");
+    }
+    output.push_str("<最近对话>\n");
+    output.push_str(
+        &recent
+            .iter()
+            .map(|entry| format_entry(entry))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    output.push_str("\n</最近对话>");
+    output
+}
+
+fn format_entry(entry: &ContextEntry) -> String {
+    format!("{}: {}", entry.speaker.label(), entry.text)
+}
+
 /// 目前保留的发言一共多少字符（含标签，因为它确实占预算）。
 fn total_chars(entries: &[&ContextEntry]) -> usize {
     entries
@@ -156,11 +212,7 @@ mod tests {
     #[test]
     fn only_prose_reaches_the_model() {
         let turns = vec![
-            turn(
-                "t1",
-                TurnRole::User,
-                vec![text("为什么侧栏的标签不刷新？")],
-            ),
+            turn("t1", TurnRole::User, vec![text("为什么侧栏的标签不刷新？")]),
             turn(
                 "t2",
                 TurnRole::Assistant,
@@ -229,7 +281,11 @@ mod tests {
     /// 最新一条哪怕自己超预算也要留下，否则上下文等于没说话。
     #[test]
     fn the_newest_entry_is_never_dropped() {
-        let turns = vec![turn("t1", TurnRole::User, vec![text("x".repeat(50).as_str())])];
+        let turns = vec![turn(
+            "t1",
+            TurnRole::User,
+            vec![text("x".repeat(50).as_str())],
+        )];
 
         let context = build_context(&turns, DEFAULT_CONTEXT_ROUNDS, 10);
 
@@ -239,7 +295,10 @@ mod tests {
     /// 没有被喂任何轮次时给空串，而不是一个空标签。
     #[test]
     fn nothing_to_say_yields_nothing() {
-        assert_eq!(build_context(&[], DEFAULT_CONTEXT_ROUNDS, MAX_CONTEXT_CHARS), "");
+        assert_eq!(
+            build_context(&[], DEFAULT_CONTEXT_ROUNDS, MAX_CONTEXT_CHARS),
+            ""
+        );
         assert_eq!(
             build_context(&[turn("t1", TurnRole::User, vec![text("   ")])], 6, 100),
             ""
@@ -256,12 +315,34 @@ mod tests {
         let turns = vec![turn(
             "t1",
             TurnRole::Assistant,
-            vec![text("先说结论：是缓存没失效。"), text("再补充一段很长的解释……")],
+            vec![
+                text("先说结论：是缓存没失效。"),
+                text("再补充一段很长的解释……"),
+            ],
         )];
 
         assert_eq!(
             build_context(&turns, DEFAULT_CONTEXT_ROUNDS, MAX_CONTEXT_CHARS),
             "Assistant: 先说结论：是缓存没失效。"
+        );
+    }
+
+    #[test]
+    fn tag_context_keeps_the_first_user_request_and_recent_window() {
+        let turns = vec![
+            turn("t1", TurnRole::User, vec![text("我要做一个数字人产品")]),
+            turn(
+                "t2",
+                TurnRole::Assistant,
+                vec![text("先梳理数字人的能力边界")],
+            ),
+            turn("t3", TurnRole::User, vec![text("再看输入框交互")]),
+            turn("t4", TurnRole::Assistant, vec![text("可以先修复收藏按钮")]),
+        ];
+
+        assert_eq!(
+            build_tag_context(&turns, 1, MAX_CONTEXT_CHARS),
+            "<会话主线>\nUser: 我要做一个数字人产品\n</会话主线>\n\n<最近对话>\nUser: 再看输入框交互\nAssistant: 可以先修复收藏按钮\n</最近对话>"
         );
     }
 }

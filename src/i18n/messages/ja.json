@@ -1,4 +1,19 @@
 {
+  "AutoTagSuggestions": {
+    "scopeName": "Scope for {name}",
+    "chooseScope": "Choose scope",
+    "global": "Global",
+    "folder": "Current folder",
+    "restore": "Restore",
+    "restoreName": "Restore {name}",
+    "ignore": "Ignore",
+    "ignoreName": "Ignore {name}",
+    "skip": "Skip this batch",
+    "pending": "Tag suggestions available",
+    "failed": "Tag suggestions failed",
+    "generating": "Generating tag suggestions…",
+    "ignored": "Ignored tags"
+  },
   "HtmlCodePreview": {
     "code": "コード",
     "preview": "プレビュー",
@@ -7697,7 +7712,7 @@
     "titleInterval": "タイトル間隔（秒）",
     "titleIntervalHint": "同じ会話で 2 回の自動タイトルの最短間隔（{min}–{max}）。",
     "autoSuggestTags": "タグを自動提案",
-    "autoSuggestTagsHint": "近日対応——このスイッチはまだ何もしません。",
+    "autoSuggestTagsHint": "Suggest after successful turns, at least 2 minutes apart. Apply only after confirmation.",
     "testConnection": "接続テスト",
     "testSucceeded": "接続できました",
     "testFailed": "接続テストに失敗しました",

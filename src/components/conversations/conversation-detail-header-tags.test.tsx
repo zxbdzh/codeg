@@ -27,6 +27,12 @@ vi.mock("@/lib/api", () => ({
   updateConversationStatus: vi.fn(),
   updateConversationPinned: vi.fn(),
   getAiAssistantAvailability: vi.fn(async () => "no_provider"),
+  getTagSuggestionStatus: vi.fn(async () => ({
+    batch: null,
+    ignored: [],
+    running: false,
+    error: null,
+  })),
   createConversationTag: h.createConversationTag,
   listConversationTags: vi.fn(async () => []),
 }))

@@ -21,6 +21,8 @@ pub mod gate;
 pub mod output;
 pub mod settings;
 pub mod suggest;
+pub mod tag_store;
+pub mod tag_jobs;
 pub mod title_gen;
 pub mod wire;
 

@@ -1372,6 +1372,7 @@ mod tauri_app {
                         .state::<std::sync::Arc<crate::acp::InternalEventBus>>()
                         .inner()
                         .clone();
+                    tauri::async_runtime::spawn(crate::ai::tag_jobs::worker(db_conn.clone(), cm.clone_ref(), crate::web::event_bridge::EventEmitter::Tauri(app.handle().clone())));
                     tauri::async_runtime::spawn(crate::acp::lifecycle_subscriber_task(
                         db_conn,
                         cm,
@@ -1872,6 +1873,14 @@ mod tauri_app {
                 ai_assistant::update_ai_assistant_settings,
                 ai_assistant::get_ai_assistant_availability,
                 ai_assistant::suggest_conversation_tags,
+                crate::commands::tag_suggestions::get_tag_suggestion_status,
+                crate::commands::tag_suggestions::generate_tag_suggestion_batch,
+                crate::commands::tag_suggestions::open_tag_suggestion_batch,
+                crate::commands::tag_suggestions::close_tag_suggestion_batch,
+                crate::commands::tag_suggestions::confirm_tag_suggestion_batch,
+                crate::commands::tag_suggestions::skip_tag_suggestion_batch,
+                crate::commands::tag_suggestions::ignore_tag_suggestion,
+                crate::commands::tag_suggestions::restore_ignored_tag,
                 ai_assistant::apply_suggested_tags,
                 ai_assistant::generate_conversation_title,
                 ai_assistant::test_ai_assistant_connection,

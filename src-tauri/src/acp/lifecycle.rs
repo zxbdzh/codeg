@@ -370,6 +370,10 @@ pub(crate) async fn handle_event(
                 .await;
             }
             if stop_reason == "end_turn" && !completed_title_turns.is_empty() {
+                // 标签独立排队，不能被标题关闭／锁定门禁吞掉；这里只记录指纹，不发模型请求。
+                if let Err(error) = crate::ai::tag_jobs::record_completed(db_conn, cid, &completed_title_turns, chrono::Utc::now().timestamp()).await {
+                    tracing::warn!(conversation_id = cid, %error, "could not enqueue tag suggestions");
+                }
                 // 在上面的同一状态快照中捕获正文，不能在 DB/委托 await 后再读：
                 // 下一轮可能已经结束并替换了这份完成快照。
                 crate::commands::ai_assistant::spawn_completed_title_generation(

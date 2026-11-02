@@ -11,6 +11,9 @@ use std::time::Duration;
 use crate::acp::provider_models::ModelsProtocol;
 use crate::ai::wire;
 
+#[cfg(test)]
+mod retry_tests;
+
 /// 连接超时。与既有的提供方模型清单请求保持一致。
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -27,17 +30,25 @@ pub enum AiError {
     NotFound,
     /// 超时或连不上。
     Transport(String),
+    /// 服务方返回的失败状态与退避时间，不能在读取正文后丢掉 Retry-After。
+    HttpStatus { code: u16, retry_after: Option<u64>, message: String },
     /// 回来了，但不是我们约定的形状。
     MalformedReply(String),
 }
 
 impl AiError {
+    pub fn retry_after_seconds(&self) -> Option<u64> {
+        match self {
+            Self::HttpStatus { retry_after, .. } => *retry_after,
+            _ => None,
+        }
+    }
     /// 前端显示这句话；错误码与设置页的提示共用一套文案。
     pub fn i18n_key(&self) -> &'static str {
         match self {
             AiError::Unauthorized => "aiAssistant.errorUnauthorized",
             AiError::NotFound => "aiAssistant.errorNotFound",
-            AiError::Transport(_) => "aiAssistant.errorTransport",
+            AiError::Transport(_) | AiError::HttpStatus { .. } => "aiAssistant.errorTransport",
             AiError::MalformedReply(_) => "aiAssistant.errorMalformed",
         }
     }
@@ -49,6 +60,7 @@ impl std::fmt::Display for AiError {
             AiError::Unauthorized => f.write_str("the provider rejected the api key"),
             AiError::NotFound => f.write_str("the provider or model was not found"),
             AiError::Transport(message) => write!(f, "the request failed: {message}"),
+            AiError::HttpStatus { code, message, .. } => write!(f, "the provider returned HTTP {code}: {message}"),
             AiError::MalformedReply(message) => write!(f, "unusable reply: {message}"),
         }
     }
@@ -117,6 +129,13 @@ impl AiClient for HttpAiClient {
             .map_err(|e| AiError::Transport(wire::scrub_secret(&e.to_string(), &request.api_key)))?;
 
         let status = response.status();
+        let retry_after = response.headers().get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| {
+                value.trim().parse::<u64>().ok().or_else(|| {
+                    chrono::DateTime::parse_from_rfc2822(value.trim()).ok().map(|date| date.timestamp().saturating_sub(chrono::Utc::now().timestamp()).max(0) as u64)
+                })
+            });
         let body_text = response.text().await.map_err(|e| {
             AiError::Transport(wire::scrub_secret(&e.to_string(), &request.api_key))
         })?;
@@ -128,11 +147,10 @@ impl AiClient for HttpAiClient {
             return Err(AiError::NotFound);
         }
         if !status.is_success() {
-            return Err(AiError::Transport(format!(
-                "{} {}",
-                status.as_u16(),
-                wire::scrub_secret(body_text.trim(), &request.api_key)
-            )));
+            return Err(AiError::HttpStatus {
+                code: status.as_u16(), retry_after,
+                message: wire::scrub_secret(body_text.trim(), &request.api_key),
+            });
         }
 
         let parsed: Value = serde_json::from_str(&body_text).map_err(|_| {

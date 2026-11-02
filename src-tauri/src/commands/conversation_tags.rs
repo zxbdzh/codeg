@@ -144,6 +144,7 @@ pub async fn update_conversation_tags_core(
 ) -> Result<DbConversationSummary, AppCommandError> {
     conversation_tag_service::update_conversation_tags(&db.conn, conversation_id, &add, &remove)
         .await?;
+    crate::commands::tag_suggestions::emit_changed(emitter, conversation_id);
     // The same fresh read every other upsert broadcasts (`get_by_id` fills
     // `tag_ids`), returned to the caller as well so it can settle its optimistic
     // patch without waiting for its own echo.

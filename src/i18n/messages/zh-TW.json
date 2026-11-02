@@ -1,4 +1,19 @@
 {
+  "AutoTagSuggestions": {
+    "scopeName": "{name} 的範圍",
+    "chooseScope": "請選擇範圍",
+    "global": "全域",
+    "folder": "目前資料夾",
+    "restore": "恢復建議",
+    "restoreName": "恢復建議 {name}",
+    "ignore": "忽略",
+    "ignoreName": "忽略 {name}",
+    "skip": "略過本批",
+    "pending": "有標籤建議",
+    "failed": "標籤建議產生失敗",
+    "generating": "正在產生標籤建議…",
+    "ignored": "已忽略標籤"
+  },
   "HtmlCodePreview": {
     "code": "程式碼",
     "preview": "預覽",
@@ -7697,7 +7712,7 @@
     "titleInterval": "標題間隔（秒）",
     "titleIntervalHint": "同一條對話兩次自動標題之間的最短間隔（{min}–{max}）。",
     "autoSuggestTags": "自動建議標籤",
-    "autoSuggestTagsHint": "即將支援——這個開關目前沒有任何作用。",
+    "autoSuggestTagsHint": "成功完成一輪後自動建議，同一會話至少間隔 2 分鐘；確認後才套用標籤。",
     "testConnection": "測試連線",
     "testSucceeded": "連線正常",
     "testFailed": "連線測試失敗",

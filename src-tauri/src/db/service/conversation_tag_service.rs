@@ -237,6 +237,7 @@ pub async fn create_tag<C: ConnectionTrait>(
         .insert(conn)
         .await
         .map_err(|e| duplicate_or_db(e, &name))?;
+    crate::ai::tag_store::bind_created_tag(conn, row.id, &row.name, row.folder_id).await?;
     Ok(to_detail(row))
 }
 
@@ -299,6 +300,11 @@ pub async fn delete_tag(conn: &DatabaseConnection, id: i32) -> Result<bool, DbEr
                     .filter(conversation_tag_link::Column::TagId.eq(id))
                     .exec(txn)
                     .await?;
+                txn.execute(sea_orm::Statement::from_sql_and_values(
+                    sea_orm::DbBackend::Sqlite,
+                    "DELETE FROM ai_tag_ignored WHERE tag_id = ?",
+                    vec![id.into()],
+                )).await?;
                 let res = conversation_tag::Entity::delete_by_id(id).exec(txn).await?;
                 Ok(res.rows_affected > 0)
             })
@@ -440,6 +446,19 @@ pub async fn update_conversation_tags_with_source<C: ConnectionTrait + Transacti
             let add = add.clone();
             Box::pin(async move {
                 if !remove.is_empty() {
+                    if source == TagSource::User {
+                        // 只对用户实际移除的关联记住否定意图，清理孤儿标签不走此路径。
+                        let links = conversation_tag_link::Entity::find()
+                            .filter(conversation_tag_link::Column::ConversationId.eq(conversation_id))
+                            .filter(conversation_tag_link::Column::TagId.is_in(remove.clone()))
+                            .all(txn).await?;
+                        for link in links {
+                            if let Some(tag) = conversation_tag::Entity::find_by_id(link.tag_id).one(txn).await? {
+                                crate::ai::tag_store::record_ignored(txn, conversation_id, Some(tag.id), &tag.name, tag.folder_id).await
+                                    .map_err(|error| DbErr::Custom(error.to_string()))?;
+                            }
+                        }
+                    }
                     conversation_tag_link::Entity::delete_many()
                         .filter(conversation_tag_link::Column::ConversationId.eq(conversation_id))
                         .filter(conversation_tag_link::Column::TagId.is_in(remove))

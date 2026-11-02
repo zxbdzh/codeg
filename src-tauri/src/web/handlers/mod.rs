@@ -1,5 +1,6 @@
 pub mod acp;
 pub mod ai_assistant;
+pub mod tag_suggestions;
 pub mod app_update;
 pub mod assistants;
 pub mod automation;

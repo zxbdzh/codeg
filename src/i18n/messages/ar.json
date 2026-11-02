@@ -1,4 +1,19 @@
 {
+  "AutoTagSuggestions": {
+    "scopeName": "Scope for {name}",
+    "chooseScope": "Choose scope",
+    "global": "Global",
+    "folder": "Current folder",
+    "restore": "Restore",
+    "restoreName": "Restore {name}",
+    "ignore": "Ignore",
+    "ignoreName": "Ignore {name}",
+    "skip": "Skip this batch",
+    "pending": "Tag suggestions available",
+    "failed": "Tag suggestions failed",
+    "generating": "Generating tag suggestions…",
+    "ignored": "Ignored tags"
+  },
   "HtmlCodePreview": {
     "code": "الكود",
     "preview": "معاينة",
@@ -7697,7 +7712,7 @@
     "titleInterval": "فاصل العناوين (ثوان)",
     "titleIntervalHint": "أقل زمن بين عنوانين تلقائيين لنفس المحادثة ({min}–{max}).",
     "autoSuggestTags": "اقتراح الوسوم تلقائيًا",
-    "autoSuggestTagsHint": "قريبًا — المفتاح لا يفعل شيئًا بعد.",
+    "autoSuggestTagsHint": "Suggest after successful turns, at least 2 minutes apart. Apply only after confirmation.",
     "testConnection": "اختبار الاتصال",
     "testSucceeded": "الاتصال يعمل",
     "testFailed": "فشل اختبار الاتصال",

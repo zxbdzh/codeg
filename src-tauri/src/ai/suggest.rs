@@ -11,7 +11,7 @@ use sea_orm::DatabaseConnection;
 use sha2::{Digest, Sha256};
 
 use crate::ai::client::{AiClient, AiError, CompletionRequest};
-use crate::ai::context::{build_context, MAX_CONTEXT_CHARS};
+use crate::ai::context::{build_tag_context, MAX_CONTEXT_CHARS};
 use crate::ai::output::{
     parse_tag_suggestion, SuggestedNewTag, SuggestedTag, TagSuggestion, MAX_SUGGESTED_TAGS,
 };
@@ -53,8 +53,18 @@ pub fn build_tag_prompt(context: &str, available: &[ConversationTagDetail]) -> S
     let mut prompt = String::new();
     prompt.push_str("你在帮用户给一条编码会话打标签。\n");
     prompt.push_str(&format!(
-        "从「可选标签」里挑最多 {MAX_SUGGESTED_TAGS} 个最贴切的；如果都不合适，可以在 new_tags 里提议新标签。\n"
+        "先判断会话整体主线，再从「可选标签」里挑最多 {MAX_SUGGESTED_TAGS} 个最贴切的；如果都不合适，可以在 new_tags 里提议新标签。\n"
     ));
+    prompt.push_str(
+        "标签选择规则：优先描述会话正在处理的主题、领域或具体对象，例如“数字人”“MCP”“电商主图”。\n",
+    );
+    prompt.push_str(
+        "只有当用户明确把某个工作动作本身当作主要目标时，才建议动作标签，例如“自动化集成”“功能规划”“部署”。\n",
+    );
+    prompt.push_str(
+        "不要因为这是编码任务、出现 API 或脚本，就推断出“开发”“优化”“自动化集成”等泛动作标签；如果主题明确，主题标签排在动作标签前。\n",
+    );
+    prompt.push_str("没有足够证据的标签不要猜。每条建议理由要指出会话中的主题证据，不能只说“这是一个开发任务”。\n");
     prompt.push_str("每条建议给一句简短理由。不要解释你的思路，只返回 JSON：\n");
     prompt.push_str(
         r##"{"tags":[{"name":"标签名","reason":"为什么"}],"new_tags":[{"name":"新标签名","color":"#rrggbb"}]}"##,
@@ -235,7 +245,7 @@ pub async fn suggest_tags(
         .map_err(|error| {
             AiFlowError::Conversation(format!("conversation {conversation_id}: {error}"))
         })?;
-    let context = build_context(&detail.turns, settings.context_turns, MAX_CONTEXT_CHARS);
+    let context = build_tag_context(&detail.turns, settings.context_turns, MAX_CONTEXT_CHARS);
     if context.is_empty() {
         return Err(AiFlowError::EmptyConversation);
     }
@@ -333,6 +343,9 @@ mod tests {
             prompt.contains("new_tags"),
             "the answer shape must be stated"
         );
+        assert!(prompt.contains("优先描述会话正在处理的主题"));
+        assert!(prompt.contains("只有当用户明确把某个工作动作本身当作主要目标时"));
+        assert!(prompt.contains("不要因为这是编码任务、出现 API 或脚本"));
     }
 
     #[test]
@@ -344,8 +357,14 @@ mod tests {
 
     #[test]
     fn the_fingerprint_tracks_the_text_and_tag_pool() {
-        assert_eq!(context_fingerprint("abc", &[]), context_fingerprint("abc", &[]));
-        assert_ne!(context_fingerprint("abc", &[]), context_fingerprint("abd", &[]));
+        assert_eq!(
+            context_fingerprint("abc", &[]),
+            context_fingerprint("abc", &[])
+        );
+        assert_ne!(
+            context_fingerprint("abc", &[]),
+            context_fingerprint("abd", &[])
+        );
         assert_ne!(
             context_fingerprint("abc", &[tag(1, "bug")]),
             context_fingerprint("abc", &[tag(2, "bug")])

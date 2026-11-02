@@ -19,7 +19,7 @@ use tauri::State;
 
 use crate::ai::client::{AiError, HttpAiClient};
 use crate::ai::settings::{self, AiAssistantSettings, AiAvailability};
-use crate::ai::suggest::{suggest_tags, AiFlowError, SuggestionCache};
+use crate::ai::suggest::AiFlowError;
 use crate::ai::title_gen::{apply_generated_title, generate_title, TitleOutcome, TitleThrottle};
 use crate::app_error::AppCommandError;
 use crate::db::service::conversation_tag_service::{self, TagSource};
@@ -31,9 +31,8 @@ use crate::web::event_bridge::{
 };
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
 
-/// 每个会话最近一次建议的小缓存。有界：它纯粹为了省钱，没有任何东西应该
-/// 因为它无限增长。
-static TAG_SUGGESTIONS: LazyLock<SuggestionCache> = LazyLock::new(|| SuggestionCache::new(32));
+#[cfg(test)]
+mod tag_batch_compat_tests;
 
 /// 标题节流状态（内存）。重启后重新计一遍没有坏处，所以刻意不落库。
 static TITLE_THROTTLE: LazyLock<TitleThrottle> = LazyLock::new(TitleThrottle::new);
@@ -43,7 +42,7 @@ static TITLE_THROTTLE: LazyLock<TitleThrottle> = LazyLock::new(TitleThrottle::ne
 static AI_CLIENT: LazyLock<Result<HttpAiClient, String>> =
     LazyLock::new(|| HttpAiClient::new().map_err(|e| e.to_string()));
 
-fn client() -> Result<&'static HttpAiClient, AiFlowError> {
+pub(crate) fn client() -> Result<&'static HttpAiClient, AiFlowError> {
     AI_CLIENT
         .as_ref()
         .map_err(|message| AiFlowError::Client(AiError::Transport(message.clone())))
@@ -53,7 +52,7 @@ fn client() -> Result<&'static HttpAiClient, AiFlowError> {
 ///
 /// 未配置单独走一类：它不是"出错了"，而是"还没设置"，前端据此把入口置灰、
 /// 把用户带去设置页，而不是弹一个红叉。
-fn to_app_error(error: AiFlowError) -> AppCommandError {
+pub(crate) fn to_app_error(error: AiFlowError) -> AppCommandError {
     let message = error.to_string();
     match error {
         AiFlowError::NotConfigured(availability) => match availability {
@@ -73,7 +72,7 @@ fn to_app_error(error: AiFlowError) -> AppCommandError {
         }
         AiFlowError::Client(AiError::NotFound) => AppCommandError::not_found(message)
             .with_i18n("aiAssistant.errorNotFound", BTreeMap::new()),
-        AiFlowError::Client(AiError::Transport(_)) => AppCommandError::network(message)
+        AiFlowError::Client(AiError::Transport(_)) | AiFlowError::Client(AiError::HttpStatus { .. }) => AppCommandError::network(message)
             .with_i18n("aiAssistant.errorTransport", BTreeMap::new()),
         AiFlowError::Client(AiError::MalformedReply(_)) | AiFlowError::Malformed(_) => {
             AppCommandError::task_execution_failed(message)
@@ -153,13 +152,24 @@ pub async fn test_ai_assistant_connection_core(
 /// 之后才由 [`apply_suggested_tags_core`] 真正落库。
 pub async fn suggest_conversation_tags_core(
     db: &AppDatabase,
+    manager: &crate::acp::manager::ConnectionManager,
     conversation_id: i32,
     force: bool,
 ) -> Result<crate::ai::output::TagSuggestion, AppCommandError> {
-    let client = client().map_err(to_app_error)?;
-    suggest_tags(&db.conn, client, &TAG_SUGGESTIONS, conversation_id, force)
-        .await
-        .map_err(to_app_error)
+    let status = crate::commands::tag_suggestions::load_or_generate_tag_suggestion_batch_core(
+        db, manager, conversation_id, force,
+    ).await?;
+    let mut result = crate::ai::output::TagSuggestion::default();
+    if let Some(batch) = status.batch {
+        for candidate in batch.candidates {
+            if candidate.tag_ids.is_empty() {
+                result.new_tags.push(crate::ai::output::SuggestedNewTag { name: candidate.name, color: Some(candidate.color) });
+            } else {
+                result.tags.push(crate::ai::output::SuggestedTag { name: candidate.name, reason: candidate.reason });
+            }
+        }
+    }
+    Ok(result)
 }
 
 /// 把确认过的标签打上去，来源记为 AI。
@@ -424,10 +434,11 @@ pub async fn get_ai_assistant_availability(
 #[tauri::command]
 pub async fn suggest_conversation_tags(
     db: State<'_, AppDatabase>,
+    manager: State<'_, crate::acp::manager::ConnectionManager>,
     conversation_id: i32,
     force: Option<bool>,
 ) -> Result<crate::ai::output::TagSuggestion, AppCommandError> {
-    suggest_conversation_tags_core(&db, conversation_id, force.unwrap_or(false)).await
+    suggest_conversation_tags_core(&db, &manager, conversation_id, force.unwrap_or(false)).await
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -640,7 +651,7 @@ mod tests {
         let folder = seed_folder(&db, "/tmp/ai-cmd-gate").await;
         let conv = seed_conversation(&db, folder, AgentType::ClaudeCode).await;
 
-        let error = suggest_conversation_tags_core(&db, conv, false)
+        let error = suggest_conversation_tags_core(&db, &crate::acp::manager::ConnectionManager::new(), conv, false)
             .await
             .expect_err("must fail");
 
@@ -668,7 +679,7 @@ mod tests {
             .await
             .expect("settings");
 
-        let error = suggest_conversation_tags_core(&db, 424242, false)
+        let error = suggest_conversation_tags_core(&db, &crate::acp::manager::ConnectionManager::new(), 424242, false)
             .await
             .expect_err("must fail");
 

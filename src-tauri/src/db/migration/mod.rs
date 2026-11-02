@@ -58,6 +58,7 @@ mod m20261022_000001_tool_approval;
 mod m20261022_000001_work_task_delivery;
 mod m20261030_000001_conversation_tag_link_source;
 mod m20261031_000001_prompt_stash;
+mod m20261102_000001_ai_tag_suggestions;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -122,6 +123,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261022_000001_work_task_delivery::Migration),
             Box::new(m20261030_000001_conversation_tag_link_source::Migration),
             Box::new(m20261031_000001_prompt_stash::Migration),
+            Box::new(m20261102_000001_ai_tag_suggestions::Migration),
         ]
     }
 }

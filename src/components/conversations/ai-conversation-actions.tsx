@@ -16,10 +16,9 @@ import {
 } from "./title-failure-dialog"
 import { ContextMenuItem } from "@/components/ui/context-menu"
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
-import {
-  AiTagSuggestionDialog,
-  type AiTagTarget,
-} from "./ai-tag-suggestion-dialog"
+import type { AiTagTarget } from "./ai-tag-suggestion-dialog"
+import { AiTagBatchDialog } from "./ai-tag-batch-dialog"
+import { AiTagStatus } from "./ai-tag-status"
 import type { AiAssistantAvailability } from "@/lib/types"
 
 const useDialog = create<{ target: AiTagTarget | null }>(() => ({
@@ -34,7 +33,7 @@ export function AiTagSuggestionsHost() {
   return (
     <>
       {target ? (
-        <AiTagSuggestionDialog
+        <AiTagBatchDialog
           key={target.conversationId}
           {...target}
           onClose={() => useDialog.setState({ target: null })}
@@ -81,16 +80,22 @@ export function AiTagButton(props: AiTagTarget) {
   const t = useTranslations("AiTagging")
   const ready = useAiAvailability()
   return (
-    <span title={ready ? t("action") : t("unavailable")}>
-      <button
-        type="button"
-        disabled={!ready}
-        aria-label={t("action")}
-        onClick={() => openAiTagSuggestions(props)}
-        className="flex size-7 items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:opacity-40"
-      >
-        <Sparkles className="size-4" />
-      </button>
+    <span className="inline-flex items-center gap-2">
+      <span title={ready ? t("action") : t("unavailable")}>
+        <button
+          type="button"
+          disabled={!ready}
+          aria-label={t("action")}
+          onClick={() => openAiTagSuggestions(props)}
+          className="flex size-7 items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:opacity-40"
+        >
+          <Sparkles className="size-4" />
+        </button>
+      </span>
+      <AiTagStatus
+        conversationId={props.conversationId}
+        onOpen={() => openAiTagSuggestions(props)}
+      />
     </span>
   )
 }

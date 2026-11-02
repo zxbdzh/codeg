@@ -6212,6 +6212,39 @@ export interface AiAssistantNewTagRequest {
   folderId: number | null
 }
 
+export interface AiTagCandidate {
+  index?: number
+  name: string
+  reason: string
+  color: string
+  folderId: number | null
+  tagIds: number[]
+}
+
+export interface AiTagBatch {
+  id: string
+  conversationId: number
+  input: string
+  config: string
+  candidates: AiTagCandidate[]
+  createdAt: number
+  leaseToken?: string
+}
+
+export interface AiTagIgnored {
+  key: string
+  tagId: number | null
+  name: string
+  folderId: number | null
+}
+
+export interface AiTagStatus {
+  batch: AiTagBatch | null
+  running: boolean
+  error: string | null
+  ignored: AiTagIgnored[]
+}
+
 /** 收藏保留完整富文本文档与附件，不复用会话草稿的本地存储。 */
 export interface PromptStashSnapshot {
   text: string

@@ -6597,6 +6597,93 @@ export async function forgeAutoScanNow(
 }
 
 // ─── Codeg AI 助手 ───────────────────────────────────────────────────────
+
+export async function getTagSuggestionStatus(
+  conversationId: number
+): Promise<import("./types").AiTagStatus> {
+  return getTransport().call("get_tag_suggestion_status", { conversationId })
+}
+
+export async function generateTagSuggestionBatch(
+  conversationId: number,
+  force = false
+): Promise<import("./types").AiTagStatus> {
+  return getTransport().call("generate_tag_suggestion_batch", {
+    conversationId,
+    force,
+  })
+}
+
+export async function openTagSuggestionBatch(
+  conversationId: number,
+  batchId: string,
+  leaseToken?: string
+): Promise<import("./types").AiTagBatch> {
+  return getTransport().call("open_tag_suggestion_batch", {
+    conversationId,
+    batchId,
+    leaseToken,
+  })
+}
+
+export async function closeTagSuggestionBatch(
+  conversationId: number,
+  batchId: string,
+  leaseToken?: string
+): Promise<void> {
+  return getTransport().call("close_tag_suggestion_batch", {
+    conversationId,
+    batchId,
+    leaseToken,
+  })
+}
+
+export interface TagSuggestionChoice {
+  index: number
+  tagId?: number
+  name?: string
+  color?: string
+  folderId?: number | null
+}
+
+export async function confirmTagSuggestionBatch(args: {
+  conversationId: number
+  batchId: string
+  choices: TagSuggestionChoice[]
+}): Promise<DbConversationSummary> {
+  return getTransport().call("confirm_tag_suggestion_batch", args)
+}
+
+export async function skipTagSuggestionBatch(
+  conversationId: number,
+  batchId: string
+): Promise<void> {
+  return getTransport().call("skip_tag_suggestion_batch", {
+    conversationId,
+    batchId,
+  })
+}
+
+export async function ignoreTagSuggestion(
+  conversationId: number,
+  batchId: string,
+  index: number,
+  tagId?: number
+): Promise<void> {
+  return getTransport().call("ignore_tag_suggestion", {
+    conversationId,
+    batchId,
+    index,
+    tagId,
+  })
+}
+
+export async function restoreIgnoredTag(
+  conversationId: number,
+  key: string
+): Promise<void> {
+  return getTransport().call("restore_ignored_tag", { conversationId, key })
+}
 //
 // 薄封装：只透传命令名与参数，不做任何请求、判断或重试，路由仍由 transport
 // （Tauri invoke / Web fetch / remote）统一处理。后端在

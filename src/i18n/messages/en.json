@@ -1,4 +1,19 @@
 {
+  "AutoTagSuggestions": {
+    "scopeName": "Scope for {name}",
+    "chooseScope": "Choose scope",
+    "global": "Global",
+    "folder": "Current folder",
+    "restore": "Restore",
+    "restoreName": "Restore {name}",
+    "ignore": "Ignore",
+    "ignoreName": "Ignore {name}",
+    "skip": "Skip this batch",
+    "pending": "Tag suggestions available",
+    "failed": "Tag suggestions failed",
+    "generating": "Generating tag suggestions…",
+    "ignored": "Ignored tags"
+  },
   "HtmlCodePreview": {
     "code": "Code",
     "preview": "Preview",
@@ -114,7 +129,7 @@
     "titleInterval": "Title interval (seconds)",
     "titleIntervalHint": "Minimum time between two automatic titles for one conversation ({min}–{max}).",
     "autoSuggestTags": "Suggest tags automatically",
-    "autoSuggestTagsHint": "Coming soon — the switch does nothing yet.",
+    "autoSuggestTagsHint": "Suggest after successful turns, at least 2 minutes apart per conversation. Tags are applied only after confirmation.",
     "testConnection": "Test connection",
     "testSucceeded": "The connection works",
     "testFailed": "The connection test failed",

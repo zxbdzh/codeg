@@ -18,6 +18,9 @@ use super::{auth, handlers, ws};
 use crate::app_state::AppState;
 use tracing::Instrument;
 
+#[cfg(test)]
+mod tag_suggestion_tests;
+
 /// Token-only authentication: the desktop app's web service and the tests.
 pub fn build_router(
     state: Arc<AppState>,
@@ -393,6 +396,14 @@ pub fn build_router_with_proxy_auth(
             "/suggest_conversation_tags",
             post(handlers::ai_assistant::suggest_conversation_tags),
         )
+        .route("/get_tag_suggestion_status", post(handlers::tag_suggestions::get_tag_suggestion_status))
+        .route("/generate_tag_suggestion_batch", post(handlers::tag_suggestions::generate_tag_suggestion_batch))
+        .route("/open_tag_suggestion_batch", post(handlers::tag_suggestions::open_tag_suggestion_batch))
+        .route("/close_tag_suggestion_batch", post(handlers::tag_suggestions::close_tag_suggestion_batch))
+        .route("/confirm_tag_suggestion_batch", post(handlers::tag_suggestions::confirm_tag_suggestion_batch))
+        .route("/skip_tag_suggestion_batch", post(handlers::tag_suggestions::skip_tag_suggestion_batch))
+        .route("/ignore_tag_suggestion", post(handlers::tag_suggestions::ignore_tag_suggestion))
+        .route("/restore_ignored_tag", post(handlers::tag_suggestions::restore_ignored_tag))
         .route(
             "/apply_suggested_tags",
             post(handlers::ai_assistant::apply_suggested_tags),
