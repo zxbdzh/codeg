@@ -11,7 +11,8 @@ node_modules
 dist
 dist-ssr
 *.local
-tsconfig.tsbuildinfo
+# tsc -b 会产生 tsconfig.tsbuildinfo / tsconfig.build.tsbuildinfo 等变体
+*.tsbuildinfo
 
 # Next.js
 .next/
