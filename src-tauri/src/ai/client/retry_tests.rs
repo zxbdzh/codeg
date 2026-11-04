@@ -8,7 +8,8 @@ async fn http_rate_limits_preserve_the_server_wait_without_exposing_credentials(
     let server = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
         let mut request = [0u8; 2048];
-        socket.read(&mut request).await.unwrap();
+        // 只求读到一个请求以便回包，读到的字节数在测试里没有意义，故显式忽略。
+        let _ = socket.read(&mut request).await.unwrap();
         let body = "try later: test-api-key";
         let response = format!("HTTP/1.1 429 Too Many Requests\r\nRetry-After: 300\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
         socket.write_all(response.as_bytes()).await.unwrap();
