@@ -26,6 +26,16 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test-setup.ts"],
+    // Node 22+ 内置了 webstorage 全局。没给 --localstorage-file 时 `localStorage`
+    // 的值是 undefined，但它仍挂在 globalThis 上作为自有属性，会遮蔽 jsdom 注入
+    // 的实现（连 window.localStorage 一起变成 undefined），于是所有依赖
+    // localStorage 的测试整片失败。关掉这个实验特性，让 jsdom 正常接管；
+    // 老版本 Node 不认识该选项，因此按主版本号判断。
+    // Vitest 4 起 poolOptions 合并回顶层，execArgv 直接写在 test 下。
+    execArgv:
+      Number(process.versions.node.split(".")[0]) >= 22
+        ? ["--no-experimental-webstorage"]
+        : undefined,
     // `browser-agent/` is the isolated-world bundle's source. It is outside
     // `src/` because it is built by esbuild, not Next, and its vendored half
     // is held to Playwright's compiler settings rather than ours.
