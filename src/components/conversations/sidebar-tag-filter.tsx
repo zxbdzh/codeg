@@ -12,6 +12,7 @@ import { Check, ListFilter, Settings2, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import {
   isTagFilterActive,
+  rankTagMatches,
   tagChipStyle,
   toggleTagInFilter,
   type TagFilter,
@@ -229,13 +230,10 @@ function TagFilterPanel({
     ]
   }, [tags, tagsById, folders, allFolders, reachable, t])
 
-  const needle = query.trim().toLowerCase()
   const visible = groups
     .map((group) => ({
       ...group,
-      tags: needle
-        ? group.tags.filter((tag) => tag.name.toLowerCase().includes(needle))
-        : group.tags,
+      tags: rankTagMatches(query, group.tags),
     }))
     .filter((group) => group.tags.length > 0)
   const selected = new Set(filter.tagIds)

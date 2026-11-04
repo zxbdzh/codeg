@@ -14,6 +14,7 @@ import {
   compareTags,
   findTagByName,
   pickNextTagColor,
+  rankTagMatches,
   tagScopeFolderId,
 } from "@/lib/conversation-tags"
 import { formatFolderLabelWithAlias } from "@/lib/folder-display"
@@ -200,12 +201,9 @@ function ConversationTagPickerPanel({
   const reportError = useTagErrorToast()
 
   const q = query.trim()
-  const needle = q.toLowerCase()
-  const match = (tag: ConversationTagDetail) =>
-    !needle || tag.name.toLowerCase().includes(needle)
-  const global = choices.global.filter(match)
-  const own = choices.own.filter(match)
-  const foreign = choices.foreign.filter(match)
+  const global = rankTagMatches(q, choices.global)
+  const own = rankTagMatches(q, choices.own)
+  const foreign = rankTagMatches(q, choices.foreign)
 
   const canCreateGlobal =
     q !== "" && !findTagByName(choices.allTags, null, q) && !creating

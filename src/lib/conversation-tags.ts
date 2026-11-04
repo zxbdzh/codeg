@@ -10,6 +10,7 @@
  */
 import type { CSSProperties } from "react"
 import { labelSwatch } from "@/lib/forge-label-color"
+import { scorePinyinMatch } from "@/lib/pinyin-match"
 import type {
   ConversationTagDetail,
   DbConversationSummary,
@@ -178,6 +179,136 @@ export function findTagByName(
   const key = name.trim().toLowerCase()
   if (!key) return undefined
   return tags.find((t) => t.folder_id === scope && t.name.toLowerCase() === key)
+}
+
+// ── Tag search ───────────────────────────────────────────────────────────
+
+const TAG_SCORE_BASE = 1_000_000
+
+/** 返回 query 在候选文本中的首个命中位置；不是子序列时返回 -1。 */
+function subsequenceFirstIndex(query: string, candidate: string): number {
+  let queryIndex = 0
+  let firstIndex = -1
+  for (
+    let candidateIndex = 0;
+    candidateIndex < candidate.length && queryIndex < query.length;
+    candidateIndex++
+  ) {
+    if (candidate[candidateIndex] === query[queryIndex]) {
+      if (queryIndex === 0) firstIndex = candidateIndex
+      queryIndex++
+    }
+  }
+  return queryIndex === query.length ? firstIndex : -1
+}
+
+/**
+ * 标签数量通常很小，所以这里用短字符串编辑距离换取输入容错；
+ * 只对较短查询开放一两个字符的误差，避免输入一个常见字就命中整组标签。
+ */
+function boundedEditDistance(
+  query: string,
+  candidate: string,
+  maxDistance: number
+): number | null {
+  if (Math.abs(query.length - candidate.length) > maxDistance) return null
+
+  let previous = Array.from({ length: candidate.length + 1 }, (_, i) => i)
+  for (let queryIndex = 1; queryIndex <= query.length; queryIndex++) {
+    const current = [queryIndex]
+    let rowMinimum = current[0]
+
+    for (
+      let candidateIndex = 1;
+      candidateIndex <= candidate.length;
+      candidateIndex++
+    ) {
+      const substitution =
+        previous[candidateIndex - 1] +
+        (query[queryIndex - 1] === candidate[candidateIndex - 1] ? 0 : 1)
+      const insertion = current[candidateIndex - 1] + 1
+      const deletion = previous[candidateIndex] + 1
+      const value = Math.min(substitution, insertion, deletion)
+      current[candidateIndex] = value
+      rowMinimum = Math.min(rowMinimum, value)
+    }
+
+    // 这一行已经不可能在阈值内，提前结束可避免标签很多时无谓计算。
+    if (rowMinimum > maxDistance) return null
+    previous = current
+  }
+
+  return previous[candidate.length] <= maxDistance
+    ? previous[candidate.length]
+    : null
+}
+
+function normalizeTagSearchText(value: string): string {
+  return value.trim().normalize("NFKC").toLowerCase()
+}
+
+/**
+ * 给一个标签名评分：精确、前缀、包含、跳跃、编辑距离、拼音依次降级。
+ * 分数只用于排序，不暴露给 UI，后续替换搜索策略时不会影响调用方。
+ */
+export function scoreTagMatch(query: string, name: string): number | null {
+  const normalizedQuery = normalizeTagSearchText(query)
+  const normalizedName = normalizeTagSearchText(name)
+  if (!normalizedQuery) return null
+
+  if (normalizedName === normalizedQuery) {
+    return 6 * TAG_SCORE_BASE - normalizedName.length
+  }
+  if (normalizedName.startsWith(normalizedQuery)) {
+    return 5 * TAG_SCORE_BASE - normalizedName.length
+  }
+
+  const substringIndex = normalizedName.indexOf(normalizedQuery)
+  if (substringIndex !== -1) {
+    return 4 * TAG_SCORE_BASE - substringIndex * 1_000 - normalizedName.length
+  }
+
+  const subsequenceIndex = subsequenceFirstIndex(
+    normalizedQuery,
+    normalizedName
+  )
+  if (subsequenceIndex !== -1) {
+    return 3 * TAG_SCORE_BASE - subsequenceIndex * 1_000 - normalizedName.length
+  }
+
+  // 单字符查询不做编辑距离，否则几乎所有单字标签都会变成候选。
+  const maxDistance =
+    normalizedQuery.length >= 2
+      ? Math.min(2, Math.max(1, Math.floor(normalizedQuery.length / 3)))
+      : 0
+  const distance = boundedEditDistance(
+    normalizedQuery,
+    normalizedName,
+    maxDistance
+  )
+  return distance == null
+    ? scorePinyinMatch(normalizedQuery, normalizedName)
+    : 2 * TAG_SCORE_BASE - normalizedName.length - distance
+}
+
+/**
+ * 在标签入口复用同一套模糊排序。空查询保留后端顺序，非空查询只返回
+ * 能命中的标签；稳定排序保证同分标签不会在每次输入时跳动。
+ */
+export function rankTagMatches<T extends { name: string }>(
+  query: string,
+  tags: readonly T[]
+): T[] {
+  const normalizedQuery = normalizeTagSearchText(query)
+  if (!normalizedQuery) return tags.slice()
+
+  const scored: Array<{ tag: T; score: number; index: number }> = []
+  tags.forEach((tag, index) => {
+    const score = scoreTagMatch(normalizedQuery, tag.name)
+    if (score != null) scored.push({ tag, score, index })
+  })
+  scored.sort((a, b) => b.score - a.score || a.index - b.index)
+  return scored.map(({ tag }) => tag)
 }
 
 // ── Sidebar tag filter ───────────────────────────────────────────────────

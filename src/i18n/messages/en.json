@@ -2494,11 +2494,11 @@
       "dialogTitleWithFolder": "Search — {name}",
       "tabConversations": "Conversations",
       "tabFiles": "Files",
-      "placeholder": "Search conversations...",
+      "placeholder": "Search titles or tags...",
       "filePlaceholder": "Search files or directories...",
       "allAgents": "All",
       "searching": "Searching...",
-      "typeToSearch": "Type to search conversations",
+      "typeToSearch": "Search titles or tags; Chinese supports pinyin and initials",
       "typeToSearchFiles": "Type to search files or directories",
       "noResults": "No results found.",
       "untitledConversation": "Untitled conversation"

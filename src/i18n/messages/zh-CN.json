@@ -2494,11 +2494,11 @@
       "dialogTitleWithFolder": "搜索 — {name}",
       "tabConversations": "会话",
       "tabFiles": "文件",
-      "placeholder": "搜索会话...",
+      "placeholder": "搜索会话标题或标签...",
       "filePlaceholder": "搜索文件或目录...",
       "allAgents": "全部",
       "searching": "搜索中...",
-      "typeToSearch": "输入关键词搜索会话",
+      "typeToSearch": "输入会话标题或标签搜索，支持拼音全拼、首字母和标签模糊匹配",
       "typeToSearchFiles": "输入关键词搜索文件或目录",
       "noResults": "未找到结果。",
       "untitledConversation": "未命名会话"

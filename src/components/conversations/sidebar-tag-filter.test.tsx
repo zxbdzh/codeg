@@ -102,6 +102,7 @@ beforeEach(() => {
     tag(3, "pinned-tag", 20), // folder 20 is closed, a pinned row carries it
     tag(4, "closed-tag", 30), // folder 30 is closed and nothing shown has it
     tag(5, "open-tag", 40),
+    tag(6, "research", null),
   ]) {
     store.applyChange({ kind: "upsert", tag: t })
   }
@@ -244,6 +245,28 @@ describe("SidebarTagFilterSubmenu row", () => {
 })
 
 describe("SidebarTagFilterSubmenu picking", () => {
+  it.each(["shuziren", "szr"])(
+    "finds a Chinese tag by pinyin %s",
+    async (query) => {
+      useConversationTagsStore.getState().applyChange({
+        kind: "upsert",
+        tag: tag(7, "数字人", null),
+      })
+      const panel = await openPanel()
+      await userEvent.type(searchBox(panel), query)
+      expect(within(panel).getByText("数字人")).toBeVisible()
+      expect(within(panel).queryByText("research")).toBeNull()
+    }
+  )
+
+  it("finds a tag when the query contains a small typo", async () => {
+    const panel = await openPanel()
+    await userEvent.type(searchBox(panel), "reserch")
+
+    expect(within(panel).getByText("research")).toBeTruthy()
+    expect(within(panel).queryByText("bug")).toBeNull()
+  })
+
   it("toggles a tag and keeps the menu open for the next one", async () => {
     const onChange = vi.fn()
     const panel = await openPanel({ onChange })

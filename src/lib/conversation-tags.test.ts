@@ -9,7 +9,9 @@ import {
   normalizeTagColor,
   pickNextTagColor,
   pruneTagFilter,
+  rankTagMatches,
   resolveTags,
+  scoreTagMatch,
   tagFitsScope,
   tagScopeFolderId,
   toggleTagInFilter,
@@ -124,6 +126,51 @@ describe("findTagByName", () => {
     expect(findTagByName(tags, 7, "BUG")?.id).toBe(2)
     expect(findTagByName(tags, 8, "bug")).toBeUndefined()
     expect(findTagByName(tags, null, "  ")).toBeUndefined()
+  })
+})
+
+describe("tag search", () => {
+  it.each(["shuziren", "szr", "shu zi ren", "ＳＺＲ", "shu字ren"])(
+    "matches a Chinese tag with pinyin query %s",
+    (query) => {
+      const tags = [tag(1, { name: "数字人" }), tag(2, { name: "库存管理" })]
+      expect(rankTagMatches(query, tags).map((item) => item.id)).toEqual([1])
+    }
+  )
+
+  it("keeps a literal Latin tag ahead of a pinyin match", () => {
+    const tags = [tag(1, { name: "数字人" }), tag(2, { name: "szr" })]
+    expect(rankTagMatches("szr", tags).map((item) => item.id)).toEqual([2, 1])
+  })
+
+  it("prioritizes exact, prefix, substring, and subsequence matches", () => {
+    const tags = [
+      tag(1, { name: "feature work" }),
+      tag(2, { name: "worktree" }),
+      tag(3, { name: "work" }),
+      tag(4, { name: "wip-or-k" }),
+    ]
+
+    expect(rankTagMatches("work", tags).map((item) => item.id)).toEqual([
+      3, 2, 1, 4,
+    ])
+    expect(scoreTagMatch("wrk", "work")).toBeGreaterThan(0)
+  })
+
+  it("accepts a small typo without turning a short query into a broad match", () => {
+    const tags = [tag(1, { name: "research" }), tag(2, { name: "release" })]
+
+    expect(rankTagMatches("reserch", tags).map((item) => item.id)).toEqual([1])
+    expect(rankTagMatches("x", tags)).toEqual([])
+  })
+
+  it("normalizes full-width text and preserves order for an empty query", () => {
+    const tags = [tag(1, { name: "调研" }), tag(2, { name: "dev" })]
+
+    expect(rankTagMatches("  ＤＥＶ  ", tags).map((item) => item.id)).toEqual([
+      2,
+    ])
+    expect(rankTagMatches("", tags)).toEqual(tags)
   })
 })
 

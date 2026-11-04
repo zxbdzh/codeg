@@ -166,7 +166,9 @@ export function PromptStashControl({
         <PopoverTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
+            // 与输入框左侧的「+」按钮保持同尺寸，避免底部操作行错位。
+            size="icon-xs"
+            className="shrink-0 text-muted-foreground"
             aria-label={t("action")}
             title={t("action")}
             // 面板打开时不锁按钮，否则 Radix 会丢掉锚点导致面板错位。

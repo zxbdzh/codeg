@@ -8,6 +8,7 @@ import { useLocale, useTranslations } from "next-intl"
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { useConversationTagsStore } from "@/stores/conversation-tags-store"
 import { useTabActions } from "@/contexts/tab-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { useWorkspaceActions } from "@/contexts/workspace-context"
@@ -19,10 +20,13 @@ import type {
 } from "@/lib/types"
 import { useFileTree, type FlatFileEntry } from "@/hooks/use-file-tree"
 import { rankFileMatches } from "@/lib/file-search-match"
+import { rankConversationSearchMatches } from "@/lib/conversation-search"
+import { resolveTags } from "@/lib/conversation-tags"
 import { compareAgentType } from "@/lib/types"
 import { getAgentLabel } from "@/lib/custom-agents"
 import { AgentIcon } from "@/components/agent-icon"
 import { ConversationStatusDot } from "@/components/conversations/conversation-status-dot"
+import { ConversationTagChips } from "@/components/conversations/conversation-tag-chip"
 import {
   CommandDialog,
   CommandInput,
@@ -41,7 +45,12 @@ interface SearchCommandDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-export function SearchCommandDialog({
+export function SearchCommandDialog(props: SearchCommandDialogProps) {
+  // Ctrl+K 从外部关闭面板时也卸载本轮输入，重开不会残留查询和筛选。
+  return props.open ? <OpenSearchCommandDialog {...props} /> : null
+}
+
+function OpenSearchCommandDialog({
   open,
   onOpenChange,
 }: SearchCommandDialogProps) {
@@ -51,6 +60,8 @@ export function SearchCommandDialog({
     locale === "zh-CN" ? zhCN : locale === "zh-TW" ? zhTW : enUS
   const { activeFolder: folder, activeFolderId } = useActiveFolder()
   const allConversations = useAppWorkspaceStore((s) => s.conversations)
+  const tags = useConversationTagsStore((s) => s.tags)
+  const tagsById = useConversationTagsStore((s) => s.tagsById)
   const folderId = activeFolderId ?? 0
   const conversations = useMemo(
     () =>
@@ -77,7 +88,6 @@ export function SearchCommandDialog({
   const [agentFilter, setAgentFilter] = useState<AgentType | null>(null)
   const [results, setResults] = useState<DbConversationSummary[]>([])
   const [searching, setSearching] = useState(false)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   const folderPath = folder?.path ?? ""
 
@@ -103,52 +113,58 @@ export function SearchCommandDialog({
     [allFiles, query]
   )
 
-  const doSearch = useCallback(
-    async (q: string, agent: AgentType | null) => {
-      if (!q.trim() && !agent) {
+  const handleDialogOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen) {
+        setQuery("")
+        setAgentFilter(null)
         setResults([])
         setSearching(false)
-        return
+        setActiveTab("conversations")
+        resetFileTree()
       }
+      onOpenChange(nextOpen)
+    },
+    [onOpenChange, resetFileTree]
+  )
+
+  // 按本次打开的文件夹读取候选，标签匹配不能先被后端的标题条件排除。
+  // 输入过程在本地完成，关闭或切换文件夹后的旧响应不能覆盖当前结果。
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    void Promise.resolve().then(async () => {
+      if (cancelled) return
       setSearching(true)
       try {
         const data = await listAllConversations({
           folder_ids: folderId > 0 ? [folderId] : null,
-          search: q.trim() || null,
-          agent_type: agent,
         })
-        setResults(data)
+        if (!cancelled) setResults(data)
       } catch {
-        setResults([])
+        if (!cancelled) setResults([])
       } finally {
-        setSearching(false)
+        if (!cancelled) setSearching(false)
       }
-    },
-    [folderId]
-  )
-
-  // Debounced search on query change (conversations tab only)
-  useEffect(() => {
-    if (activeTab !== "conversations") return
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      doSearch(query, agentFilter)
-    }, 300)
+    })
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
+      cancelled = true
     }
-  }, [query, agentFilter, doSearch, activeTab])
+  }, [open, folderId])
 
-  // Reset state when dialog closes
-  useEffect(() => {
-    if (!open) {
-      setQuery("")
-      setAgentFilter(null)
-      setResults([])
-      setActiveTab("conversations")
-      resetFileTree()
-    }
-  }, [open, resetFileTree])
+  const searchResults = useMemo(() => {
+    const scopedResults =
+      folderId > 0
+        ? results.filter((conversation) => conversation.folder_id === folderId)
+        : results
+    const candidates = agentFilter
+      ? scopedResults.filter(
+          (conversation) => conversation.agent_type === agentFilter
+        )
+      : scopedResults
+    if (!query.trim()) return agentFilter ? candidates : []
+    return rankConversationSearchMatches(query, candidates, tags)
+  }, [results, query, agentFilter, tags, folderId])
 
   const handleSelectConversation = useCallback(
     (conv: DbConversationSummary) => {
@@ -157,9 +173,9 @@ export function SearchCommandDialog({
       // already-active tab, which doesn't change activeTabId.
       openConversations()
       openTab(conv.folder_id, conv.id, conv.agent_type, true)
-      onOpenChange(false)
+      handleDialogOpenChange(false)
     },
-    [openTab, onOpenChange, openConversations]
+    [openTab, handleDialogOpenChange, openConversations]
   )
 
   const handleSelectFile = useCallback(
@@ -174,9 +190,9 @@ export function SearchCommandDialog({
         }
         openFilePreview(entry.relativePath)
       }
-      onOpenChange(false)
+      handleDialogOpenChange(false)
     },
-    [revealInFileTree, openFilePreview, onOpenChange]
+    [revealInFileTree, openFilePreview, handleDialogOpenChange]
   )
 
   const placeholder =
@@ -190,8 +206,9 @@ export function SearchCommandDialog({
           : t("dialogTitle")
       }
       open={open}
-      onOpenChange={onOpenChange}
-      shouldFilter={activeTab === "conversations"}
+      onOpenChange={handleDialogOpenChange}
+      // 结果已按标题和标签统一排序；cmdk 再按标题过滤会丢掉标签命中。
+      shouldFilter={false}
       // Not `autoFocus`: an input focused while mounting takes focus before
       // the focus trap starts listening, so the trap never records it and has
       // nothing to pull focus back to when the chat composer behind the dialog
@@ -303,9 +320,9 @@ export function SearchCommandDialog({
                   ? t("typeToSearch")
                   : t("noResults")}
             </CommandEmpty>
-            {results.length > 0 && (
+            {searchResults.length > 0 && (
               <CommandGroup>
-                {results.map((conv) => (
+                {searchResults.map((conv) => (
                   <CommandItem
                     key={conv.id}
                     value={`${conv.id}-${formatConversationTitle(conv.title)}`}
@@ -314,9 +331,15 @@ export function SearchCommandDialog({
                     <ConversationStatusDot
                       status={conv.status as ConversationStatus}
                     />
-                    <span className="flex-1 truncate">
-                      {formatConversationTitle(conv.title) ||
-                        t("untitledConversation")}
+                    <span className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className="truncate">
+                        {formatConversationTitle(conv.title) ||
+                          t("untitledConversation")}
+                      </span>
+                      <ConversationTagChips
+                        tags={resolveTags(conv.tag_ids, tagsById)}
+                        max={3}
+                      />
                     </span>
                     <span className="text-xs text-muted-foreground shrink-0">
                       {getAgentLabel(conv.agent_type)}

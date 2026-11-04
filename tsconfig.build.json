@@ -8,6 +8,8 @@
     "means nothing type-checks the tests: vitest strips types without checking",
     "them and the ESLint setup is not type-aware. Editors keep using",
     "tsconfig.json, tests and all.",
+    "开发服务器生成的 .next/dev 类型只适用于 next dev，不能混入生产构建；",
+    "否则残留的 validator 会触发 noUnusedLocals，导致打包失败。",
     "`exclude` replaces tsconfig.json's list instead of adding to it, so the",
     "first three entries must stay in step with that file."
   ],
@@ -16,6 +18,7 @@
     "node_modules",
     "src-tauri",
     "browser-agent",
+    ".next/dev",
     "**/*.test.ts",
     "**/*.test.tsx"
   ]
