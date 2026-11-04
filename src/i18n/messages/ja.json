@@ -83,7 +83,8 @@
       "computer_use": "コンピューター操作",
       "quick_messages": "クイックメッセージ",
       "logs": "実行ログ",
-      "ai_assistant": "AIアシスタント"
+      "ai_assistant": "AIアシスタント",
+      "prompt_stash": "入力スタッシュ"
     }
   },
   "AppearanceSettings": {
@@ -2447,14 +2448,17 @@
     "search": {
       "dialogTitle": "検索",
       "dialogTitleWithFolder": "検索 — {name}",
+      "tabAll": "すべて",
       "tabConversations": "会話",
       "tabFiles": "ファイル",
       "placeholder": "会話を検索...",
       "filePlaceholder": "ファイルまたはディレクトリを検索...",
-      "allAgents": "すべて",
+      "allPlaceholder": "会話・タグ・ファイルを検索...",
+      "allAgents": "すべてのエージェント",
       "searching": "検索中...",
       "typeToSearch": "入力して会話を検索",
       "typeToSearchFiles": "入力してファイルまたはディレクトリを検索",
+      "typeToSearchAll": "現在のプロジェクトフォルダー内の会話・タグ・ファイルを検索",
       "noResults": "結果が見つかりません。",
       "untitledConversation": "無題の会話"
     },
@@ -7791,5 +7795,64 @@
     "cancel": "Cancel",
     "deleted": "Collected prompt deleted",
     "deleteFailed": "Could not delete collected prompt"
+  },
+  "PromptStashSettings": {
+    "title": "入力スタッシュ",
+    "description": "保存された入力テンプレートの一覧。旧バージョンの帰属不明の記録はここでのみ管理できます。",
+    "loading": "収藏を読み込み中",
+    "retry": "再試行",
+    "empty": "保存された収藏はありません。会話でインプットを保存するとここに表示されます。",
+    "noResults": "現在の検索とフィルターに一致する収藏がありません。",
+    "refresh": "更新",
+    "search": "プレビュー、会話、プロジェクトを検索",
+    "filter": "収藏をフィルター",
+    "clearFilters": "フィルターをクリア",
+    "clearSelection": "選択を解除",
+    "selectFiltered": "フィルター済みの収藏をすべて選択",
+    "deleteSelected": "選択した収藏を削除",
+    "deleting": "削除中…",
+    "unusedHint": "30日間未使用",
+    "unknownTime": "—",
+    "untitledConversation": "タイトルなしの会話",
+    "noProject": "プロジェクトなし",
+    "attachmentOnly": "（添付ファイルのみ）",
+    "legacySource": "旧バージョン",
+    "draftSource": "下書き",
+    "assetBytes": "{bytes}",
+    "selectEntry": "収藏を選択：{preview}",
+    "deleteEntry": "収藏を削除：{preview}",
+    "columns": {
+      "preview": "プレビュー",
+      "source": "ソース",
+      "status": "ステータス",
+      "savedAt": "保存日時",
+      "attachments": "添付",
+      "actions": "操作"
+    },
+    "statuses": {
+      "deleted": "削除済み会話",
+      "in_progress": "進行中",
+      "pending_review": "レビュー待ち",
+      "completed": "完了",
+      "cancelled": "キャンセル",
+      "none": "—"
+    },
+    "filters": {
+      "all": "すべて",
+      "completed": "完了",
+      "unused": "未使用（30日）",
+      "legacy": "旧バージョン",
+      "draft": "新会話下書き"
+    },
+    "confirmDelete": {
+      "title": "{count}件を削除しますか？",
+      "description": "選択した項目とその添付ファイルが完全に削除されます。",
+      "cancel": "キャンセル",
+      "confirm": "収藏を削除"
+    },
+    "deleteFailed": "一部のエントリの削除に失敗：{message}",
+    "results": "{visible} / {total}件",
+    "selected": "{count}件選択中",
+    "loadFailed": "テンプレートの読み込みに失敗：{message}"
   }
 }

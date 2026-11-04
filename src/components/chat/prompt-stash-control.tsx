@@ -30,21 +30,32 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 
-export function PromptStashControl({
-  capture,
-  clearIfUnchanged,
-  restoreIfEmpty,
-  anchor,
-  shortcut,
-  pending,
-}: {
+interface PromptStashControlProps {
+  scopeKey: string | null
+  draftScopeKey?: string
   capture: () => PromptStashSnapshot | null
   clearIfUnchanged: (snapshot: PromptStashSnapshot) => void
   restoreIfEmpty: (snapshot: PromptStashSnapshot) => boolean
   anchor: React.RefObject<HTMLElement | null>
   shortcut: string
   pending: boolean
-}) {
+}
+
+export function PromptStashControl(props: PromptStashControlProps) {
+  // 归属改变就卸载旧列表及删除确认；旧请求不能回填新对话的输入框。
+  return <ScopedPromptStashControl key={props.scopeKey ?? "unbound"} {...props} />
+}
+
+function ScopedPromptStashControl({
+  scopeKey,
+  draftScopeKey,
+  capture,
+  clearIfUnchanged,
+  restoreIfEmpty,
+  anchor,
+  shortcut,
+  pending,
+}: PromptStashControlProps) {
   const t = useTranslations("PromptStash")
   const [open, setOpen] = useState(false)
   const [entries, setEntries] = useState<PromptStashEntry[]>([])
@@ -55,39 +66,46 @@ export function PromptStashControl({
     null
   )
   const inFlight = useRef(false)
-  const latest = useRef({ capture, clearIfUnchanged, restoreIfEmpty })
-  latest.current = { capture, clearIfUnchanged, restoreIfEmpty }
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
   const act = useCallback(
     async (event?: React.MouseEvent<HTMLButtonElement>) => {
-      if (inFlight.current || pending) return
-      const snapshot = latest.current.capture()
+      if (inFlight.current || pending || !scopeKey) return
+      // 保存期间切换对话不能用新输入框的回调清空或回填；使用本次操作的宿主。
+      const snapshot = capture()
       if (snapshot) event?.preventDefault()
       inFlight.current = true
       setBusy(true)
       setError(null)
       try {
         if (snapshot) {
-          await savePromptStash(snapshot)
+          await savePromptStash(snapshot, scopeKey, draftScopeKey)
+          if (!mounted.current) return
           // 回调由宿主检查 editor 身份、草稿 key 与整个快照；复制期间新输入不丢失。
-          latest.current.clearIfUnchanged(snapshot)
+          clearIfUnchanged(snapshot)
           toast.success(t("saved"))
           setOpen(false)
         } else {
           setOpen(true)
-          setEntries(await listPromptStash())
+          const rows = await listPromptStash(scopeKey, draftScopeKey)
+          if (mounted.current) setEntries(rows)
         }
       } catch (err) {
+        if (!mounted.current) return
         setError(toErrorMessage(err))
         toast.error(t("failed"), { description: toErrorMessage(err) })
       } finally {
-        setBusy(false)
+        if (mounted.current) setBusy(false)
         inFlight.current = false
       }
     },
-    [pending, t]
+    [pending, t, scopeKey, draftScopeKey, capture, clearIfUnchanged]
   )
   useEffect(() => {
-    if (!shortcut) return
+    if (!shortcut || !scopeKey) return
     const listener = (event: KeyboardEvent) => {
       if (
         event.isComposing ||
@@ -103,24 +121,25 @@ export function PromptStashControl({
     }
     document.addEventListener("keydown", listener, true)
     return () => document.removeEventListener("keydown", listener, true)
-  }, [act, anchor, shortcut])
+  }, [act, anchor, shortcut, scopeKey])
 
   /** 取用一条：回填成功即视为消费，把它从列表与后端一起删掉。 */
   const restore = async (entry: PromptStashEntry) => {
-    if (inFlight.current) return
+    if (inFlight.current || !scopeKey) return
     inFlight.current = true
     setBusy(true)
     setError(null)
     try {
-      const snapshot = await restorePromptStash(entry.id)
+      const snapshot = await restorePromptStash(entry.id, scopeKey, draftScopeKey)
+      if (!mounted.current) return
       // 输入框已有内容时放弃回填，此时模板原样保留。
-      if (!latest.current.restoreIfEmpty(snapshot)) {
+      if (!restoreIfEmpty(snapshot)) {
         toast.info(t("inputChanged"))
         return
       }
       setEntries((current) => current.filter((item) => item.id !== entry.id))
       try {
-        await removePromptStash(entry.id)
+        await removePromptStash(entry.id, scopeKey, draftScopeKey)
       } catch (err) {
         // 回填已经生效，删除失败只提示，不把内容收回去。
         toast.error(t("deleteFailed"), { description: toErrorMessage(err) })
@@ -136,12 +155,12 @@ export function PromptStashControl({
 
   const confirmDelete = async () => {
     const entry = pendingDelete
-    if (!entry || inFlight.current) return
+    if (!entry || inFlight.current || !scopeKey) return
     inFlight.current = true
     setBusy(true)
     setError(null)
     try {
-      await removePromptStash(entry.id)
+      await removePromptStash(entry.id, scopeKey, draftScopeKey)
       setEntries((current) => current.filter((item) => item.id !== entry.id))
       toast.success(t("deleted"))
     } catch (err) {
@@ -172,7 +191,7 @@ export function PromptStashControl({
             aria-label={t("action")}
             title={t("action")}
             // 面板打开时不锁按钮，否则 Radix 会丢掉锚点导致面板错位。
-            disabled={!open && (busy || pending)}
+            disabled={!scopeKey || (!open && (busy || pending))}
             onClick={(event) => {
               void act(event)
             }}

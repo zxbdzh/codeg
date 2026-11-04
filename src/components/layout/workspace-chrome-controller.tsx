@@ -16,6 +16,7 @@ import {
 } from "@/contexts/workspace-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { useSearchDialog } from "@/contexts/search-dialog-context"
+import { useDoubleShift } from "@/hooks/use-double-shift"
 import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
 import {
   isConversationDeleted,
@@ -86,7 +87,13 @@ export function WorkspaceChromeController() {
   // Search open-state is shared (see search-dialog-context): the trigger lives
   // in the sidebar, but this always-mounted controller owns the dialog and the
   // ⌘K shortcut so search works even when the sidebar is collapsed.
-  const { open: searchOpen, setOpen: setSearchOpen } = useSearchDialog()
+  const {
+    open: searchOpen,
+    setOpen: setSearchOpen,
+    initialTab: searchInitialTab,
+    setInitialTab: setSearchInitialTab,
+    openSearch,
+  } = useSearchDialog()
   const [browserOpen, setBrowserOpen] = useState(false)
 
   // One dialog on every platform: it owns directory selection *and* the
@@ -99,6 +106,15 @@ export function WorkspaceChromeController() {
       console.error("[WorkspaceChromeController] failed to open settings:", err)
     })
   }, [])
+
+  // 双击 Shift 是 IDEA 式「全局搜索」入口：普通搜索仍从「会话」页开始，这个
+  // 手势直接进「全部」，把当前项目文件夹内的会话和文件放进同一个列表。
+  const openGlobalSearch = useCallback(() => {
+    // 已有模态框（包括搜索面板自己）时不再叠一层。
+    if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return
+    openSearch("all")
+  }, [openSearch])
+  useDoubleShift(openGlobalSearch)
 
   // Close the current tab of the strip that belongs to `pane`. False when
   // there is none, which leaves ⌘W to the OS: it closes the window.
@@ -237,6 +253,8 @@ export function WorkspaceChromeController() {
       }
       if (matchShortcutEvent(e, shortcuts.toggle_search)) {
         e.preventDefault()
+        // 普通搜索（⌘K / 按钮）回到「会话」页；「全部」只由双击 Shift 打开。
+        setSearchInitialTab("conversations")
         setSearchOpen((prev) => !prev)
         return
       }
@@ -428,6 +446,7 @@ export function WorkspaceChromeController() {
     openFilePreview,
     openBrowserTab,
     setSearchOpen,
+    setSearchInitialTab,
     shortcuts,
     aiTaggingReady,
     toggle,
@@ -451,7 +470,11 @@ export function WorkspaceChromeController() {
     <>
       <AiAssistantNotifications />
       <AiTagSuggestionsHost />
-      <SearchCommandDialog open={searchOpen} onOpenChange={setSearchOpen} />
+      <SearchCommandDialog
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        initialTab={searchInitialTab}
+      />
       <WorkspaceFolderDialog open={browserOpen} onOpenChange={setBrowserOpen} />
     </>
   )

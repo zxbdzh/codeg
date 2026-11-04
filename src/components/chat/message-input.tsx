@@ -215,6 +215,7 @@ interface MessageInputProps {
    *  picker falls back to the workspace's active tab. */
   folderPickerOverride?: ConversationFolderPickerOverride
   draftStorageKey?: string | null
+  promptStashScopeKey?: string | null
   isActive?: boolean
   /** Paint the flowing active-session gradient on the composer border. Set only
    *  for the active tab while tiled across multiple sessions; a lone or
@@ -356,6 +357,7 @@ export function MessageInput({
   attachmentTabId,
   folderPickerOverride,
   draftStorageKey,
+  promptStashScopeKey,
   isActive = false,
   showActiveFlow = false,
   onEnqueue,
@@ -2256,6 +2258,17 @@ export function MessageInput({
                     feedbackAddDisabled={feedbackAddDisabled}
                   />
                   <PromptStashControl
+                    key={promptStashScopeKey ?? effectiveDraftStorageKey ?? "unbound"}
+                    scopeKey={promptStashScopeKey ?? effectiveDraftStorageKey}
+                    draftScopeKey={
+                      (promptStashScopeKey ?? effectiveDraftStorageKey)?.startsWith("conv:")
+                        ? effectiveDraftStorageKey?.startsWith("canvas-draft:")
+                          ? effectiveDraftStorageKey
+                          : attachmentTabId
+                            ? `draft:${attachmentTabId}`
+                            : undefined
+                        : undefined
+                    }
                     capture={stashCapture}
                     clearIfUnchanged={stashClear}
                     restoreIfEmpty={stashRestore}

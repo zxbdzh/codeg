@@ -6260,4 +6260,12 @@ export interface PromptStashEntry {
   preview: string
   updatedAt: string
   attachmentCount: number
+  /** NULL 表示升级前无法判断归属的收藏，仅供设置管理页清理。 */
+  scopeKey: string | null
+  conversationId: number | null
+  conversationTitle: string | null
+  conversationStatus: ConversationStatus | null
+  conversationDeleted: boolean
+  folderName: string | null
+  assetBytes: number
 }

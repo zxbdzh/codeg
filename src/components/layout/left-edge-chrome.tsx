@@ -37,7 +37,7 @@ import { MAC_TRAFFIC_LIGHT_INSET, leftChromeReserve } from "@/lib/window-chrome"
 export function LeftEdgeChrome() {
   const tTitleBar = useTranslations("Folder.folderTitleBar")
   const { isOpen, toggle } = useSidebarContext()
-  const { setOpen: setSearchOpen } = useSearchDialog()
+  const { openSearch } = useSearchDialog()
   const isMac = useIsMac()
   const { shortcuts } = useShortcutSettings()
   const { isMac: platformIsMac } = usePlatform()
@@ -78,7 +78,7 @@ export function LeftEdgeChrome() {
           variant="ghost"
           size="icon"
           className="h-6 w-6 hover:bg-foreground/10 hover:text-foreground/80 dark:hover:bg-foreground/10"
-          onClick={() => setSearchOpen(true)}
+          onClick={() => openSearch()}
           title={tTitleBar("withShortcut", {
             label: tTitleBar("search"),
             shortcut: formatShortcutLabel(shortcuts.toggle_search, isMac),

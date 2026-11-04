@@ -25,6 +25,13 @@ function entry(id: number, preview: string): PromptStashEntry {
     preview,
     updatedAt: "2026-10-31T11:48:02.000Z",
     attachmentCount: 0,
+    scopeKey: "conv:1",
+    conversationId: 1,
+    conversationTitle: "Test Conversation",
+    conversationStatus: "completed",
+    conversationDeleted: false,
+    folderName: "Test Project",
+    assetBytes: 0,
   }
 }
 
@@ -40,6 +47,7 @@ function renderControl() {
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
       <PromptStashControl
+        scopeKey="conv:1"
         capture={() => null}
         clearIfUnchanged={() => {}}
         restoreIfEmpty={restoreIfEmpty}
@@ -77,7 +85,13 @@ describe("PromptStashControl", () => {
 
     await waitFor(() => expect(restoreIfEmpty).toHaveBeenCalled())
     // 取用即消费：后端记录随之删除，列表不再保留这一条。
-    await waitFor(() => expect(api.removePromptStash).toHaveBeenCalledWith(1))
+    await waitFor(() =>
+      expect(api.removePromptStash).toHaveBeenCalledWith(
+        1,
+        "conv:1",
+        undefined
+      )
+    )
   })
 
   it("keeps the entry when the input already had content", async () => {
@@ -104,7 +118,13 @@ describe("PromptStashControl", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "Delete" }))
 
-    await waitFor(() => expect(api.removePromptStash).toHaveBeenCalledWith(1))
+    await waitFor(() =>
+      expect(api.removePromptStash).toHaveBeenCalledWith(
+        1,
+        "conv:1",
+        undefined
+      )
+    )
     await waitFor(() => expect(screen.queryByText("first")).toBeNull())
     expect(api.restorePromptStash).not.toHaveBeenCalled()
   })

@@ -83,7 +83,8 @@
       "computer_use": "Uso del ordenador",
       "quick_messages": "Mensajes rápidos",
       "logs": "Registros de ejecución",
-      "ai_assistant": "Asistente de IA"
+      "ai_assistant": "Asistente de IA",
+      "prompt_stash": "Entradas guardadas"
     }
   },
   "AppearanceSettings": {
@@ -2447,14 +2448,17 @@
     "search": {
       "dialogTitle": "Buscar",
       "dialogTitleWithFolder": "Buscar — {name}",
+      "tabAll": "Todo",
       "tabConversations": "Conversaciones",
       "tabFiles": "Archivos",
       "placeholder": "Buscar conversaciones...",
       "filePlaceholder": "Buscar archivos o directorios...",
-      "allAgents": "Todo",
+      "allPlaceholder": "Busca conversaciones, etiquetas y archivos...",
+      "allAgents": "Todos los agentes",
       "searching": "Buscando...",
       "typeToSearch": "Escribe para buscar conversaciones",
       "typeToSearchFiles": "Escribe para buscar archivos o directorios",
+      "typeToSearchAll": "Busca conversaciones, etiquetas y archivos en el proyecto actual",
       "noResults": "No se encontraron resultados.",
       "untitledConversation": "Conversación sin título"
     },
@@ -7791,5 +7795,64 @@
     "cancel": "Cancel",
     "deleted": "Collected prompt deleted",
     "deleteFailed": "Could not delete collected prompt"
+  },
+  "PromptStashSettings": {
+    "title": "Entradas guardadas",
+    "description": "Todas las plantillas guardadas. Los registros heredados sin conversación solo se gestionan aquí.",
+    "loading": "Cargando favoritos",
+    "retry": "Reintentar",
+    "empty": "No hay favoritos guardados. Guarda la entrada de una conversación para verla aquí.",
+    "noResults": "Ningún favorito coincide con la búsqueda y el filtro actuales.",
+    "refresh": "Actualizar",
+    "search": "Buscar vista previa, conversación o proyecto",
+    "filter": "Filtrar favoritos",
+    "clearFilters": "Limpiar filtros",
+    "clearSelection": "Deseleccionar",
+    "selectFiltered": "Seleccionar todos los favoritos filtrados",
+    "deleteSelected": "Eliminar seleccionados",
+    "deleting": "Eliminando…",
+    "unusedHint": "Sin usar 30+ días",
+    "unknownTime": "—",
+    "untitledConversation": "Conversación sin título",
+    "noProject": "Sin proyecto",
+    "attachmentOnly": "(solo adjunto)",
+    "legacySource": "Heredado",
+    "draftSource": "Borrador",
+    "assetBytes": "{bytes}",
+    "selectEntry": "Seleccionar favorito: {preview}",
+    "deleteEntry": "Eliminar favorito: {preview}",
+    "columns": {
+      "preview": "Vista previa",
+      "source": "Origen",
+      "status": "Estado",
+      "savedAt": "Guardado",
+      "attachments": "Archivos",
+      "actions": "Acciones"
+    },
+    "statuses": {
+      "deleted": "Conversación eliminada",
+      "in_progress": "En progreso",
+      "pending_review": "Revisión pendiente",
+      "completed": "Completado",
+      "cancelled": "Cancelado",
+      "none": "—"
+    },
+    "filters": {
+      "all": "Todos",
+      "completed": "Completados",
+      "unused": "Sin usar (30d)",
+      "legacy": "Heredados",
+      "draft": "Borradores nuevos"
+    },
+    "confirmDelete": {
+      "title": "¿Eliminar {count} entradas?",
+      "description": "Se eliminarán permanentemente las entradas seleccionadas y sus adjuntos.",
+      "cancel": "Cancelar",
+      "confirm": "Eliminar favoritos"
+    },
+    "deleteFailed": "No se pudieron eliminar algunas entradas: {message}",
+    "results": "{visible} / {total}",
+    "selected": "{count} seleccionadas",
+    "loadFailed": "Error al cargar plantillas: {message}"
   }
 }

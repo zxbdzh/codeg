@@ -83,7 +83,8 @@
       "computer_use": "Computernutzung",
       "quick_messages": "Schnellnachrichten",
       "logs": "Laufzeitprotokolle",
-      "ai_assistant": "KI-Assistent"
+      "ai_assistant": "KI-Assistent",
+      "prompt_stash": "Eingabe-Stash"
     }
   },
   "AppearanceSettings": {
@@ -2447,14 +2448,17 @@
     "search": {
       "dialogTitle": "Suchen",
       "dialogTitleWithFolder": "Suchen — {name}",
+      "tabAll": "Alle",
       "tabConversations": "Konversationen",
       "tabFiles": "Dateien",
       "placeholder": "Konversationen suchen...",
       "filePlaceholder": "Dateien oder Verzeichnisse suchen...",
-      "allAgents": "Alle",
+      "allPlaceholder": "Konversationen, Tags und Dateien durchsuchen...",
+      "allAgents": "Alle Agenten",
       "searching": "Suche...",
       "typeToSearch": "Tippen, um Konversationen zu suchen",
       "typeToSearchFiles": "Tippen, um Dateien oder Verzeichnisse zu suchen",
+      "typeToSearchAll": "Konversationen, Tags und Dateien im aktuellen Projekt durchsuchen",
       "noResults": "Keine Ergebnisse gefunden.",
       "untitledConversation": "Unbenannte Konversation"
     },
@@ -7791,5 +7795,64 @@
     "cancel": "Cancel",
     "deleted": "Collected prompt deleted",
     "deleteFailed": "Could not delete collected prompt"
+  },
+  "PromptStashSettings": {
+    "title": "Eingabe-Stash",
+    "description": "Alle gespeicherten Eingabevorlagen. Ältere Einträge ohne Zuordnung werden nur hier verwaltet.",
+    "loading": "Favoriten laden",
+    "retry": "Erneut versuchen",
+    "empty": "Keine gespeicherten Favoriten. Speichere Eingaben aus einem Gespräch, um sie hier zu sehen.",
+    "noResults": "Keine Favoriten entsprechen der aktuellen Suche und dem Filter.",
+    "refresh": "Aktualisieren",
+    "search": "Vorschau, Gespräch oder Projekt suchen",
+    "filter": "Favoriten filtern",
+    "clearFilters": "Filter zurücksetzen",
+    "clearSelection": "Auswahl aufheben",
+    "selectFiltered": "Alle gefilterten Favoriten auswählen",
+    "deleteSelected": "Ausgewählte löschen",
+    "deleting": "Wird gelöscht…",
+    "unusedHint": "Seit 30+ Tagen ungenutzt",
+    "unknownTime": "—",
+    "untitledConversation": "Unbenannte Unterhaltung",
+    "noProject": "Kein Projekt",
+    "attachmentOnly": "(nur Anhang)",
+    "legacySource": "Legacy",
+    "draftSource": "Entwurf",
+    "assetBytes": "{bytes}",
+    "selectEntry": "Favorit auswählen: {preview}",
+    "deleteEntry": "Löschen Favorit: {preview}",
+    "columns": {
+      "preview": "Vorschau",
+      "source": "Quelle",
+      "status": "Status",
+      "savedAt": "Gespeichert",
+      "attachments": "Dateien",
+      "actions": "Aktionen"
+    },
+    "statuses": {
+      "deleted": "Gelöschte Unterhaltung",
+      "in_progress": "Läuft",
+      "pending_review": "Überprüfung ausstehend",
+      "completed": "Abgeschlossen",
+      "cancelled": "Abgebrochen",
+      "none": "—"
+    },
+    "filters": {
+      "all": "Alle",
+      "completed": "Abgeschlossen",
+      "unused": "Ungenutzt (30T)",
+      "legacy": "Legacy",
+      "draft": "Neue Entwürfe"
+    },
+    "confirmDelete": {
+      "title": "{count} Einträge löschen?",
+      "description": "Die ausgewählten Einträge und ihre Anhänge werden dauerhaft gelöscht.",
+      "cancel": "Abbrechen",
+      "confirm": "Favoriten löschen"
+    },
+    "deleteFailed": "Einige Einträge konnten nicht gelöscht werden: {message}",
+    "results": "{visible} / {total}",
+    "selected": "{count} ausgewählt",
+    "loadFailed": "Vorlagen konnten nicht geladen werden: {message}"
   }
 }

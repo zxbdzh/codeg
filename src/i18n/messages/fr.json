@@ -83,7 +83,8 @@
       "computer_use": "Utilisation de l'ordinateur",
       "quick_messages": "Messages rapides",
       "logs": "Journaux d'exécution",
-      "ai_assistant": "Assistant IA"
+      "ai_assistant": "Assistant IA",
+      "prompt_stash": "Entrées enregistrées"
     }
   },
   "AppearanceSettings": {
@@ -2447,14 +2448,17 @@
     "search": {
       "dialogTitle": "Rechercher",
       "dialogTitleWithFolder": "Rechercher — {name}",
+      "tabAll": "Tout",
       "tabConversations": "Conversations",
       "tabFiles": "Fichiers",
       "placeholder": "Rechercher des conversations...",
       "filePlaceholder": "Rechercher des fichiers ou répertoires...",
-      "allAgents": "Tout",
+      "allPlaceholder": "Rechercher conversations, étiquettes et fichiers...",
+      "allAgents": "Tous les agents",
       "searching": "Recherche...",
       "typeToSearch": "Tapez pour rechercher des conversations",
       "typeToSearchFiles": "Tapez pour rechercher des fichiers ou répertoires",
+      "typeToSearchAll": "Rechercher conversations, étiquettes et fichiers dans le projet actuel",
       "noResults": "Aucun résultat trouvé.",
       "untitledConversation": "Conversation sans titre"
     },
@@ -7791,5 +7795,64 @@
     "cancel": "Cancel",
     "deleted": "Collected prompt deleted",
     "deleteFailed": "Could not delete collected prompt"
+  },
+  "PromptStashSettings": {
+    "title": "Entrées enregistrées",
+    "description": "Tous les modèles d'entrée sauvegardés. Les anciens enregistrements sans conversation ne sont gérés qu'ici.",
+    "loading": "Chargement des favoris",
+    "retry": "Réessayer",
+    "empty": "Aucun favori enregistré. Sauvegardez une entrée depuis une conversation pour la voir ici.",
+    "noResults": "Aucun favori ne correspond à la recherche et au filtre actuels.",
+    "refresh": "Actualiser",
+    "search": "Rechercher aperçu, conversation ou projet",
+    "filter": "Filtrer les favoris",
+    "clearFilters": "Effacer les filtres",
+    "clearSelection": "Désélectionner",
+    "selectFiltered": "Sélectionner tous les favoris filtrés",
+    "deleteSelected": "Supprimer la sélection",
+    "deleting": "Suppression…",
+    "unusedHint": "Inutilisé depuis 30+ jours",
+    "unknownTime": "—",
+    "untitledConversation": "Conversation sans titre",
+    "noProject": "Sans projet",
+    "attachmentOnly": "(pièce jointe uniquement)",
+    "legacySource": "Hérité",
+    "draftSource": "Brouillon",
+    "assetBytes": "{bytes}",
+    "selectEntry": "Sélectionner le favori : {preview}",
+    "deleteEntry": "Supprimer le favori : {preview}",
+    "columns": {
+      "preview": "Aperçu",
+      "source": "Source",
+      "status": "Statut",
+      "savedAt": "Enregistré",
+      "attachments": "Fichiers",
+      "actions": "Actions"
+    },
+    "statuses": {
+      "deleted": "Conversation supprimée",
+      "in_progress": "En cours",
+      "pending_review": "En attente de révision",
+      "completed": "Terminé",
+      "cancelled": "Annulé",
+      "none": "—"
+    },
+    "filters": {
+      "all": "Tous",
+      "completed": "Terminés",
+      "unused": "Inutilisés (30j)",
+      "legacy": "Hérités",
+      "draft": "Nouveaux brouillons"
+    },
+    "confirmDelete": {
+      "title": "Supprimer {count} entrées ?",
+      "description": "Les entrées sélectionnées et leurs pièces jointes seront définitivement supprimées.",
+      "cancel": "Annuler",
+      "confirm": "Supprimer les favoris"
+    },
+    "deleteFailed": "Certaines entrées n'ont pas pu être supprimées : {message}",
+    "results": "{visible} / {total}",
+    "selected": "{count} sélectionnées",
+    "loadFailed": "Impossible de charger les modèles : {message}"
   }
 }

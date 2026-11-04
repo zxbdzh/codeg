@@ -6,8 +6,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
-    QueryOrder, Set,
+    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait,
+    QueryFilter, QueryOrder, Set,
 };
 use sha2::{Digest, Sha256};
 
@@ -30,6 +30,7 @@ pub const PREVIEW_MAX_CHARS: usize = 80;
 /// 它们是派生值，让调用方各自算一遍迟早会算出两种口径。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewStashItem {
+    pub scope_key: Option<String>,
     pub text: String,
     pub doc_json: String,
     pub attachments_json: String,
@@ -97,6 +98,10 @@ pub async fn save(
 
     let existing = prompt_stash::Entity::find()
         .filter(prompt_stash::Column::Fingerprint.eq(fingerprint.clone()))
+        .filter(match &item.scope_key {
+            Some(scope) => prompt_stash::Column::ScopeKey.eq(scope.clone()),
+            None => prompt_stash::Column::ScopeKey.is_null(),
+        })
         .one(conn)
         .await
         .map_err(DbError::from)?;
@@ -117,6 +122,7 @@ pub async fn save(
         None => {
             let inserted = prompt_stash::Entity::insert(prompt_stash::ActiveModel {
                 id: NotSet,
+                scope_key: Set(item.scope_key.clone()),
                 text: Set(item.text.clone()),
                 doc_json: Set(item.doc_json.clone()),
                 attachments_json: Set(item.attachments_json.clone()),
@@ -133,7 +139,9 @@ pub async fn save(
                 .one(conn)
                 .await
                 .map_err(DbError::from)?
-                .ok_or_else(|| DbError::NotFound("prompt_stash row vanished after insert".into()))?;
+                .ok_or_else(|| {
+                    DbError::NotFound("prompt_stash row vanished after insert".into())
+                })?;
             (row, true)
         }
     };
@@ -151,6 +159,18 @@ pub async fn save(
 /// 就是"我最近关心的模板"。
 pub async fn list(conn: &DatabaseConnection) -> Result<Vec<prompt_stash::Model>, DbError> {
     Ok(prompt_stash::Entity::find()
+        .order_by_desc(prompt_stash::Column::UpdatedAt)
+        .order_by_desc(prompt_stash::Column::Id)
+        .all(conn)
+        .await?)
+}
+
+pub async fn list_scope(
+    conn: &DatabaseConnection,
+    scope: &str,
+) -> Result<Vec<prompt_stash::Model>, DbError> {
+    Ok(prompt_stash::Entity::find()
+        .filter(prompt_stash::Column::ScopeKey.eq(scope))
         .order_by_desc(prompt_stash::Column::UpdatedAt)
         .order_by_desc(prompt_stash::Column::Id)
         .all(conn)
@@ -234,6 +254,7 @@ mod tests {
 
     fn item(text: &str) -> NewStashItem {
         NewStashItem {
+            scope_key: Some("conv:1".to_string()),
             text: text.to_string(),
             doc_json: format!(r#"{{"type":"doc","text":"{text}"}}"#),
             attachments_json: "[]".to_string(),
@@ -245,7 +266,9 @@ mod tests {
     async fn a_saved_item_comes_back_in_the_list() {
         let db = fresh_in_memory_db().await;
 
-        let outcome = save(&db.conn, item("先跑一遍 lint\n再跑测试")).await.expect("save");
+        let outcome = save(&db.conn, item("先跑一遍 lint\n再跑测试"))
+            .await
+            .expect("save");
         let listed = list(&db.conn).await.expect("list");
 
         assert!(outcome.created);
@@ -264,9 +287,15 @@ mod tests {
         let second = save(&db.conn, item("模板 A")).await.expect("save a again");
         let listed = list(&db.conn).await.expect("list");
 
-        assert!(!second.created, "the same content must not create a second row");
+        assert!(
+            !second.created,
+            "the same content must not create a second row"
+        );
         assert_eq!(listed.len(), 2);
-        assert_eq!(listed[0].text, "模板 A", "the reused entry moves to the top");
+        assert_eq!(
+            listed[0].text, "模板 A",
+            "the reused entry moves to the top"
+        );
     }
 
     #[tokio::test]
@@ -277,10 +306,15 @@ mod tests {
             ..item("同样的文字")
         };
 
-        save(&db.conn, item("同样的文字")).await.expect("save text only");
+        save(&db.conn, item("同样的文字"))
+            .await
+            .expect("save text only");
         let second = save(&db.conn, with_image).await.expect("save with image");
 
-        assert!(second.created, "a different attachment set is a different entry");
+        assert!(
+            second.created,
+            "a different attachment set is a different entry"
+        );
         assert_eq!(list(&db.conn).await.expect("list").len(), 2);
     }
 

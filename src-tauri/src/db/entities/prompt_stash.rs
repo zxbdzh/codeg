@@ -1,14 +1,13 @@
 use sea_orm::entity::prelude::*;
 
-/// 输入框收藏的一条记录。跨会话、跨项目共享，不属于任何会话或文件夹。
-///
-/// `fingerprint` 唯一：正文与附件的指纹相同就是同一条，收藏时会把它置顶而
-/// 不是再插一条。
+/// 输入框收藏按对话/新对话草稿隔离；旧版无归属记录仅在设置里管理。
+/// 相同内容只在同一个 scope_key 内去重，附件内容指纹仍可共享磁盘副本。
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "prompt_stash")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
+    pub scope_key: Option<String>,
     /// 正文纯文本影子，供列表预览与搜索。
     pub text: String,
     /// 输入框文档快照（富文本），恢复时原样回填。

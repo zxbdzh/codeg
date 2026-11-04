@@ -83,7 +83,8 @@
       "computer_use": "Computer Use",
       "quick_messages": "Quick Messages",
       "logs": "Runtime Logs",
-      "ai_assistant": "AI Assistant"
+      "ai_assistant": "AI Assistant",
+      "prompt_stash": "Input Stash"
     }
   },
   "AiAssistantSettings": {
@@ -2509,14 +2510,17 @@
     "search": {
       "dialogTitle": "Search",
       "dialogTitleWithFolder": "Search — {name}",
+      "tabAll": "All",
       "tabConversations": "Conversations",
       "tabFiles": "Files",
       "placeholder": "Search titles or tags...",
       "filePlaceholder": "Search files or directories...",
-      "allAgents": "All",
+      "allPlaceholder": "Search conversations, tags, and files...",
+      "allAgents": "All agents",
       "searching": "Searching...",
       "typeToSearch": "Search titles or tags; Chinese supports pinyin and initials",
       "typeToSearchFiles": "Type to search files or directories",
+      "typeToSearchAll": "Search conversations, tags, and files in the current project",
       "noResults": "No results found.",
       "untitledConversation": "Untitled conversation"
     },
@@ -7791,5 +7795,64 @@
     "cancel": "Cancel",
     "deleted": "Collected prompt deleted",
     "deleteFailed": "Could not delete collected prompt"
+  },
+  "PromptStashSettings": {
+    "title": "Input Stash",
+    "description": "All saved input templates. Old entries without a conversation have null scope and can only be managed here.",
+    "loading": "Loading favorites",
+    "retry": "Retry",
+    "empty": "No saved favorites. Save input from a conversation to see it here.",
+    "noResults": "No favorites match the current search and filter.",
+    "refresh": "Refresh",
+    "search": "Search preview, conversation or project",
+    "filter": "Filter favorites",
+    "clearFilters": "Clear filters",
+    "clearSelection": "Clear selection",
+    "selectFiltered": "Select all filtered favorites",
+    "deleteSelected": "Delete selected",
+    "deleting": "Deleting…",
+    "unusedHint": "Unused for 30+ days",
+    "unknownTime": "—",
+    "untitledConversation": "Untitled conversation",
+    "noProject": "No project",
+    "attachmentOnly": "(attachment only)",
+    "legacySource": "Legacy",
+    "draftSource": "Draft",
+    "assetBytes": "Attachment storage: {bytes} bytes",
+    "selectEntry": "Select favorite: {preview}",
+    "deleteEntry": "Delete favorite: {preview}",
+    "columns": {
+      "preview": "Preview",
+      "source": "Source",
+      "status": "Status",
+      "savedAt": "Saved",
+      "attachments": "Files",
+      "actions": "Actions"
+    },
+    "statuses": {
+      "deleted": "Conversation deleted",
+      "in_progress": "Running",
+      "pending_review": "Reviewing",
+      "completed": "Completed",
+      "cancelled": "Cancelled",
+      "none": "—"
+    },
+    "filters": {
+      "all": "All",
+      "completed": "Completed / cancelled",
+      "unused": "Unused for 30 days",
+      "legacy": "Legacy, unassigned",
+      "draft": "New conversation drafts"
+    },
+    "confirmDelete": {
+      "title": "Delete {count} entries?",
+      "description": "This will permanently delete the selected entries and their attachments.",
+      "cancel": "Cancel",
+      "confirm": "Delete favorites"
+    },
+    "deleteFailed": "Some entries could not be deleted: {message}",
+    "results": "{visible} / {total}",
+    "selected": "{count} selected",
+    "loadFailed": "Could not load saved templates: {message}"
   }
 }

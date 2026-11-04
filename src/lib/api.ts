@@ -6810,21 +6810,46 @@ export async function testAiAssistantConnection(): Promise<void> {
 }
 
 export async function savePromptStash(
-  snapshot: import("./types").PromptStashSnapshot
+  snapshot: import("./types").PromptStashSnapshot,
+  scopeKey: string,
+  draftScopeKey?: string
 ): Promise<{ entry: import("./types").PromptStashEntry; created: boolean }> {
-  return getTransport().call("save_prompt_stash", { snapshot })
+  return getTransport().call("save_prompt_stash", {
+    snapshot,
+    scopeKey,
+    draftScopeKey: draftScopeKey ?? null,
+  })
 }
-export async function listPromptStash(): Promise<
-  import("./types").PromptStashEntry[]
-> {
-  return getTransport().call("list_prompt_stash")
+/** 输入框必须传对话标识；仅设置管理页无参读取全部元数据。 */
+export async function listPromptStash(
+  scopeKey?: string,
+  draftScopeKey?: string
+): Promise<import("./types").PromptStashEntry[]> {
+  return getTransport().call("list_prompt_stash", {
+    scopeKey: scopeKey ?? null,
+    draftScopeKey: draftScopeKey ?? null,
+  })
 }
 export async function restorePromptStash(
-  id: number
+  id: number,
+  scopeKey: string,
+  draftScopeKey?: string
 ): Promise<import("./types").PromptStashSnapshot> {
-  return getTransport().call("restore_prompt_stash", { id })
+  return getTransport().call("restore_prompt_stash", {
+    id,
+    scopeKey,
+    draftScopeKey: draftScopeKey ?? null,
+  })
 }
-/** 取用一条收藏后调用：删除收藏及其附件副本，让列表里不再保留。 */
-export async function removePromptStash(id: number): Promise<void> {
-  return getTransport().call("remove_prompt_stash", { id })
+/** 输入框带归属防止跨对话删除；设置页无归属参数时按已确认的 ID 清理。 */
+export async function removePromptStash(
+  id: number,
+  scopeKey?: string,
+  draftScopeKey?: string
+): Promise<void> {
+  return getTransport().call("remove_prompt_stash", {
+    id,
+    scopeKey: scopeKey ?? null,
+    draftScopeKey: draftScopeKey ?? null,
+  })
 }

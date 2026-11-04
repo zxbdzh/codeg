@@ -83,7 +83,8 @@
       "computer_use": "電腦操作",
       "quick_messages": "快捷訊息",
       "logs": "執行日誌",
-      "ai_assistant": "AI 助手"
+      "ai_assistant": "AI 助手",
+      "prompt_stash": "輸入收藏"
     }
   },
   "AppearanceSettings": {
@@ -2447,14 +2448,17 @@
     "search": {
       "dialogTitle": "搜尋",
       "dialogTitleWithFolder": "搜尋 — {name}",
+      "tabAll": "全部",
       "tabConversations": "會話",
       "tabFiles": "檔案",
       "placeholder": "搜尋會話...",
       "filePlaceholder": "搜尋檔案或目錄...",
-      "allAgents": "全部",
+      "allPlaceholder": "搜尋對話、標籤和檔案...",
+      "allAgents": "全部智慧體",
       "searching": "搜尋中...",
       "typeToSearch": "輸入關鍵字搜尋會話",
       "typeToSearchFiles": "輸入關鍵字搜尋檔案或目錄",
+      "typeToSearchAll": "搜尋目前專案資料夾內的對話、標籤和檔案",
       "noResults": "找不到結果。",
       "untitledConversation": "未命名會話"
     },
@@ -7791,5 +7795,64 @@
     "cancel": "取消",
     "deleted": "已删除收藏",
     "deleteFailed": "删除收藏失败"
+  },
+  "PromptStashSettings": {
+    "title": "輸入收藏",
+    "description": "全部已儲存的輸入範本。舊版無歸屬的記錄僅在此管理。",
+    "loading": "載入收藏中",
+    "retry": "重試",
+    "empty": "尚無收藏。在對話輸入框收藏內容後可在此查看。",
+    "noResults": "沒有收藏符合目前搜尋和篩選條件。",
+    "refresh": "重新整理",
+    "search": "搜尋預覽、對話或專案",
+    "filter": "篩選收藏",
+    "clearFilters": "清除篩選",
+    "clearSelection": "取消選取",
+    "selectFiltered": "選取全部篩選收藏",
+    "deleteSelected": "刪除選取",
+    "deleting": "刪除中…",
+    "unusedHint": "30天未使用",
+    "unknownTime": "—",
+    "untitledConversation": "未命名對話",
+    "noProject": "無專案",
+    "attachmentOnly": "（僅附件）",
+    "legacySource": "舊版",
+    "draftSource": "草稿",
+    "assetBytes": "{bytes}",
+    "selectEntry": "選取收藏：{preview}",
+    "deleteEntry": "刪除收藏：{preview}",
+    "columns": {
+      "preview": "預覽",
+      "source": "來源",
+      "status": "狀態",
+      "savedAt": "儲存時間",
+      "attachments": "附件",
+      "actions": "操作"
+    },
+    "statuses": {
+      "deleted": "已刪除對話",
+      "in_progress": "進行中",
+      "pending_review": "待審閱",
+      "completed": "已完成",
+      "cancelled": "已取消",
+      "none": "—"
+    },
+    "filters": {
+      "all": "全部",
+      "completed": "已完成",
+      "unused": "未使用（30天）",
+      "legacy": "舊版未歸屬",
+      "draft": "新對話草稿"
+    },
+    "confirmDelete": {
+      "title": "刪除 {count} 條收藏？",
+      "description": "這將永久刪除所選條目及其附件。",
+      "cancel": "取消",
+      "confirm": "刪除收藏"
+    },
+    "deleteFailed": "部分項目刪除失敗：{message}",
+    "results": "{visible} / {total} 條",
+    "selected": "已選 {count} 條",
+    "loadFailed": "載入收藏失敗：{message}"
   }
 }

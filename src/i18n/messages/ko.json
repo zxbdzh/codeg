@@ -83,7 +83,8 @@
       "computer_use": "컴퓨터 사용",
       "quick_messages": "빠른 메시지",
       "logs": "실행 로그",
-      "ai_assistant": "AI 어시스턴트"
+      "ai_assistant": "AI 어시스턴트",
+      "prompt_stash": "입력 스태시"
     }
   },
   "AppearanceSettings": {
@@ -2447,14 +2448,17 @@
     "search": {
       "dialogTitle": "검색",
       "dialogTitleWithFolder": "검색 — {name}",
+      "tabAll": "전체",
       "tabConversations": "대화",
       "tabFiles": "파일",
       "placeholder": "대화 검색...",
       "filePlaceholder": "파일 또는 디렉토리 검색...",
-      "allAgents": "전체",
+      "allPlaceholder": "대화, 태그, 파일 검색...",
+      "allAgents": "모든 에이전트",
       "searching": "검색 중...",
       "typeToSearch": "입력하여 대화를 검색하세요",
       "typeToSearchFiles": "입력하여 파일 또는 디렉토리를 검색하세요",
+      "typeToSearchAll": "현재 프로젝트 폴더의 대화, 태그, 파일 검색",
       "noResults": "검색 결과가 없습니다.",
       "untitledConversation": "제목 없는 대화"
     },
@@ -7791,5 +7795,64 @@
     "cancel": "Cancel",
     "deleted": "Collected prompt deleted",
     "deleteFailed": "Could not delete collected prompt"
+  },
+  "PromptStashSettings": {
+    "title": "입력 스태시",
+    "description": "저장된 모든 입력 템플릿. 귀속이 없는 이전 기록은 여기서만 관리할 수 있습니다.",
+    "loading": "즐겨찾기 로딩 중",
+    "retry": "다시 시도",
+    "empty": "저장된 즐겨찾기가 없습니다. 대화에서 입력을 저장하면 여기에 표시됩니다.",
+    "noResults": "현재 검색 및 필터에 맞는 즐겨찾기가 없습니다.",
+    "refresh": "새로 고침",
+    "search": "미리보기, 대화 또는 프로젝트 검색",
+    "filter": "즐겨찾기 필터",
+    "clearFilters": "필터 초기화",
+    "clearSelection": "선택 해제",
+    "selectFiltered": "필터된 즐겨찾기 모두 선택",
+    "deleteSelected": "선택 항목 삭제",
+    "deleting": "삭제 중…",
+    "unusedHint": "30일 이상 미사용",
+    "unknownTime": "—",
+    "untitledConversation": "제목 없는 대화",
+    "noProject": "프로젝트 없음",
+    "attachmentOnly": "（첨부 파일만）",
+    "legacySource": "이전 버전",
+    "draftSource": "초안",
+    "assetBytes": "{bytes}",
+    "selectEntry": "즐겨찾기 선택: {preview}",
+    "deleteEntry": "즐겨찾기 삭제: {preview}",
+    "columns": {
+      "preview": "미리보기",
+      "source": "소스",
+      "status": "상태",
+      "savedAt": "저장 시간",
+      "attachments": "첨부",
+      "actions": "작업"
+    },
+    "statuses": {
+      "deleted": "삭제된 대화",
+      "in_progress": "진행 중",
+      "pending_review": "검토 대기",
+      "completed": "완료",
+      "cancelled": "취소",
+      "none": "—"
+    },
+    "filters": {
+      "all": "전체",
+      "completed": "완료",
+      "unused": "미사용（30일）",
+      "legacy": "이전 버전",
+      "draft": "새 대화 초안"
+    },
+    "confirmDelete": {
+      "title": "{count}개를 삭제할까요？",
+      "description": "선택한 항목과 첨부 파일이 영구적으로 삭제됩니다.",
+      "cancel": "취소",
+      "confirm": "즐겨찾기 삭제"
+    },
+    "deleteFailed": "일부 항목 삭제 실패: {message}",
+    "results": "{visible} / {total}개",
+    "selected": "{count}개 선택됨",
+    "loadFailed": "템플릿 로드 실패: {message}"
   }
 }

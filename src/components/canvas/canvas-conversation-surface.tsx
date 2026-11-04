@@ -877,6 +877,7 @@ export function CanvasConversationSurface({
           availableCommands={connectionCommands ?? []}
           promptSuggestion={connIsForOtherAgent ? null : conn.promptSuggestion}
           draftStorageKey={`canvas-draft:${contextKey}`}
+          promptStashScopeKey={dbConversationId != null ? `conv:${dbConversationId}` : `canvas-draft:${contextKey}`}
           injectContent={composerHandBacks[0] ?? null}
           onInjectConsumed={handleComposerHandBackConsumed}
           getSentHistory={getSentHistory}

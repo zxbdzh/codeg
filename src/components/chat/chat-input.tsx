@@ -45,6 +45,7 @@ interface ChatInputProps {
   /** Pass-through: see `MessageInput`. */
   folderPickerOverride?: ConversationFolderPickerOverride
   draftStorageKey?: string | null
+  promptStashScopeKey?: string | null
   /** Pass-through: see `MessageInput.getSentHistory`. */
   getSentHistory?: () => string[]
   isActive?: boolean
@@ -124,6 +125,7 @@ export const ChatInput = memo(function ChatInput({
   attachmentTabId,
   folderPickerOverride,
   draftStorageKey,
+  promptStashScopeKey,
   getSentHistory,
   isActive,
   showActiveFlow,
@@ -229,6 +231,7 @@ export const ChatInput = memo(function ChatInput({
         attachmentTabId={attachmentTabId}
         folderPickerOverride={folderPickerOverride}
         draftStorageKey={draftStorageKey}
+        promptStashScopeKey={promptStashScopeKey}
         getSentHistory={getSentHistory}
         isActive={isActive}
         showActiveFlow={showActiveFlow}

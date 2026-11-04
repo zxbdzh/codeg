@@ -1,9 +1,11 @@
 //! 收藏的文件生命周期和双模式入口；DB 只存副本元数据，不存图片 base64。
+use crate::db::entities::{conversation, folder, prompt_stash};
 use crate::{
     app_error::AppCommandError,
     db::{service::prompt_stash_service as service, AppDatabase},
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -26,6 +28,13 @@ pub struct StashEntry {
     pub preview: String,
     pub updated_at: String,
     pub attachment_count: usize,
+    pub scope_key: Option<String>,
+    pub conversation_id: Option<i32>,
+    pub conversation_title: Option<String>,
+    pub conversation_status: Option<conversation::ConversationStatus>,
+    pub conversation_deleted: bool,
+    pub folder_name: Option<String>,
+    pub asset_bytes: i64,
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,6 +51,13 @@ const MAX_JSON_BYTES: usize = STASH_BODY_LIMIT_BYTES;
 fn to_stash_entry(row: &crate::db::entities::prompt_stash::Model) -> StashEntry {
     StashEntry {
         id: row.id,
+        scope_key: row.scope_key.clone(),
+        conversation_id: row.scope_key.as_deref().and_then(conversation_id),
+        conversation_title: None,
+        conversation_status: None,
+        conversation_deleted: false,
+        folder_name: None,
+        asset_bytes: row.asset_bytes,
         preview: row.preview.clone(),
         updated_at: row.updated_at.to_rfc3339(),
         attachment_count: serde_json::from_str::<Vec<Value>>(&row.attachments_json)
@@ -49,8 +65,161 @@ fn to_stash_entry(row: &crate::db::entities::prompt_stash::Model) -> StashEntry 
             .unwrap_or(0),
     }
 }
-pub async fn list_core(db: &AppDatabase) -> Result<Vec<StashEntry>, AppCommandError> {
-    Ok(service::list(&db.conn).await?.iter().map(to_stash_entry).collect())
+fn conversation_id(scope: &str) -> Option<i32> {
+    scope
+        .strip_prefix("conv:")?
+        .parse::<i32>()
+        .ok()
+        .filter(|id| *id > 0)
+}
+
+fn is_draft_scope(scope: &str) -> bool {
+    ["draft:", "canvas-draft:"].iter().any(|prefix| {
+        scope
+            .strip_prefix(prefix)
+            .is_some_and(|suffix| !suffix.is_empty())
+    })
+}
+
+// 新对话发送前用稳定草稿标识隔离，创建数据库会话后接续到 conv:<id>。
+// 旧版 NULL 记录不猜测归属，不进入任何输入框列表。
+async fn prepare_scope(
+    db: &AppDatabase,
+    scope: &str,
+    draft_scope: Option<&str>,
+) -> Result<(), AppCommandError> {
+    if scope.len() > 512 || scope.chars().any(char::is_control) {
+        return Err(invalid("Invalid collection conversation scope"));
+    }
+    let id = conversation_id(scope);
+    if let Some(id) = id {
+        let exists = conversation::Entity::find_by_id(id)
+            .filter(conversation::Column::DeletedAt.is_null())
+            .one(&db.conn)
+            .await
+            .map_err(crate::db::error::DbError::from)?;
+        if scope != format!("conv:{id}") || exists.is_none() {
+            return Err(invalid("Collection conversation no longer exists"));
+        }
+    } else if !is_draft_scope(scope) {
+        return Err(invalid("A conversation is required for collected input"));
+    }
+    if let Some(from) = draft_scope.filter(|from| *from != scope) {
+        if id.is_none()
+            || !is_draft_scope(from)
+            || from.len() > 512
+            || from.chars().any(char::is_control)
+        {
+            return Err(invalid("Invalid collection draft handover"));
+        }
+        let rows = prompt_stash::Entity::find()
+            .filter(prompt_stash::Column::ScopeKey.eq(from))
+            .all(&db.conn)
+            .await
+            .map_err(crate::db::error::DbError::from)?;
+        for row in rows {
+            let existing = prompt_stash::Entity::find()
+                .filter(prompt_stash::Column::ScopeKey.eq(scope))
+                .filter(prompt_stash::Column::Fingerprint.eq(row.fingerprint.clone()))
+                .one(&db.conn)
+                .await
+                .map_err(crate::db::error::DbError::from)?;
+            if let Some(existing) = existing {
+                // 相同正文/附件已经存在目标对话：只合并时间，磁盘副本仍有引用。
+                if row.updated_at > existing.updated_at {
+                    let mut active: prompt_stash::ActiveModel = existing.into();
+                    active.updated_at = Set(row.updated_at);
+                    active
+                        .update(&db.conn)
+                        .await
+                        .map_err(crate::db::error::DbError::from)?;
+                }
+                service::remove(&db.conn, row.id).await?;
+            } else {
+                let mut active: prompt_stash::ActiveModel = row.into();
+                active.scope_key = Set(Some(scope.to_owned()));
+                active
+                    .update(&db.conn)
+                    .await
+                    .map_err(crate::db::error::DbError::from)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub async fn list_core(
+    db: &AppDatabase,
+    scope_key: Option<String>,
+    draft_scope_key: Option<String>,
+) -> Result<Vec<StashEntry>, AppCommandError> {
+    let _guard = STASH_LOCK.lock().await;
+    if let Some(scope) = &scope_key {
+        prepare_scope(db, scope, draft_scope_key.as_deref()).await?;
+    }
+    let rows = if let Some(scope) = &scope_key {
+        service::list_scope(&db.conn, scope).await?
+    } else {
+        service::list(&db.conn).await?
+    };
+    let ids: Vec<i32> = rows
+        .iter()
+        .filter_map(|row| row.scope_key.as_deref().and_then(conversation_id))
+        .collect();
+    let conversations = conversation::Entity::find()
+        .filter(conversation::Column::Id.is_in(ids))
+        .all(&db.conn)
+        .await
+        .map_err(crate::db::error::DbError::from)?;
+    let folder_ids: Vec<i32> = conversations.iter().map(|row| row.folder_id).collect();
+    let folders = folder::Entity::find()
+        .filter(folder::Column::Id.is_in(folder_ids))
+        .all(&db.conn)
+        .await
+        .map_err(crate::db::error::DbError::from)?;
+    Ok(rows
+        .iter()
+        .map(|row| {
+            let mut entry = to_stash_entry(row);
+            if let Some(id) = entry.conversation_id {
+                if let Some(conv) = conversations.iter().find(|conv| conv.id == id) {
+                    entry.conversation_title = conv.title.clone();
+                    entry.conversation_status = Some(conv.status.clone());
+                    entry.conversation_deleted = conv.deleted_at.is_some();
+                    entry.folder_name = folders
+                        .iter()
+                        .find(|folder| folder.id == conv.folder_id)
+                        .map(|folder| folder.name.clone());
+                } else {
+                    entry.conversation_deleted = true;
+                }
+            }
+            entry
+        })
+        .collect())
+}
+
+// 内容指纹仍是附件目录名。不同对话可保存同内容，最后一个引用删除才清磁盘。
+async fn cleanup_assets(
+    db: &AppDatabase,
+    root: &Path,
+    fingerprint: &str,
+) -> Result<(), AppCommandError> {
+    if prompt_stash::Entity::find()
+        .filter(prompt_stash::Column::Fingerprint.eq(fingerprint))
+        .one(&db.conn)
+        .await
+        .map_err(crate::db::error::DbError::from)?
+        .is_none()
+    {
+        let dir = bucket(root, fingerprint)?;
+        if dir.is_dir() {
+            if let Err(error) = std::fs::remove_dir_all(dir) {
+                tracing::warn!(%error, "could not remove collection assets");
+            }
+        }
+    }
+    Ok(())
 }
 struct Asset {
     bytes: Vec<u8>,
@@ -59,7 +228,11 @@ struct Asset {
 fn invalid(message: &str) -> AppCommandError {
     AppCommandError::invalid_input(message)
 }
-fn read_asset(uri: &str, uploads_root: &Path, allow_local_paths: bool) -> Result<Vec<u8>, AppCommandError> {
+fn read_asset(
+    uri: &str,
+    uploads_root: &Path,
+    allow_local_paths: bool,
+) -> Result<Vec<u8>, AppCommandError> {
     use std::io::Read;
     let url = url::Url::parse(uri).map_err(|_| invalid("Invalid attachment URI"))?;
     let path = url
@@ -231,8 +404,11 @@ pub async fn save_core(
     root: &Path,
     snapshot: StashSnapshot,
     allow_local_paths: bool,
+    scope_key: String,
+    draft_scope_key: Option<String>,
 ) -> Result<SavedStash, AppCommandError> {
     let _guard = STASH_LOCK.lock().await;
+    prepare_scope(db, &scope_key, draft_scope_key.as_deref()).await?;
     let root = root.to_owned();
     let uploads_root = crate::paths::codeg_uploads_root();
     let (snapshot, manifest, total, dir, preexisting) =
@@ -300,6 +476,7 @@ pub async fn save_core(
     let outcome = service::save(
         &db.conn,
         service::NewStashItem {
+            scope_key: Some(scope_key),
             text: snapshot.text.clone(),
             doc_json: serde_json::to_string(&snapshot).map_err(|e| invalid(&e.to_string()))?,
             attachments_json: manifest,
@@ -310,11 +487,7 @@ pub async fn save_core(
     match outcome {
         Ok(outcome) => {
             for row in outcome.evicted {
-                if let Ok(path) = bucket(root_parent(&dir), &row.fingerprint) {
-                    if let Err(error) = std::fs::remove_dir_all(path) {
-                        tracing::warn!(%error, "could not remove evicted collection assets");
-                    }
-                }
+                cleanup_assets(db, root_parent(&dir), &row.fingerprint).await?;
             }
             Ok(SavedStash {
                 entry: to_stash_entry(&outcome.entry),
@@ -365,11 +538,17 @@ pub async fn restore_core(
     root: &Path,
     uploads_root: &Path,
     id: i32,
+    scope_key: String,
+    draft_scope_key: Option<String>,
 ) -> Result<StashSnapshot, AppCommandError> {
     let _guard = STASH_LOCK.lock().await;
+    prepare_scope(db, &scope_key, draft_scope_key.as_deref()).await?;
     let row = service::get(&db.conn, id)
         .await?
-        .ok_or_else(|| AppCommandError::not_found("Collection no longer exists"))?;
+        .filter(|row| row.scope_key.as_deref() == Some(scope_key.as_str()))
+        .ok_or_else(|| {
+            AppCommandError::not_found("Collection no longer exists in this conversation")
+        })?;
     let dir = bucket(root, &row.fingerprint)?;
     let asset_count = serde_json::from_str::<Vec<Value>>(&row.attachments_json)
         .map(|manifest| manifest.len())
@@ -412,18 +591,25 @@ pub async fn remove_core(
     db: &AppDatabase,
     root: &Path,
     id: i32,
+    scope_key: Option<String>,
+    draft_scope_key: Option<String>,
 ) -> Result<(), AppCommandError> {
     let _guard = STASH_LOCK.lock().await;
+    if let Some(scope) = &scope_key {
+        prepare_scope(db, scope, draft_scope_key.as_deref()).await?;
+        if service::get(&db.conn, id)
+            .await?
+            .is_some_and(|row| row.scope_key.as_ref() != Some(scope))
+        {
+            return Err(AppCommandError::not_found(
+                "Collection does not belong to this conversation",
+            ));
+        }
+    }
     let Some(row) = service::remove(&db.conn, id).await? else {
         return Ok(());
     };
-    if let Ok(dir) = bucket(root, &row.fingerprint) {
-        if dir.is_dir() {
-            if let Err(error) = std::fs::remove_dir_all(&dir) {
-                tracing::warn!(%error, "could not remove collection assets");
-            }
-        }
-    }
+    cleanup_assets(db, root, &row.fingerprint).await?;
     Ok(())
 }
 // 放在上传目录下的独立位置：恢复后的附件必须能被服务器发送链路再次内联。
@@ -438,27 +624,43 @@ pub const RESTORED_DIR_NAME: &str = "prompt-stash-restored";
 pub async fn save_prompt_stash(
     db: tauri::State<'_, AppDatabase>,
     snapshot: StashSnapshot,
+    scope_key: String,
+    draft_scope_key: Option<String>,
 ) -> Result<SavedStash, AppCommandError> {
-    save_core(&db, &stash_root(), snapshot, true).await
+    save_core(
+        &db,
+        &stash_root(),
+        snapshot,
+        true,
+        scope_key,
+        draft_scope_key,
+    )
+    .await
 }
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 pub async fn list_prompt_stash(
     db: tauri::State<'_, AppDatabase>,
+    scope_key: Option<String>,
+    draft_scope_key: Option<String>,
 ) -> Result<Vec<StashEntry>, AppCommandError> {
-    list_core(&db).await
+    list_core(&db, scope_key, draft_scope_key).await
 }
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 pub async fn restore_prompt_stash(
     db: tauri::State<'_, AppDatabase>,
     id: i32,
+    scope_key: String,
+    draft_scope_key: Option<String>,
 ) -> Result<StashSnapshot, AppCommandError> {
     restore_core(
         &db,
         &stash_root(),
         &crate::paths::codeg_uploads_root(),
         id,
+        scope_key,
+        draft_scope_key,
     )
     .await
 }
@@ -467,14 +669,177 @@ pub async fn restore_prompt_stash(
 pub async fn remove_prompt_stash(
     db: tauri::State<'_, AppDatabase>,
     id: i32,
+    scope_key: Option<String>,
+    draft_scope_key: Option<String>,
 ) -> Result<(), AppCommandError> {
-    remove_core(&db, &stash_root(), id).await
+    remove_core(&db, &stash_root(), id, scope_key, draft_scope_key).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db::test_helpers::fresh_in_memory_db;
+    fn snapshot() -> StashSnapshot {
+        StashSnapshot {
+            text: "同一份待办".into(),
+            doc: json!({"type":"doc","content":[]}),
+            attachments: vec![json!({"type":"image","data":"aGVsbG8=","mimeType":"image/png"})],
+            embedded_payloads: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn conversations_deduplicate_and_restore_only_their_own_entries() {
+        let db = fresh_in_memory_db().await;
+        let stash = tempfile::tempdir().unwrap();
+        let uploads = tempfile::tempdir().unwrap();
+        let a = save_core(&db, stash.path(), snapshot(), true, "draft:a".into(), None)
+            .await
+            .unwrap();
+        let b = save_core(&db, stash.path(), snapshot(), true, "draft:b".into(), None)
+            .await
+            .unwrap();
+        assert_ne!(a.entry.id, b.entry.id);
+        assert!(
+            !save_core(&db, stash.path(), snapshot(), true, "draft:a".into(), None)
+                .await
+                .unwrap()
+                .created
+        );
+        let own = list_core(&db, Some("draft:a".into()), None).await.unwrap();
+        assert_eq!(own.len(), 1);
+        assert_eq!(own[0].id, a.entry.id);
+        assert!(restore_core(
+            &db,
+            stash.path(),
+            uploads.path(),
+            a.entry.id,
+            "draft:b".into(),
+            None
+        )
+        .await
+        .is_err());
+        assert!(
+            remove_core(&db, stash.path(), a.entry.id, Some("draft:b".into()), None)
+                .await
+                .is_err()
+        );
+
+        // 两个对话可以引用同内容附件；删掉其中一个不能破坏另一份收藏。
+        remove_core(&db, stash.path(), a.entry.id, Some("draft:a".into()), None)
+            .await
+            .unwrap();
+        let restored = restore_core(
+            &db,
+            stash.path(),
+            uploads.path(),
+            b.entry.id,
+            "draft:b".into(),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(restored.attachments[0]["data"], "aGVsbG8=");
+        remove_core(&db, stash.path(), b.entry.id, None, None)
+            .await
+            .unwrap();
+        assert!(list_core(&db, None, None).await.unwrap().is_empty());
+        assert_eq!(std::fs::read_dir(stash.path()).unwrap().count(), 0);
+    }
+
+    #[tokio::test]
+    async fn legacy_entries_are_manageable_but_never_returned_to_an_unrelated_conversation() {
+        let db = fresh_in_memory_db().await;
+        let stash = tempfile::tempdir().unwrap();
+        let legacy = service::save(
+            &db.conn,
+            service::NewStashItem {
+                scope_key: None,
+                text: "升级前的收藏".into(),
+                doc_json: serde_json::to_string(&snapshot()).unwrap(),
+                attachments_json: "[]".into(),
+                asset_bytes: 0,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(list_core(&db, Some("draft:new".into()), None)
+            .await
+            .unwrap()
+            .is_empty());
+        let managed = list_core(&db, None, None).await.unwrap();
+        assert_eq!(managed.len(), 1);
+        assert!(managed[0].scope_key.is_none());
+        remove_core(&db, stash.path(), legacy.entry.id, None, None)
+            .await
+            .unwrap();
+        assert!(list_core(&db, None, None).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_bound_draft_follows_its_conversation_and_merges_identical_entries() {
+        use crate::db::test_helpers::{seed_conversation, seed_folder};
+        let db = fresh_in_memory_db().await;
+        let stash = tempfile::tempdir().unwrap();
+        let folder_id = seed_folder(&db, "/stash-project").await;
+        let id = seed_conversation(&db, folder_id, crate::models::AgentType::ClaudeCode).await;
+        let scope = format!("conv:{id}");
+        let mut conv: conversation::ActiveModel = conversation::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap()
+            .into();
+        conv.title = Set(Some("已完成的开发".into()));
+        conv.status = Set(conversation::ConversationStatus::Completed);
+        conv.update(&db.conn).await.unwrap();
+        save_core(
+            &db,
+            stash.path(),
+            snapshot(),
+            true,
+            "draft:tab-a".into(),
+            None,
+        )
+        .await
+        .unwrap();
+        let target = save_core(&db, stash.path(), snapshot(), true, scope.clone(), None)
+            .await
+            .unwrap();
+        let merged = list_core(&db, Some(scope), Some("draft:tab-a".into()))
+            .await
+            .unwrap();
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].id, target.entry.id);
+        assert_eq!(merged[0].conversation_id, Some(id));
+        assert_eq!(
+            merged[0].conversation_title.as_deref(),
+            Some("已完成的开发")
+        );
+        assert_eq!(
+            merged[0].conversation_status,
+            Some(conversation::ConversationStatus::Completed)
+        );
+        assert!(merged[0].folder_name.is_some());
+        assert!(list_core(&db, Some("draft:tab-a".into()), None)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn empty_scope_is_rejected_instead_of_saving_globally() {
+        let db = fresh_in_memory_db().await;
+        let stash = tempfile::tempdir().unwrap();
+        assert!(
+            save_core(&db, stash.path(), snapshot(), true, "".into(), None)
+                .await
+                .is_err()
+        );
+        assert!(list_core(&db, Some("".into()), None).await.is_err());
+        assert!(list_core(&db, None, None).await.unwrap().is_empty());
+    }
+
     #[tokio::test]
     async fn restoring_hands_out_durable_attachment_copies_and_removal_clears_the_template() {
         let db = fresh_in_memory_db().await;
@@ -488,14 +853,28 @@ mod tests {
             ],
             embedded_payloads: Default::default(),
         };
-        let saved = save_core(&db, stash.path(), snapshot.clone(), true)
-            .await
-            .unwrap();
+        let saved = save_core(
+            &db,
+            stash.path(),
+            snapshot.clone(),
+            true,
+            "draft:test".into(),
+            None,
+        )
+        .await
+        .unwrap();
         assert!(saved.created);
 
-        let restored = restore_core(&db, stash.path(), uploads.path(), saved.entry.id)
-            .await
-            .unwrap();
+        let restored = restore_core(
+            &db,
+            stash.path(),
+            uploads.path(),
+            saved.entry.id,
+            "draft:test".into(),
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(restored.attachments[0]["data"], "aGVsbG8=");
         assert_eq!(restored.text, "模板");
         // 恢复后 uri 必须指向上传目录里的副本，删除收藏目录也不影响它。
@@ -505,12 +884,22 @@ mod tests {
             "restored uri should live under the uploads jail: {uri}"
         );
         // 恢复本身不删除：放弃恢复时模板还在，可以再取一次。
-        assert_eq!(list_core(&db).await.unwrap().len(), 1);
+        assert_eq!(list_core(&db, None, None).await.unwrap().len(), 1);
 
-        remove_core(&db, stash.path(), saved.entry.id).await.unwrap();
-        assert!(list_core(&db).await.unwrap().is_empty());
+        remove_core(
+            &db,
+            stash.path(),
+            saved.entry.id,
+            Some("draft:test".into()),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(list_core(&db, None, None).await.unwrap().is_empty());
         // 取走后再收藏同样内容是一条新收藏。
-        let again = save_core(&db, stash.path(), snapshot, true).await.unwrap();
+        let again = save_core(&db, stash.path(), snapshot, true, "draft:test".into(), None)
+            .await
+            .unwrap();
         assert!(again.created);
     }
 }

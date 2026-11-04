@@ -23,6 +23,7 @@ const workspace = vi.hoisted(() => ({
   conversations: [] as { folder_id: number; agent_type: string }[],
   tags: [] as ConversationTagDetail[],
   files: [] as FlatFileEntry[],
+  filesLoaded: true,
   resetFileTree: vi.fn(),
   openTab: vi.fn(),
   openConversations: vi.fn(),
@@ -53,7 +54,14 @@ vi.mock("@/contexts/aux-panel-context", () => ({
 
 vi.mock("@/contexts/active-folder-context", () => ({
   useActiveFolder: () => ({
-    activeFolder: null,
+    activeFolder:
+      workspace.activeFolderId === null
+        ? null
+        : {
+            id: workspace.activeFolderId,
+            name: `Project ${workspace.activeFolderId}`,
+            path: `/repo-${workspace.activeFolderId}`,
+          },
     activeFolderId: workspace.activeFolderId,
   }),
 }))
@@ -74,14 +82,19 @@ vi.mock("@/hooks/use-file-tree", () => ({
   useFileTree: () => ({
     allFiles: workspace.files,
     loading: false,
+    loaded: workspace.filesLoaded,
     reset: workspace.resetFileTree,
   }),
 }))
 
-function renderDialog(open = true) {
+function renderDialog(open = true, initialTab?: "all") {
   return render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
-      <SearchCommandDialog open={open} onOpenChange={workspace.onOpenChange} />
+      <SearchCommandDialog
+        open={open}
+        onOpenChange={workspace.onOpenChange}
+        initialTab={initialTab}
+      />
     </NextIntlClientProvider>
   )
 }
@@ -116,6 +129,7 @@ beforeEach(() => {
   workspace.conversations = []
   workspace.tags = []
   workspace.files = []
+  workspace.filesLoaded = true
   vi.mocked(listAllConversations).mockReset().mockResolvedValue([])
 })
 
@@ -366,5 +380,86 @@ describe("SearchCommandDialog focus", () => {
     } finally {
       composer.remove()
     }
+  })
+})
+
+describe("SearchCommandDialog global search tab", () => {
+  beforeEach(() => {
+    workspace.activeFolderId = 1
+    workspace.conversations = [
+      conversation(1, { title: "auth flow" }),
+      conversation(2, { title: "auth style", agent_type: "codex" }),
+      conversation(3, { title: "auth elsewhere", folder_id: 2 }),
+    ]
+    vi.mocked(listAllConversations).mockResolvedValue(
+      workspace.conversations as DbConversationSummary[]
+    )
+    workspace.files = [
+      {
+        name: "auth.ts",
+        relativePath: "src/auth.ts",
+        kind: "file",
+        lowerName: "auth.ts",
+        lowerPath: "src/auth.ts",
+      },
+    ]
+  })
+
+  it("mixes conversations with files, scoped to the active folder", async () => {
+    renderDialog(true, "all")
+
+    fireEvent.change(
+      screen.getByPlaceholderText(enMessages.Folder.search.allPlaceholder),
+      { target: { value: "auth" } }
+    )
+
+    expect(
+      await screen.findByRole("option", { name: /auth flow/ })
+    ).toBeVisible()
+    expect(screen.getByRole("option", { name: /auth style/ })).toBeVisible()
+    expect(screen.getByRole("option", { name: /auth.ts/ })).toBeVisible()
+    // 别的项目文件夹里的会话不进入当前项目的全局搜索结果。
+    expect(screen.queryByRole("option", { name: /auth elsewhere/ })).toBeNull()
+  })
+
+  it("does not search other projects when no project is selected", () => {
+    workspace.activeFolderId = null
+    renderDialog(true, "all")
+    fireEvent.change(
+      screen.getByPlaceholderText(enMessages.Folder.search.allPlaceholder),
+      { target: { value: "auth" } }
+    )
+    expect(listAllConversations).not.toHaveBeenCalled()
+    expect(screen.queryAllByRole("option")).toHaveLength(0)
+  })
+
+  it("hides the previous project's files until current files are loaded", async () => {
+    workspace.filesLoaded = false
+    renderDialog(true, "all")
+    fireEvent.change(
+      screen.getByPlaceholderText(enMessages.Folder.search.allPlaceholder),
+      { target: { value: "auth" } }
+    )
+    await screen.findByRole("option", { name: /auth flow/ })
+    expect(screen.queryByRole("option", { name: /auth.ts/ })).toBeNull()
+  })
+
+  it("drops the agent filter when switching to the unified tab", async () => {
+    renderDialog()
+    fireEvent.change(
+      screen.getByPlaceholderText(enMessages.Folder.search.placeholder),
+      { target: { value: "auth" } }
+    )
+    await screen.findByRole("option", { name: /auth flow/ })
+
+    await userEvent.click(screen.getByRole("button", { name: "Codex" }))
+    expect(screen.getAllByRole("option")).toHaveLength(1)
+
+    await userEvent.click(
+      screen.getByRole("button", { name: enMessages.Folder.search.tabAll })
+    )
+    // 筛选条在「全部」页不可见；若状态没清空，这里只会剩下 Codex 的会话。
+    expect(screen.getByRole("option", { name: /auth flow/ })).toBeVisible()
+    expect(screen.getByRole("option", { name: /auth style/ })).toBeVisible()
   })
 })

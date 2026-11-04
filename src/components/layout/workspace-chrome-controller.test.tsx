@@ -38,6 +38,9 @@ const spies = vi.hoisted(() => ({
   setActivePane: vi.fn(),
   closeCurrentWindow: vi.fn(() => Promise.resolve()),
   subscribe: vi.fn(),
+  setSearchOpen: vi.fn(),
+  setSearchInitialTab: vi.fn(),
+  openSearch: vi.fn(),
 }))
 
 vi.mock("@/lib/api", () => ({
@@ -102,7 +105,13 @@ vi.mock("@/contexts/workbench-route-context", () => ({
   useWorkbenchRoute: () => ({ openConversations: vi.fn() }),
 }))
 vi.mock("@/contexts/search-dialog-context", () => ({
-  useSearchDialog: () => ({ open: false, setOpen: vi.fn() }),
+  useSearchDialog: () => ({
+    open: false,
+    setOpen: spies.setSearchOpen,
+    initialTab: "conversations",
+    setInitialTab: spies.setSearchInitialTab,
+    openSearch: spies.openSearch,
+  }),
 }))
 vi.mock("@/hooks/use-shortcut-settings", () => ({
   useShortcutSettings: () => ({ shortcuts: state.shortcuts }),
@@ -174,6 +183,9 @@ beforeEach(() => {
   spies.closeAllFileTabs.mockClear()
   spies.setActivePane.mockClear()
   spies.closeCurrentWindow.mockClear()
+  spies.setSearchOpen.mockClear()
+  spies.setSearchInitialTab.mockClear()
+  spies.openSearch.mockClear()
   spies.subscribe.mockReset()
   spies.subscribe.mockImplementation(
     async (event: string, handler: (payload: unknown) => void) => {
@@ -401,5 +413,45 @@ describe("WorkspaceChromeController — ⌘W the page hears", () => {
     fireEvent(document, event)
     expect(spies.closeFileTab).not.toHaveBeenCalled()
     expect(event.defaultPrevented).toBe(false)
+  })
+})
+
+describe("WorkspaceChromeController — double Shift global search", () => {
+  /** Two clean Shift taps, the gesture IDEA's Search Everywhere listens for. */
+  function doubleShift(): void {
+    fireEvent.keyDown(document, { key: "Shift" })
+    fireEvent.keyUp(document, { key: "Shift" })
+    fireEvent.keyDown(document, { key: "Shift" })
+    fireEvent.keyUp(document, { key: "Shift" })
+  }
+
+  it("opens the unified search on the All tab", async () => {
+    await renderController()
+
+    doubleShift()
+
+    expect(spies.openSearch).toHaveBeenCalledWith("all")
+  })
+
+  it("does not stack search over an already open dialog", async () => {
+    await renderController()
+    mount(`<div role="dialog"></div>`)
+
+    doubleShift()
+
+    expect(spies.openSearch).not.toHaveBeenCalled()
+  })
+
+  it("still opens the ordinary search on the Conversations tab with ⌘K", async () => {
+    await renderController()
+
+    fireEvent(
+      document,
+      createEvent.keyDown(document, { key: "k", ctrlKey: true })
+    )
+
+    expect(spies.setSearchInitialTab).toHaveBeenCalledWith("conversations")
+    expect(spies.setSearchOpen).toHaveBeenCalled()
+    expect(spies.openSearch).not.toHaveBeenCalled()
   })
 })

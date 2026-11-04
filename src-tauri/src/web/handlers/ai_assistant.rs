@@ -115,20 +115,89 @@ pub async fn generate_conversation_title(
 }
 
 #[derive(Deserialize)]
-pub struct SaveStashParams { pub snapshot: crate::commands::prompt_stash::StashSnapshot }
+#[serde(rename_all = "camelCase")]
+pub struct SaveStashParams {
+    pub snapshot: crate::commands::prompt_stash::StashSnapshot,
+    pub scope_key: String,
+    pub draft_scope_key: Option<String>,
+}
 #[derive(Deserialize)]
-pub struct RestoreStashParams { pub id: i32 }
-pub async fn save_prompt_stash(Extension(state): Extension<Arc<AppState>>, Json(params): Json<SaveStashParams>) -> Result<Json<crate::commands::prompt_stash::SavedStash>, AppCommandError> {
-    Ok(Json(crate::commands::prompt_stash::save_core(&state.db, &crate::commands::prompt_stash::stash_root(), params.snapshot, false).await?))
+#[serde(rename_all = "camelCase")]
+pub struct ListStashParams {
+    pub scope_key: Option<String>,
+    pub draft_scope_key: Option<String>,
 }
-pub async fn list_prompt_stash(Extension(state): Extension<Arc<AppState>>) -> Result<Json<Vec<crate::commands::prompt_stash::StashEntry>>, AppCommandError> {
-    Ok(Json(crate::commands::prompt_stash::list_core(&state.db).await?))
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreStashParams {
+    pub id: i32,
+    pub scope_key: String,
+    pub draft_scope_key: Option<String>,
 }
-pub async fn restore_prompt_stash(Extension(state): Extension<Arc<AppState>>, Json(params): Json<RestoreStashParams>) -> Result<Json<crate::commands::prompt_stash::StashSnapshot>, AppCommandError> {
-    Ok(Json(crate::commands::prompt_stash::restore_core(&state.db, &crate::commands::prompt_stash::stash_root(), &crate::paths::codeg_uploads_root(), params.id).await?))
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveStashParams {
+    pub id: i32,
+    pub scope_key: Option<String>,
+    pub draft_scope_key: Option<String>,
 }
-pub async fn remove_prompt_stash(Extension(state): Extension<Arc<AppState>>, Json(params): Json<RestoreStashParams>) -> Result<Json<()>, AppCommandError> {
-    crate::commands::prompt_stash::remove_core(&state.db, &crate::commands::prompt_stash::stash_root(), params.id).await?;
+pub async fn save_prompt_stash(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<SaveStashParams>,
+) -> Result<Json<crate::commands::prompt_stash::SavedStash>, AppCommandError> {
+    Ok(Json(
+        crate::commands::prompt_stash::save_core(
+            &state.db,
+            &crate::commands::prompt_stash::stash_root(),
+            params.snapshot,
+            false,
+            params.scope_key,
+            params.draft_scope_key,
+        )
+        .await?,
+    ))
+}
+pub async fn list_prompt_stash(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<ListStashParams>,
+) -> Result<Json<Vec<crate::commands::prompt_stash::StashEntry>>, AppCommandError> {
+    Ok(Json(
+        crate::commands::prompt_stash::list_core(
+            &state.db,
+            params.scope_key,
+            params.draft_scope_key,
+        )
+        .await?,
+    ))
+}
+pub async fn restore_prompt_stash(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<RestoreStashParams>,
+) -> Result<Json<crate::commands::prompt_stash::StashSnapshot>, AppCommandError> {
+    Ok(Json(
+        crate::commands::prompt_stash::restore_core(
+            &state.db,
+            &crate::commands::prompt_stash::stash_root(),
+            &crate::paths::codeg_uploads_root(),
+            params.id,
+            params.scope_key,
+            params.draft_scope_key,
+        )
+        .await?,
+    ))
+}
+pub async fn remove_prompt_stash(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<RemoveStashParams>,
+) -> Result<Json<()>, AppCommandError> {
+    crate::commands::prompt_stash::remove_core(
+        &state.db,
+        &crate::commands::prompt_stash::stash_root(),
+        params.id,
+        params.scope_key,
+        params.draft_scope_key,
+    )
+    .await?;
     Ok(Json(()))
 }
 

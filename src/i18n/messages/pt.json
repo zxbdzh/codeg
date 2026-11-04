@@ -83,7 +83,8 @@
       "computer_use": "Uso do computador",
       "quick_messages": "Mensagens rápidas",
       "logs": "Registros de execução",
-      "ai_assistant": "Assistente de IA"
+      "ai_assistant": "Assistente de IA",
+      "prompt_stash": "Entradas salvas"
     }
   },
   "AppearanceSettings": {
@@ -2447,14 +2448,17 @@
     "search": {
       "dialogTitle": "Buscar",
       "dialogTitleWithFolder": "Buscar — {name}",
+      "tabAll": "Tudo",
       "tabConversations": "Conversas",
       "tabFiles": "Arquivos",
       "placeholder": "Buscar conversas...",
       "filePlaceholder": "Buscar arquivos ou diretórios...",
-      "allAgents": "Todos",
+      "allPlaceholder": "Pesquisar conversas, tags e arquivos...",
+      "allAgents": "Todos os agentes",
       "searching": "Buscando...",
       "typeToSearch": "Digite para buscar conversas",
       "typeToSearchFiles": "Digite para buscar arquivos ou diretórios",
+      "typeToSearchAll": "Pesquisar conversas, tags e arquivos no projeto atual",
       "noResults": "Nenhum resultado encontrado.",
       "untitledConversation": "Conversa sem título"
     },
@@ -7791,5 +7795,64 @@
     "cancel": "Cancel",
     "deleted": "Collected prompt deleted",
     "deleteFailed": "Could not delete collected prompt"
+  },
+  "PromptStashSettings": {
+    "title": "Entradas salvas",
+    "description": "Todos os modelos de entrada salvos. Registros antigos sem conversa só são gerenciados aqui.",
+    "loading": "Carregando favoritos",
+    "retry": "Tentar novamente",
+    "empty": "Nenhum favorito salvo. Salve uma entrada de uma conversa para vê-la aqui.",
+    "noResults": "Nenhum favorito corresponde à pesquisa e ao filtro atuais.",
+    "refresh": "Atualizar",
+    "search": "Pesquisar pré-visualização, conversa ou projeto",
+    "filter": "Filtrar favoritos",
+    "clearFilters": "Limpar filtros",
+    "clearSelection": "Desmarcar",
+    "selectFiltered": "Selecionar todos os favoritos filtrados",
+    "deleteSelected": "Excluir selecionados",
+    "deleting": "Excluindo…",
+    "unusedHint": "Sem uso há 30+ dias",
+    "unknownTime": "—",
+    "untitledConversation": "Conversa sem título",
+    "noProject": "Sem projeto",
+    "attachmentOnly": "(somente anexo)",
+    "legacySource": "Legado",
+    "draftSource": "Rascunho",
+    "assetBytes": "{bytes}",
+    "selectEntry": "Selecionar favorito: {preview}",
+    "deleteEntry": "Excluir favorito: {preview}",
+    "columns": {
+      "preview": "Pré-visualização",
+      "source": "Origem",
+      "status": "Status",
+      "savedAt": "Salvo em",
+      "attachments": "Arquivos",
+      "actions": "Ações"
+    },
+    "statuses": {
+      "deleted": "Conversa excluída",
+      "in_progress": "Em andamento",
+      "pending_review": "Revisão pendente",
+      "completed": "Concluído",
+      "cancelled": "Cancelado",
+      "none": "—"
+    },
+    "filters": {
+      "all": "Todos",
+      "completed": "Concluídos",
+      "unused": "Sem uso (30d)",
+      "legacy": "Legado",
+      "draft": "Novos rascunhos"
+    },
+    "confirmDelete": {
+      "title": "Excluir {count} entradas?",
+      "description": "As entradas selecionadas e seus anexos serão excluídos permanentemente.",
+      "cancel": "Cancelar",
+      "confirm": "Excluir favoritos"
+    },
+    "deleteFailed": "Não foi possível excluir algumas entradas: {message}",
+    "results": "{visible} / {total}",
+    "selected": "{count} selecionadas",
+    "loadFailed": "Não foi possível carregar modelos: {message}"
   }
 }

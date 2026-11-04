@@ -7,6 +7,7 @@ import { File, Folder } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { useActiveFolder } from "@/contexts/active-folder-context"
+import type { SearchTab } from "@/contexts/search-dialog-context"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useConversationTagsStore } from "@/stores/conversation-tags-store"
 import { useTabActions } from "@/contexts/tab-context"
@@ -38,11 +39,14 @@ import {
 import { cn } from "@/lib/utils"
 import { formatConversationTitle } from "@/lib/conversation-title"
 
-type SearchTab = "conversations" | "files"
-
 interface SearchCommandDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /**
+   * 挂载时选中的标签页。双击 Shift 打开的全局搜索传 `all`，把会话和文件放在
+   * 同一个列表里；普通搜索仍从「会话」开始。
+   */
+  initialTab?: SearchTab
 }
 
 export function SearchCommandDialog(props: SearchCommandDialogProps) {
@@ -53,6 +57,7 @@ export function SearchCommandDialog(props: SearchCommandDialogProps) {
 function OpenSearchCommandDialog({
   open,
   onOpenChange,
+  initialTab = "conversations",
 }: SearchCommandDialogProps) {
   const t = useTranslations("Folder.search")
   const locale = useLocale()
@@ -75,30 +80,36 @@ function OpenSearchCommandDialog({
   const { openFilePreview } = useWorkspaceActions()
   const { revealInFileTree } = useAuxPanelContext()
 
-  const [activeTab, setActiveTab] = useState<SearchTab>("conversations")
+  const [activeTab, setActiveTab] = useState<SearchTab>(initialTab)
+  const [query, setQuery] = useState("")
+  const [agentFilter, setAgentFilter] = useState<AgentType | null>(null)
+  const [results, setResults] = useState<DbConversationSummary[]>([])
+  const [searching, setSearching] = useState(false)
+
   // The search box owns the keyboard: the dialog opens with the cursor in it,
   // and switching tabs or agent filters leaves it there, so typing always
   // searches.
   const inputRef = useRef<HTMLInputElement>(null)
   const switchTab = useCallback((tab: SearchTab) => {
     setActiveTab(tab)
+    // 智能体筛选条只在「会话」页显示；带着上一页的筛选进「全部」会悄悄漏掉
+    // 其它智能体的会话，所以进「全部」时清空筛选。
+    if (tab === "all") setAgentFilter(null)
     inputRef.current?.focus()
   }, [])
-  const [query, setQuery] = useState("")
-  const [agentFilter, setAgentFilter] = useState<AgentType | null>(null)
-  const [results, setResults] = useState<DbConversationSummary[]>([])
-  const [searching, setSearching] = useState(false)
 
   const folderPath = folder?.path ?? ""
 
-  // File search via shared hook (lazy-loaded when files tab is active)
+  // File search via shared hook (lazy-loaded when a tab that shows files is
+  // active: the Files tab and the unified All tab).
   const {
     allFiles,
     loading: filesLoading,
+    loaded: filesLoaded,
     reset: resetFileTree,
   } = useFileTree({
     folderPath: folderPath || undefined,
-    enabled: activeTab === "files",
+    enabled: activeTab !== "conversations",
   })
 
   // Compute which agent types exist in current folder
@@ -109,8 +120,10 @@ function OpenSearchCommandDialog({
   // Rank files by relevance (name/path tiers + fuzzy subsequence), scanning the
   // full list so a deeply nested match isn't crowded out by shallower ones.
   const filteredFiles = useMemo(
-    () => rankFileMatches(query, allFiles, 100),
-    [allFiles, query]
+    // 切换项目后 hook 会暂存上一项目清单，未完成当前路径加载前不能展示。
+    () =>
+      folderPath && filesLoaded ? rankFileMatches(query, allFiles, 100) : [],
+    [allFiles, query, folderPath, filesLoaded]
   )
 
   const handleDialogOpenChange = useCallback(
@@ -131,14 +144,15 @@ function OpenSearchCommandDialog({
   // 按本次打开的文件夹读取候选，标签匹配不能先被后端的标题条件排除。
   // 输入过程在本地完成，关闭或切换文件夹后的旧响应不能覆盖当前结果。
   useEffect(() => {
-    if (!open) return
+    // 未选项目时不回退成跨项目搜索，避免默认范围悄悄扩大。
+    if (!open || folderId <= 0) return
     let cancelled = false
     void Promise.resolve().then(async () => {
       if (cancelled) return
       setSearching(true)
       try {
         const data = await listAllConversations({
-          folder_ids: folderId > 0 ? [folderId] : null,
+          folder_ids: [folderId],
         })
         if (!cancelled) setResults(data)
       } catch {
@@ -156,7 +170,7 @@ function OpenSearchCommandDialog({
     const scopedResults =
       folderId > 0
         ? results.filter((conversation) => conversation.folder_id === folderId)
-        : results
+        : []
     const candidates = agentFilter
       ? scopedResults.filter(
           (conversation) => conversation.agent_type === agentFilter
@@ -165,6 +179,18 @@ function OpenSearchCommandDialog({
     if (!query.trim()) return agentFilter ? candidates : []
     return rankConversationSearchMatches(query, candidates, tags)
   }, [results, query, agentFilter, tags, folderId])
+
+  // 「全部」页把会话和文件放进同一个列表：会话在前（用户通常先找会话），文件
+  // 在后。数量设上限，避免大项目里一次渲染上千个条目。
+  const allConversationResults = useMemo(() => {
+    if (activeTab !== "all" || !query.trim()) return []
+    return searchResults.slice(0, 20)
+  }, [activeTab, query, searchResults])
+
+  const allFileResults = useMemo(() => {
+    if (activeTab !== "all" || !query.trim()) return []
+    return filteredFiles.slice(0, 50)
+  }, [activeTab, query, filteredFiles])
 
   const handleSelectConversation = useCallback(
     (conv: DbConversationSummary) => {
@@ -195,8 +221,58 @@ function OpenSearchCommandDialog({
     [revealInFileTree, openFilePreview, handleDialogOpenChange]
   )
 
+  const renderConversationItem = (conv: DbConversationSummary) => (
+    <CommandItem
+      key={conv.id}
+      value={`${conv.id}-${formatConversationTitle(conv.title)}`}
+      onSelect={() => handleSelectConversation(conv)}
+    >
+      <ConversationStatusDot status={conv.status as ConversationStatus} />
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="truncate">
+          {formatConversationTitle(conv.title) || t("untitledConversation")}
+        </span>
+        <ConversationTagChips
+          tags={resolveTags(conv.tag_ids, tagsById)}
+          max={3}
+        />
+      </span>
+      <span className="text-xs text-muted-foreground shrink-0">
+        {getAgentLabel(conv.agent_type)}
+      </span>
+      <span className="text-xs text-muted-foreground shrink-0">
+        {formatDistanceToNow(new Date(conv.created_at), {
+          addSuffix: true,
+          locale: dateFnsLocale,
+        })}
+      </span>
+    </CommandItem>
+  )
+
+  const renderFileItem = (entry: FlatFileEntry) => (
+    <CommandItem
+      key={entry.relativePath}
+      value={entry.relativePath}
+      onSelect={() => handleSelectFile(entry)}
+    >
+      {entry.kind === "dir" ? (
+        <Folder className="w-4 h-4 shrink-0 text-blue-500" />
+      ) : (
+        <File className="w-4 h-4 shrink-0 text-muted-foreground" />
+      )}
+      <span className="flex-1 truncate">{entry.name}</span>
+      <span className="text-xs text-muted-foreground shrink-0 truncate max-w-48">
+        {entry.relativePath}
+      </span>
+    </CommandItem>
+  )
+
   const placeholder =
-    activeTab === "conversations" ? t("placeholder") : t("filePlaceholder")
+    activeTab === "all"
+      ? t("allPlaceholder")
+      : activeTab === "conversations"
+        ? t("placeholder")
+        : t("filePlaceholder")
 
   return (
     <CommandDialog
@@ -231,36 +307,30 @@ function OpenSearchCommandDialog({
 
       {/* Tabs */}
       <div className="flex items-center gap-0 border-b px-3">
-        <button
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => switchTab("conversations")}
-          className={cn(
-            "relative h-9 px-3 text-sm font-medium transition-colors",
-            activeTab === "conversations"
-              ? "text-foreground"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          {t("tabConversations")}
-          {activeTab === "conversations" && (
-            <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-foreground rounded-full" />
-          )}
-        </button>
-        <button
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => switchTab("files")}
-          className={cn(
-            "relative h-9 px-3 text-sm font-medium transition-colors",
-            activeTab === "files"
-              ? "text-foreground"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          {t("tabFiles")}
-          {activeTab === "files" && (
-            <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-foreground rounded-full" />
-          )}
-        </button>
+        {(
+          [
+            ["all", t("tabAll")],
+            ["conversations", t("tabConversations")],
+            ["files", t("tabFiles")],
+          ] as const
+        ).map(([tab, label]) => (
+          <button
+            key={tab}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => switchTab(tab)}
+            className={cn(
+              "relative h-9 px-3 text-sm font-medium transition-colors",
+              activeTab === tab
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {label}
+            {activeTab === tab && (
+              <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-foreground rounded-full" />
+            )}
+          </button>
+        ))}
       </div>
 
       <CommandInput
@@ -310,6 +380,30 @@ function OpenSearchCommandDialog({
       )}
 
       <CommandList className="min-h-96">
+        {/* All tab (double-Shift global search): sessions first, then files,
+            both already limited to the active folder. */}
+        {activeTab === "all" && (
+          <>
+            <CommandEmpty>
+              {searching || filesLoading
+                ? t("searching")
+                : !query.trim()
+                  ? t("typeToSearchAll")
+                  : t("noResults")}
+            </CommandEmpty>
+            {allConversationResults.length > 0 && (
+              <CommandGroup heading={t("tabConversations")}>
+                {allConversationResults.map(renderConversationItem)}
+              </CommandGroup>
+            )}
+            {allFileResults.length > 0 && (
+              <CommandGroup heading={t("tabFiles")}>
+                {allFileResults.map(renderFileItem)}
+              </CommandGroup>
+            )}
+          </>
+        )}
+
         {/* Conversations tab */}
         {activeTab === "conversations" && (
           <>
@@ -322,36 +416,7 @@ function OpenSearchCommandDialog({
             </CommandEmpty>
             {searchResults.length > 0 && (
               <CommandGroup>
-                {searchResults.map((conv) => (
-                  <CommandItem
-                    key={conv.id}
-                    value={`${conv.id}-${formatConversationTitle(conv.title)}`}
-                    onSelect={() => handleSelectConversation(conv)}
-                  >
-                    <ConversationStatusDot
-                      status={conv.status as ConversationStatus}
-                    />
-                    <span className="flex min-w-0 flex-1 flex-col gap-1">
-                      <span className="truncate">
-                        {formatConversationTitle(conv.title) ||
-                          t("untitledConversation")}
-                      </span>
-                      <ConversationTagChips
-                        tags={resolveTags(conv.tag_ids, tagsById)}
-                        max={3}
-                      />
-                    </span>
-                    <span className="text-xs text-muted-foreground shrink-0">
-                      {getAgentLabel(conv.agent_type)}
-                    </span>
-                    <span className="text-xs text-muted-foreground shrink-0">
-                      {formatDistanceToNow(new Date(conv.created_at), {
-                        addSuffix: true,
-                        locale: dateFnsLocale,
-                      })}
-                    </span>
-                  </CommandItem>
-                ))}
+                {searchResults.map(renderConversationItem)}
               </CommandGroup>
             )}
           </>
@@ -368,25 +433,7 @@ function OpenSearchCommandDialog({
                   : t("noResults")}
             </CommandEmpty>
             {filteredFiles.length > 0 && (
-              <CommandGroup>
-                {filteredFiles.map((entry) => (
-                  <CommandItem
-                    key={entry.relativePath}
-                    value={entry.relativePath}
-                    onSelect={() => handleSelectFile(entry)}
-                  >
-                    {entry.kind === "dir" ? (
-                      <Folder className="w-4 h-4 shrink-0 text-blue-500" />
-                    ) : (
-                      <File className="w-4 h-4 shrink-0 text-muted-foreground" />
-                    )}
-                    <span className="flex-1 truncate">{entry.name}</span>
-                    <span className="text-xs text-muted-foreground shrink-0 truncate max-w-48">
-                      {entry.relativePath}
-                    </span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
+              <CommandGroup>{filteredFiles.map(renderFileItem)}</CommandGroup>
             )}
           </>
         )}

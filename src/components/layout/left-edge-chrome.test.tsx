@@ -6,7 +6,7 @@ import { LeftEdgeChrome } from "./left-edge-chrome"
 import enMessages from "@/i18n/messages/en.json"
 
 const spies = vi.hoisted(() => ({
-  setSearchOpen: vi.fn(),
+  openSearch: vi.fn(),
   toggleSidebar: vi.fn(),
 }))
 
@@ -14,7 +14,7 @@ vi.mock("@/contexts/sidebar-context", () => ({
   useSidebarContext: () => ({ isOpen: true, toggle: spies.toggleSidebar }),
 }))
 vi.mock("@/contexts/search-dialog-context", () => ({
-  useSearchDialog: () => ({ open: false, setOpen: spies.setSearchOpen }),
+  useSearchDialog: () => ({ open: false, openSearch: spies.openSearch }),
 }))
 vi.mock("@/hooks/use-is-mac", () => ({ useIsMac: () => false }))
 vi.mock("@/hooks/use-platform", () => ({
@@ -40,14 +40,14 @@ function renderChrome() {
 
 describe("LeftEdgeChrome", () => {
   beforeEach(() => {
-    spies.setSearchOpen.mockClear()
+    spies.openSearch.mockClear()
     spies.toggleSidebar.mockClear()
   })
 
   it("opens the shared search dialog from the search button", () => {
     renderChrome()
     fireEvent.click(screen.getByRole("button", { name: "Search" }))
-    expect(spies.setSearchOpen).toHaveBeenCalledWith(true)
+    expect(spies.openSearch).toHaveBeenCalledTimes(1)
   })
 
   it("advertises the search shortcut on the button's tooltip", () => {

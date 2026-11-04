@@ -50,7 +50,7 @@ export function FolderTitleBar() {
   const { isOpen: sidebarOpen, toggle } = useSidebarContext()
   const { isOpen: auxPanelOpen, toggle: toggleAuxPanel } = useAuxPanelContext()
   const { isOpen: terminalOpen, toggle: toggleTerminal } = useTerminalContext()
-  const { setOpen: setSearchOpen } = useSearchDialog()
+  const { openSearch } = useSearchDialog()
   const { activeFolder } = useActiveFolder()
   const isChatMode = useIsActiveChatMode()
   const { openNewConversationTab, openChatModeTab } = useTabActions()
@@ -110,7 +110,7 @@ export function FolderTitleBar() {
           variant="ghost"
           size="icon"
           className="h-8 w-8 shrink-0"
-          onClick={() => setSearchOpen(true)}
+          onClick={() => openSearch()}
           title={tTitleBar("search")}
           aria-label={tTitleBar("search")}
         >

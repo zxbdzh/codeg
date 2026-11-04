@@ -103,6 +103,7 @@ interface ConversationShellProps {
   /** Pass-through: see `MessageInput`. */
   folderPickerOverride?: ConversationFolderPickerOverride
   draftStorageKey?: string | null
+  promptStashScopeKey?: string | null
   /** Pass-through: see `MessageInput.getSentHistory`. */
   getSentHistory?: () => string[]
   hideInput?: boolean
@@ -206,6 +207,7 @@ export function ConversationShell({
   attachmentTabId,
   folderPickerOverride,
   draftStorageKey,
+  promptStashScopeKey,
   getSentHistory,
   hideInput = false,
   composerBanner,
@@ -343,6 +345,7 @@ export function ConversationShell({
               attachmentTabId={attachmentTabId}
               folderPickerOverride={folderPickerOverride}
               draftStorageKey={draftStorageKey}
+              promptStashScopeKey={promptStashScopeKey}
               getSentHistory={getSentHistory}
               isActive={isActive}
               showActiveFlow={showActiveFlow}

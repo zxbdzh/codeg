@@ -83,7 +83,8 @@
       "computer_use": "استخدام الحاسوب",
       "quick_messages": "رسائل سريعة",
       "logs": "سجلات التشغيل",
-      "ai_assistant": "مساعد الذكاء الاصطناعي"
+      "ai_assistant": "مساعد الذكاء الاصطناعي",
+      "prompt_stash": "المدخلات المحفوظة"
     }
   },
   "AppearanceSettings": {
@@ -2447,14 +2448,17 @@
     "search": {
       "dialogTitle": "بحث",
       "dialogTitleWithFolder": "بحث — {name}",
+      "tabAll": "الكل",
       "tabConversations": "المحادثات",
       "tabFiles": "الملفات",
       "placeholder": "البحث في المحادثات...",
       "filePlaceholder": "البحث في الملفات أو المجلدات...",
-      "allAgents": "الكل",
+      "allPlaceholder": "ابحث في المحادثات والوسوم والملفات...",
+      "allAgents": "كل الوكلاء",
       "searching": "جارٍ البحث...",
       "typeToSearch": "اكتب للبحث في المحادثات",
       "typeToSearchFiles": "اكتب للبحث في الملفات أو المجلدات",
+      "typeToSearchAll": "ابحث في المحادثات والوسوم والملفات داخل المشروع الحالي",
       "noResults": "لم يتم العثور على نتائج.",
       "untitledConversation": "محادثة بدون عنوان"
     },
@@ -7791,5 +7795,64 @@
     "cancel": "Cancel",
     "deleted": "Collected prompt deleted",
     "deleteFailed": "Could not delete collected prompt"
+  },
+  "PromptStashSettings": {
+    "title": "المدخلات المحفوظة",
+    "description": "جميع قوالب الإدخال المحفوظة. السجلات القديمة غير المرتبطة بمحادثة تُدار هنا فقط.",
+    "loading": "جارٍ تحميل المفضلات",
+    "retry": "إعادة المحاولة",
+    "empty": "لا توجد مفضلات محفوظة. احفظ الإدخال من محادثة لترى ذلك هنا.",
+    "noResults": "لا توجد مفضلات تطابق البحث والمرشح الحاليين.",
+    "refresh": "تحديث",
+    "search": "البحث في المعاينة أو المحادثة أو المشروع",
+    "filter": "تصفية المفضلات",
+    "clearFilters": "مسح المرشحات",
+    "clearSelection": "إلغاء التحديد",
+    "selectFiltered": "تحديد كل المفضلات المصفاة",
+    "deleteSelected": "حذف المحدد",
+    "deleting": "جارٍ الحذف…",
+    "unusedHint": "غير مستخدم منذ 30+ يومًا",
+    "unknownTime": "—",
+    "untitledConversation": "محادثة بلا عنوان",
+    "noProject": "لا يوجد مشروع",
+    "attachmentOnly": "(مرفق فقط)",
+    "legacySource": "قديم",
+    "draftSource": "مسودة",
+    "assetBytes": "{bytes}",
+    "selectEntry": "تحديد المفضلة: {preview}",
+    "deleteEntry": "حذف المفضلة: {preview}",
+    "columns": {
+      "preview": "معاينة",
+      "source": "المصدر",
+      "status": "الحالة",
+      "savedAt": "تاريخ الحفظ",
+      "attachments": "الملفات",
+      "actions": "الإجراءات"
+    },
+    "statuses": {
+      "deleted": "محادثة محذوفة",
+      "in_progress": "جارٍ",
+      "pending_review": "قيد المراجعة",
+      "completed": "مكتمل",
+      "cancelled": "ملغى",
+      "none": "—"
+    },
+    "filters": {
+      "all": "الكل",
+      "completed": "المكتملة",
+      "unused": "غير مستخدم (30 يومًا)",
+      "legacy": "القديمة",
+      "draft": "مسودات جديدة"
+    },
+    "confirmDelete": {
+      "title": "حذف {count} إدخالات؟",
+      "description": "سيتم حذف الإدخالات المحدودة ومرفقاتها بشكل دائم.",
+      "cancel": "إلغاء",
+      "confirm": "حذف المفضلات"
+    },
+    "deleteFailed": "تعذّر حذف بعض الإدخالات: {message}",
+    "results": "{visible} / {total}",
+    "selected": "{count} محدد",
+    "loadFailed": "تعذّر تحميل القوالب: {message}"
   }
 }
