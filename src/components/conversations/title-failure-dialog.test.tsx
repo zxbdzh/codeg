@@ -5,7 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import enMessages from "@/i18n/messages/en.json"
 
-const copy = vi.hoisted(() => vi.fn(async (_text: string) => true))
+// 泛型签名保留入参类型，供断言读取 calls[0][0]；实现不读参数，避免 unused 告警。
+const copy = vi.hoisted(() =>
+  vi.fn<(text: string) => Promise<boolean>>(async () => true)
+)
 vi.mock("@/lib/utils", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/utils")>()),
   copyTextToClipboard: copy,

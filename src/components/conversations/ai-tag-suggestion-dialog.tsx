@@ -54,10 +54,18 @@ export function AiTagSuggestionDialog({
   const [retry, setRetry] = useState(0)
   // 「换一批」要绕过服务端缓存，否则同一段上下文会拿回同一份建议。
   const [forceRefreshing, setForceRefreshing] = useState(false)
-  useEffect(() => {
-    let disposed = false
+  // 请求签名变化（切换会话 / 换一批）时在渲染期复位状态。
+  // effect 体内同步 setState 会触发级联渲染，React 明确不推荐；
+  // 渲染期比较签名是官方推荐的「随 props 调整 state」写法。
+  const requestSignature = `${conversationId}:${scope ?? "none"}:${retry}:${forceRefreshing}`
+  const [lastSignature, setLastSignature] = useState(requestSignature)
+  if (lastSignature !== requestSignature) {
+    setLastSignature(requestSignature)
     setLoading(true)
     setError(null)
+  }
+  useEffect(() => {
+    let disposed = false
     Promise.all([
       suggestConversationTags(conversationId, forceRefreshing),
       listConversationTags(),
