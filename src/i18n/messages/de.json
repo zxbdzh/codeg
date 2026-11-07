@@ -2446,6 +2446,11 @@
       "collapseSubsessions": "Unterkonversationen ausblenden"
     },
     "search": {
+      "scopeLabel": "Suchbereich",
+      "scopeCurrentProject": "Aktuelles Projekt",
+      "scopeAllProjects": "Alle Projekte",
+      "typeToSearchAllProjects": "Unterhaltungen, Tags und Dateien in allen Projekten durchsuchen",
+      "fileLoadFailed": "Dateien aus {count} Projekten konnten nicht geladen werden. Die Ergebnisse sind möglicherweise unvollständig.",
       "dialogTitle": "Suchen",
       "dialogTitleWithFolder": "Suchen — {name}",
       "tabAll": "Alle",

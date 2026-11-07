@@ -2446,6 +2446,11 @@
       "collapseSubsessions": "摺疊子會話"
     },
     "search": {
+      "scopeLabel": "搜尋範圍",
+      "scopeCurrentProject": "目前專案",
+      "scopeAllProjects": "所有專案",
+      "typeToSearchAllProjects": "搜尋所有專案中的對話、標籤和檔案",
+      "fileLoadFailed": "有 {count} 個專案的檔案載入失敗，結果可能不完整。",
       "dialogTitle": "搜尋",
       "dialogTitleWithFolder": "搜尋 — {name}",
       "tabAll": "全部",

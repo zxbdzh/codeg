@@ -10,6 +10,7 @@ import { useActiveFolder } from "@/contexts/active-folder-context"
 import type { SearchTab } from "@/contexts/search-dialog-context"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useConversationTagsStore } from "@/stores/conversation-tags-store"
+import { folderScope, useFolderTabsStore } from "@/stores/folder-tabs-store"
 import { useTabActions } from "@/contexts/tab-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { useWorkspaceActions } from "@/contexts/workspace-context"
@@ -39,6 +40,13 @@ import {
 import { cn } from "@/lib/utils"
 import { formatConversationTitle } from "@/lib/conversation-title"
 
+type SearchScope = "current" | "projects"
+
+interface ProjectFileEntry extends FlatFileEntry {
+  folderId: number
+  folderName: string
+}
+
 interface SearchCommandDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -65,15 +73,38 @@ function OpenSearchCommandDialog({
     locale === "zh-CN" ? zhCN : locale === "zh-TW" ? zhTW : enUS
   const { activeFolder: folder, activeFolderId } = useActiveFolder()
   const allConversations = useAppWorkspaceStore((s) => s.conversations)
+  const allFolders = useAppWorkspaceStore((s) => s.allFolders)
   const tags = useConversationTagsStore((s) => s.tags)
   const tagsById = useConversationTagsStore((s) => s.tagsById)
   const folderId = activeFolderId ?? 0
+  // 范围独立于结果分类；每次重开仍从当前项目开始，扩大范围必须显式选择。
+  const [scope, setScope] = useState<SearchScope>("current")
+  const searchAllProjects = scope === "projects"
+  const projectFolders = useMemo(
+    () => allFolders.filter((item) => item.kind === "regular"),
+    [allFolders]
+  )
+  const foldersById = useMemo(
+    () => new Map(allFolders.map((item) => [item.id, item])),
+    [allFolders]
+  )
+  const searchFolderIds = useMemo(
+    () =>
+      searchAllProjects
+        ? projectFolders.map((item) => item.id)
+        : folderId > 0
+          ? [folderId]
+          : [],
+    [searchAllProjects, projectFolders, folderId]
+  )
+  const searchFolderIdSet = useMemo(
+    () => new Set(searchFolderIds),
+    [searchFolderIds]
+  )
   const conversations = useMemo(
     () =>
-      activeFolderId == null
-        ? []
-        : allConversations.filter((c) => c.folder_id === activeFolderId),
-    [allConversations, activeFolderId]
+      allConversations.filter((item) => searchFolderIdSet.has(item.folder_id)),
+    [allConversations, searchFolderIdSet]
   )
   const { openTab } = useTabActions()
   const { openConversations } = useWorkbenchRoute()
@@ -99,6 +130,16 @@ function OpenSearchCommandDialog({
   }, [])
 
   const folderPath = folder?.path ?? ""
+  const searchFolders = useMemo(
+    () => (searchAllProjects ? projectFolders : folder ? [folder] : []),
+    [searchAllProjects, projectFolders, folder]
+  )
+  const switchScope = (nextScope: SearchScope) => {
+    setScope(nextScope)
+    // 范围扩大后不能沿用另一个项目不可见的智能体筛选。
+    setAgentFilter(null)
+    inputRef.current?.focus()
+  }
 
   // File search via shared hook (lazy-loaded when a tab that shows files is
   // active: the Files tab and the unified All tab).
@@ -106,24 +147,41 @@ function OpenSearchCommandDialog({
     allFiles,
     loading: filesLoading,
     loaded: filesLoaded,
+    failedFolderCount,
     reset: resetFileTree,
   } = useFileTree({
-    folderPath: folderPath || undefined,
+    folderPaths: searchFolders.map((item) => item.path),
     enabled: activeTab !== "conversations",
   })
 
-  // Compute which agent types exist in current folder
+  // Compute which agent types exist in the selected project scope
   const availableAgents = Array.from(
     new Set(conversations.map((c) => c.agent_type))
   ).sort(compareAgentType)
 
-  // Rank files by relevance (name/path tiers + fuzzy subsequence), scanning the
-  // full list so a deeply nested match isn't crowded out by shallower ones.
+  // 项目归属随清单计算一次，输入关键词时不反复复制所有项目的文件元数据。
+  const projectFiles = useMemo(() => {
+    if (!filesLoaded) return []
+    const foldersByPath = new Map(
+      searchFolders.map((item) => [item.path, item])
+    )
+    const entries: ProjectFileEntry[] = []
+    for (const entry of allFiles) {
+      const owner = foldersByPath.get(entry.folderPath ?? folderPath)
+      // 跨项目只列可直接打开的文件；目录定位仍属于当前项目的文件树。
+      if (owner && (!searchAllProjects || entry.kind === "file")) {
+        entries.push({
+          ...entry,
+          folderId: owner.id,
+          folderName: owner.alias || owner.name,
+        })
+      }
+    }
+    return entries
+  }, [allFiles, searchFolders, searchAllProjects, folderPath, filesLoaded])
   const filteredFiles = useMemo(
-    // 切换项目后 hook 会暂存上一项目清单，未完成当前路径加载前不能展示。
-    () =>
-      folderPath && filesLoaded ? rankFileMatches(query, allFiles, 100) : [],
-    [allFiles, query, folderPath, filesLoaded]
+    () => rankFileMatches(query, projectFiles, 100),
+    [query, projectFiles]
   )
 
   const handleDialogOpenChange = useCallback(
@@ -141,18 +199,18 @@ function OpenSearchCommandDialog({
     [onOpenChange, resetFileTree]
   )
 
-  // 按本次打开的文件夹读取候选，标签匹配不能先被后端的标题条件排除。
-  // 输入过程在本地完成，关闭或切换文件夹后的旧响应不能覆盖当前结果。
+  // 按显式选择的项目范围读取候选，标签匹配不能先被后端标题条件排除。
+  // 输入过程在本地完成，关闭或切换范围后的旧响应不能覆盖当前结果。
   useEffect(() => {
     // 未选项目时不回退成跨项目搜索，避免默认范围悄悄扩大。
-    if (!open || folderId <= 0) return
+    if (!open || searchFolderIds.length === 0) return
     let cancelled = false
     void Promise.resolve().then(async () => {
       if (cancelled) return
       setSearching(true)
       try {
         const data = await listAllConversations({
-          folder_ids: [folderId],
+          folder_ids: searchFolderIds,
         })
         if (!cancelled) setResults(data)
       } catch {
@@ -164,13 +222,12 @@ function OpenSearchCommandDialog({
     return () => {
       cancelled = true
     }
-  }, [open, folderId])
+  }, [open, searchFolderIds])
 
   const searchResults = useMemo(() => {
-    const scopedResults =
-      folderId > 0
-        ? results.filter((conversation) => conversation.folder_id === folderId)
-        : []
+    const scopedResults = results.filter((conversation) =>
+      searchFolderIdSet.has(conversation.folder_id)
+    )
     const candidates = agentFilter
       ? scopedResults.filter(
           (conversation) => conversation.agent_type === agentFilter
@@ -178,7 +235,7 @@ function OpenSearchCommandDialog({
       : scopedResults
     if (!query.trim()) return agentFilter ? candidates : []
     return rankConversationSearchMatches(query, candidates, tags)
-  }, [results, query, agentFilter, tags, folderId])
+  }, [results, query, agentFilter, tags, searchFolderIdSet])
 
   // 「全部」页把会话和文件放进同一个列表：会话在前（用户通常先找会话），文件
   // 在后。数量设上限，避免大项目里一次渲染上千个条目。
@@ -205,20 +262,22 @@ function OpenSearchCommandDialog({
   )
 
   const handleSelectFile = useCallback(
-    (entry: FlatFileEntry) => {
+    (entry: ProjectFileEntry) => {
+      const isCurrentFolder = entry.folderId === folderId
+      // 按项目隔离标签页时先激活目标范围，否则跨项目文件只会在后台打开。
+      useFolderTabsStore.getState().activateScope(folderScope(entry.folderId))
       if (entry.kind === "dir") {
         revealInFileTree(entry.relativePath)
       } else {
-        // Reveal parent directory in file tree, then open the file
         const lastSlash = entry.relativePath.lastIndexOf("/")
-        if (lastSlash > 0) {
+        if (isCurrentFolder && lastSlash > 0) {
           revealInFileTree(entry.relativePath.slice(0, lastSlash))
         }
-        openFilePreview(entry.relativePath)
+        void openFilePreview(entry.relativePath, { folderId: entry.folderId })
       }
       handleDialogOpenChange(false)
     },
-    [revealInFileTree, openFilePreview, handleDialogOpenChange]
+    [folderId, revealInFileTree, openFilePreview, handleDialogOpenChange]
   )
 
   const renderConversationItem = (conv: DbConversationSummary) => (
@@ -236,6 +295,12 @@ function OpenSearchCommandDialog({
           tags={resolveTags(conv.tag_ids, tagsById)}
           max={3}
         />
+        {searchAllProjects && (
+          <span className="truncate text-xs text-muted-foreground">
+            {foldersById.get(conv.folder_id)?.alias ||
+              foldersById.get(conv.folder_id)?.name}
+          </span>
+        )}
       </span>
       <span className="text-xs text-muted-foreground shrink-0">
         {getAgentLabel(conv.agent_type)}
@@ -249,10 +314,10 @@ function OpenSearchCommandDialog({
     </CommandItem>
   )
 
-  const renderFileItem = (entry: FlatFileEntry) => (
+  const renderFileItem = (entry: ProjectFileEntry) => (
     <CommandItem
-      key={entry.relativePath}
-      value={entry.relativePath}
+      key={`${entry.folderId}:${entry.relativePath}`}
+      value={`file:${entry.folderId}:${entry.relativePath}`}
       onSelect={() => handleSelectFile(entry)}
     >
       {entry.kind === "dir" ? (
@@ -260,7 +325,14 @@ function OpenSearchCommandDialog({
       ) : (
         <File className="w-4 h-4 shrink-0 text-muted-foreground" />
       )}
-      <span className="flex-1 truncate">{entry.name}</span>
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="truncate">{entry.name}</span>
+        {searchAllProjects && (
+          <span className="truncate text-xs text-muted-foreground">
+            {entry.folderName}
+          </span>
+        )}
+      </span>
       <span className="text-xs text-muted-foreground shrink-0 truncate max-w-48">
         {entry.relativePath}
       </span>
@@ -277,9 +349,11 @@ function OpenSearchCommandDialog({
   return (
     <CommandDialog
       title={
-        folder
-          ? t("dialogTitleWithFolder", { name: folder.name })
-          : t("dialogTitle")
+        searchAllProjects
+          ? t("dialogTitleWithFolder", { name: t("scopeAllProjects") })
+          : folder
+            ? t("dialogTitleWithFolder", { name: folder.name })
+            : t("dialogTitle")
       }
       open={open}
       onOpenChange={handleDialogOpenChange}
@@ -295,15 +369,41 @@ function OpenSearchCommandDialog({
         inputRef.current?.focus()
       }}
     >
-      {/* Folder context header */}
-      {folder && (
-        <div className="flex items-center gap-2 border-b px-4 py-2.5">
-          <Folder className="w-4 h-4 shrink-0 text-muted-foreground" />
-          <span className="text-sm font-medium truncate">
-            {t("dialogTitleWithFolder", { name: folder.name })}
-          </span>
+      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2.5 pr-10">
+        <Folder className="w-4 h-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+          {searchAllProjects
+            ? t("scopeAllProjects")
+            : folder?.alias || folder?.name || t("scopeCurrentProject")}
+        </span>
+        <div
+          role="group"
+          aria-label={t("scopeLabel")}
+          className="flex shrink-0 gap-1"
+        >
+          {(
+            [
+              ["current", t("scopeCurrentProject")],
+              ["projects", t("scopeAllProjects")],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              aria-pressed={scope === value}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => switchScope(value)}
+              className={cn(
+                "h-7 rounded-md px-2 text-xs transition-colors",
+                scope === value
+                  ? "bg-secondary text-secondary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
 
       {/* Tabs */}
       <div className="flex items-center gap-0 border-b px-3">
@@ -379,16 +479,26 @@ function OpenSearchCommandDialog({
         </div>
       )}
 
+      {activeTab !== "conversations" && failedFolderCount > 0 && (
+        <div role="status" className="px-4 py-2 text-xs text-destructive">
+          {t("fileLoadFailed", { count: failedFolderCount })}
+        </div>
+      )}
+
       <CommandList className="min-h-96">
         {/* All tab (double-Shift global search): sessions first, then files,
-            both already limited to the active folder. */}
+            both limited to the explicitly selected project scope. */}
         {activeTab === "all" && (
           <>
             <CommandEmpty>
               {searching || filesLoading
                 ? t("searching")
                 : !query.trim()
-                  ? t("typeToSearchAll")
+                  ? t(
+                      searchAllProjects
+                        ? "typeToSearchAllProjects"
+                        : "typeToSearchAll"
+                    )
                   : t("noResults")}
             </CommandEmpty>
             {allConversationResults.length > 0 && (

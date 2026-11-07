@@ -1,98 +1,135 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { listWorkspaceFiles } from "@/lib/api"
-import type { WorkspaceFileEntry } from "@/lib/types"
 
 export interface FlatFileEntry {
   name: string
   /** Relative path from folder root (same as WorkspaceFileEntry.path) */
   relativePath: string
   kind: "file" | "dir"
+  /** 跨项目同名文件必须保留根路径，不能按当前项目解释相对路径。 */
+  folderPath?: string
   /** Pre-computed lowercase relativePath for filtering */
   lowerPath: string
   /** Pre-computed lowercase name for filtering */
   lowerName: string
 }
 
+const EMPTY_FILES: FlatFileEntry[] = []
+
 interface UseFileTreeOptions {
-  folderPath: string | undefined
+  folderPath?: string
+  folderPaths?: readonly string[]
   enabled: boolean
 }
 
-interface UseFileTreeResult {
-  allFiles: FlatFileEntry[]
+interface FileTreeSnapshot {
+  key: string
+  files: FlatFileEntry[]
   loading: boolean
-  loaded: boolean
-  /** Clear cached data so the next `enabled=true` triggers a fresh load. */
-  reset: () => void
+  failedFolderCount: number
 }
 
 /**
- * Loads a flat, gitignore-aware listing of every file/dir under `folderPath`
- * (lazily, when `enabled`) for in-memory file search — shared by the search
- * dialog and the composer `@`-mention picker.
- *
- * Discovery and gitignore filtering run on the backend (`list_workspace_files`),
- * which prunes ignored directories *during* the walk and applies no depth cap,
- * so deeply nested files are reachable while `node_modules`/`target`/… are never
- * descended. The result is cached per folder path; a folder switch keeps showing
- * the previous list until the new one loads (`loaded` gates that transition).
+ * Lazily loads gitignore-aware file/dir listings for in-memory file search.
+ * Single-project callers pass folderPath; the global search passes folderPaths.
+ * Discovery and ignored-directory pruning stay in list_workspace_files.
  */
 export function useFileTree({
   folderPath,
+  folderPaths,
   enabled,
-}: UseFileTreeOptions): UseFileTreeResult {
-  const [allFiles, setAllFiles] = useState<FlatFileEntry[]>([])
-  const [loading, setLoading] = useState(false)
-  const loadedForPathRef = useRef<string | null>(null)
+}: UseFileTreeOptions) {
+  // 用路径值标识请求：调用方重建数组不重扫磁盘，切换范围也不会露出旧项目结果。
+  const pathsKey = JSON.stringify(
+    [...new Set(folderPaths ?? (folderPath ? [folderPath] : []))].filter(
+      Boolean
+    )
+  )
+  const [snapshot, setSnapshot] = useState<FileTreeSnapshot | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+  const loadedKeyRef = useRef<string | null>(null)
+  const requestVersionRef = useRef(0)
 
   useEffect(() => {
-    if (!enabled || !folderPath) return
-    if (loadedForPathRef.current === folderPath) return
-
+    if (!enabled || loadedKeyRef.current === pathsKey) return
+    const paths: string[] = JSON.parse(pathsKey)
+    if (paths.length === 0) return
     let canceled = false
-    setLoading(true)
+    const version = ++requestVersionRef.current
 
-    async function load() {
-      try {
-        const files: WorkspaceFileEntry[] = await listWorkspaceFiles(
-          folderPath!
-        )
-        const flat: FlatFileEntry[] = files.map((f) => ({
-          name: f.name,
-          relativePath: f.path,
-          kind: f.kind,
-          lowerPath: f.path.toLowerCase(),
-          lowerName: f.name.toLowerCase(),
-        }))
-
-        if (!canceled) {
-          setAllFiles(flat)
-          loadedForPathRef.current = folderPath!
+    void Promise.resolve().then(async () => {
+      if (canceled || version !== requestVersionRef.current) return
+      loadedKeyRef.current = null
+      setSnapshot({
+        key: pathsKey,
+        files: [],
+        loading: true,
+        failedFolderCount: 0,
+      })
+      const batches: FlatFileEntry[][] = new Array(paths.length)
+      let nextIndex = 0
+      let failedFolderCount = 0
+      const loadNext = async () => {
+        while (
+          !canceled &&
+          version === requestVersionRef.current &&
+          nextIndex < paths.length
+        ) {
+          const index = nextIndex++
+          const root = paths[index]
+          try {
+            const files = await listWorkspaceFiles(root)
+            batches[index] = files.map((file) => ({
+              name: file.name,
+              relativePath: file.path,
+              kind: file.kind,
+              folderPath: root,
+              lowerPath: file.path.toLowerCase(),
+              lowerName: file.name.toLowerCase(),
+            }))
+          } catch {
+            failedFolderCount++
+            batches[index] = []
+          }
         }
-      } catch {
-        if (!canceled) setAllFiles([])
-      } finally {
-        if (!canceled) setLoading(false)
       }
-    }
-
-    void load()
+      // 全项目检索限制同时扫描的目录数，避免大量项目压满磁盘或远端连接。
+      await Promise.all(
+        Array.from({ length: Math.min(paths.length, 4) }, loadNext)
+      )
+      if (!canceled && version === requestVersionRef.current) {
+        // 切换结果分类复用成功清单；失败项目在重新启用时仍可重试。
+        if (failedFolderCount === 0) loadedKeyRef.current = pathsKey
+        setSnapshot({
+          key: pathsKey,
+          files: batches.flat(),
+          loading: false,
+          failedFolderCount,
+        })
+      }
+    })
     return () => {
       canceled = true
     }
-  }, [enabled, folderPath])
+  }, [enabled, pathsKey, reloadKey])
 
   const reset = useCallback(() => {
-    loadedForPathRef.current = null
-    setAllFiles([])
+    // 立即使在途扫描失效，不等下一轮 effect 清理再阻止旧结果回填。
+    requestVersionRef.current++
+    loadedKeyRef.current = null
+    setSnapshot(null)
+    setReloadKey((value) => value + 1)
   }, [])
 
+  const current = snapshot?.key === pathsKey ? snapshot : null
+  const hasPaths = pathsKey !== "[]"
   return {
-    allFiles,
-    loading,
-    loaded: loadedForPathRef.current === folderPath,
+    allFiles: current?.files ?? EMPTY_FILES,
+    loading: enabled && hasPaths && (!current || current.loading),
+    loaded: current !== null && !current.loading,
+    failedFolderCount: current?.failedFolderCount ?? 0,
     reset,
   }
 }

@@ -2508,6 +2508,11 @@
       "collapseSubsessions": "折叠子会话"
     },
     "search": {
+      "scopeLabel": "搜索范围",
+      "scopeCurrentProject": "当前项目",
+      "scopeAllProjects": "所有项目",
+      "typeToSearchAllProjects": "搜索所有项目中的会话、标签和文件",
+      "fileLoadFailed": "有 {count} 个项目的文件加载失败，结果可能不完整。",
       "dialogTitle": "搜索",
       "dialogTitleWithFolder": "搜索 — {name}",
       "tabAll": "全部",

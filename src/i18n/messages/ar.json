@@ -2446,6 +2446,11 @@
       "collapseSubsessions": "طي المحادثات الفرعية"
     },
     "search": {
+      "scopeLabel": "نطاق البحث",
+      "scopeCurrentProject": "المشروع الحالي",
+      "scopeAllProjects": "جميع المشاريع",
+      "typeToSearchAllProjects": "البحث في المحادثات والوسوم والملفات في جميع المشاريع",
+      "fileLoadFailed": "تعذّر تحميل ملفات {count} من المشاريع. قد تكون النتائج غير مكتملة.",
       "dialogTitle": "بحث",
       "dialogTitleWithFolder": "بحث — {name}",
       "tabAll": "الكل",

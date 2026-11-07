@@ -12,19 +12,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { SearchCommandDialog } from "./search-command-dialog"
 import enMessages from "@/i18n/messages/en.json"
-import { listAllConversations } from "@/lib/api"
-import type { ConversationTagDetail, DbConversationSummary } from "@/lib/types"
+import { listAllConversations, listWorkspaceFiles } from "@/lib/api"
+import { useFolderTabsStore } from "@/stores/folder-tabs-store"
+import type {
+  ConversationTagDetail,
+  DbConversationSummary,
+  FolderDetail,
+} from "@/lib/types"
 import type { FlatFileEntry } from "@/hooks/use-file-tree"
 
 // The active folder and its conversations, per test: the agent filter chips
 // only render once the folder holds more than one agent type.
 const workspace = vi.hoisted(() => ({
   activeFolderId: null as number | null,
+  folders: [] as FolderDetail[],
   conversations: [] as { folder_id: number; agent_type: string }[],
   tags: [] as ConversationTagDetail[],
   files: [] as FlatFileEntry[],
   filesLoaded: true,
-  resetFileTree: vi.fn(),
+  openFilePreview: vi.fn(),
+  revealInFileTree: vi.fn(),
   openTab: vi.fn(),
   openConversations: vi.fn(),
   onOpenChange: vi.fn(),
@@ -34,6 +41,7 @@ vi.mock("@/components/agent-icon", () => ({ AgentIcon: () => null }))
 
 vi.mock("@/lib/api", () => ({
   listAllConversations: vi.fn(async () => []),
+  listWorkspaceFiles: vi.fn(),
 }))
 
 vi.mock("@/contexts/tab-context", () => ({
@@ -45,11 +53,11 @@ vi.mock("@/contexts/workbench-route-context", () => ({
 }))
 
 vi.mock("@/contexts/workspace-context", () => ({
-  useWorkspaceActions: () => ({ openFilePreview: vi.fn() }),
+  useWorkspaceActions: () => ({ openFilePreview: workspace.openFilePreview }),
 }))
 
 vi.mock("@/contexts/aux-panel-context", () => ({
-  useAuxPanelContext: () => ({ revealInFileTree: vi.fn() }),
+  useAuxPanelContext: () => ({ revealInFileTree: workspace.revealInFileTree }),
 }))
 
 vi.mock("@/contexts/active-folder-context", () => ({
@@ -66,25 +74,24 @@ vi.mock("@/contexts/active-folder-context", () => ({
   }),
 }))
 
-vi.mock("@/stores/app-workspace-store", () => ({
-  useAppWorkspaceStore: (selector: (s: unknown) => unknown) =>
-    selector({ conversations: workspace.conversations }),
-}))
+vi.mock("@/stores/app-workspace-store", () => {
+  const snapshot = () => ({
+    conversations: workspace.conversations,
+    allFolders: workspace.folders,
+  })
+  return {
+    useAppWorkspaceStore: Object.assign(
+      (selector: (state: unknown) => unknown) => selector(snapshot()),
+      { getState: snapshot }
+    ),
+  }
+})
 vi.mock("@/stores/conversation-tags-store", () => ({
   useConversationTagsStore: (selector: (state: unknown) => unknown) =>
     selector({
       tags: workspace.tags,
       tagsById: new Map(workspace.tags.map((tag) => [tag.id, tag])),
     }),
-}))
-
-vi.mock("@/hooks/use-file-tree", () => ({
-  useFileTree: () => ({
-    allFiles: workspace.files,
-    loading: false,
-    loaded: workspace.filesLoaded,
-    reset: workspace.resetFileTree,
-  }),
 }))
 
 function renderDialog(open = true, initialTab?: "all") {
@@ -126,11 +133,38 @@ function conversation(
 beforeEach(() => {
   vi.clearAllMocks()
   workspace.activeFolderId = null
+  workspace.folders = [1, 2].map((id) => ({
+    id,
+    name: `Project ${id}`,
+    path: `/repo-${id}`,
+    git_branch: null,
+    default_agent_type: null,
+    last_opened_at: "2026-11-01T00:00:00Z",
+    sort_order: id,
+    color: "inherit",
+    parent_id: null,
+    kind: "regular" as const,
+    alias: null,
+    group_id: null,
+  }))
   workspace.conversations = []
   workspace.tags = []
   workspace.files = []
   workspace.filesLoaded = true
   vi.mocked(listAllConversations).mockReset().mockResolvedValue([])
+  vi.mocked(listWorkspaceFiles)
+    .mockReset()
+    .mockImplementation(async (path) => {
+      if (!workspace.filesLoaded) return new Promise(() => {})
+      return workspace.files
+        .filter((entry) => !entry.folderPath || entry.folderPath === path)
+        .map((entry) => ({
+          name: entry.name,
+          path: entry.relativePath,
+          kind: entry.kind,
+        }))
+    })
+  useFolderTabsStore.setState({ enabled: false, scope: "global" })
 })
 
 describe("SearchCommandDialog title and tag search", () => {
@@ -244,6 +278,7 @@ describe("SearchCommandDialog title and tag search", () => {
       screen.getByPlaceholderText(enMessages.Folder.search.placeholder)
     ).toHaveValue("")
     expect(screen.queryAllByRole("option")).toHaveLength(0)
+    await waitFor(() => expect(listAllConversations).toHaveBeenCalledTimes(2))
   })
 
   it("keeps fuzzy file search independent of conversation tag matching", async () => {
@@ -422,6 +457,31 @@ describe("SearchCommandDialog global search tab", () => {
     expect(screen.queryByRole("option", { name: /auth elsewhere/ })).toBeNull()
   })
 
+  it("only includes other projects after explicitly widening the scope", async () => {
+    renderDialog(true, "all")
+    const input = screen.getByPlaceholderText(
+      enMessages.Folder.search.allPlaceholder
+    )
+    fireEvent.change(input, { target: { value: "auth" } })
+    await screen.findByRole("option", { name: /auth flow/ })
+    expect(screen.queryByRole("option", { name: /auth elsewhere/ })).toBeNull()
+
+    await userEvent.click(screen.getByRole("button", { name: "All projects" }))
+
+    const result = await screen.findByRole("option", { name: /auth elsewhere/ })
+    expect(within(result).getByText("Project 2")).toBeVisible()
+    expect(input).toHaveFocus()
+    expect(listAllConversations).toHaveBeenLastCalledWith({
+      folder_ids: [1, 2],
+    })
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Current project" })
+    )
+    expect(screen.queryByRole("option", { name: /auth elsewhere/ })).toBeNull()
+    expect(input).toHaveValue("auth")
+  })
+
   it("does not search other projects when no project is selected", () => {
     workspace.activeFolderId = null
     renderDialog(true, "all")
@@ -461,5 +521,300 @@ describe("SearchCommandDialog global search tab", () => {
     // 筛选条在「全部」页不可见；若状态没清空，这里只会剩下 Codex 的会话。
     expect(screen.getByRole("option", { name: /auth flow/ })).toBeVisible()
     expect(screen.getByRole("option", { name: /auth style/ })).toBeVisible()
+  })
+})
+
+describe("SearchCommandDialog project scope", () => {
+  beforeEach(() => {
+    workspace.activeFolderId = 1
+    workspace.conversations = [
+      conversation(1, { title: "auth current" }),
+      conversation(2, { title: "auth other", folder_id: 2 }),
+    ]
+    vi.mocked(listAllConversations).mockResolvedValue(
+      workspace.conversations as DbConversationSummary[]
+    )
+    workspace.files = [1, 2].map((id) => ({
+      name: "auth.ts",
+      relativePath: "src/auth.ts",
+      kind: "file" as const,
+      lowerName: "auth.ts",
+      lowerPath: "src/auth.ts",
+      folderPath: `/repo-${id}`,
+    }))
+  })
+
+  it("keeps same-path files distinct and opens the selected project's file", async () => {
+    useFolderTabsStore.setState({ enabled: true, scope: 1 })
+    renderDialog(true, "all")
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "auth.ts" },
+    })
+    await screen.findByRole("option", { name: /auth.ts/ })
+    expect(listWorkspaceFiles).toHaveBeenCalledWith("/repo-1")
+    expect(listWorkspaceFiles).not.toHaveBeenCalledWith("/repo-2")
+
+    await userEvent.click(screen.getByRole("button", { name: "All projects" }))
+    const otherFile = await screen.findByRole("option", {
+      name: /auth.ts Project 2/,
+    })
+    expect(screen.getAllByRole("option")).toHaveLength(2)
+    await userEvent.click(otherFile)
+
+    expect(workspace.openFilePreview).toHaveBeenCalledExactlyOnceWith(
+      "src/auth.ts",
+      { folderId: 2 }
+    )
+    expect(useFolderTabsStore.getState().scope).toBe(2)
+    expect(workspace.revealInFileTree).not.toHaveBeenCalled()
+    expect(workspace.onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("opens a conversation in the project shown on its result", async () => {
+    renderDialog(true, "all")
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "auth other" },
+    })
+    await userEvent.click(screen.getByRole("button", { name: "All projects" }))
+    await userEvent.click(
+      await screen.findByRole("option", { name: /auth other/ })
+    )
+    expect(workspace.openTab).toHaveBeenCalledWith(2, 2, "claude_code", true)
+    expect(workspace.openConversations).toHaveBeenCalledOnce()
+  })
+
+  it("allows all-project search without a current project, but never widens implicitly", async () => {
+    workspace.activeFolderId = null
+    renderDialog(true, "all")
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "auth" },
+    })
+    expect(listAllConversations).not.toHaveBeenCalled()
+    expect(listWorkspaceFiles).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole("button", { name: "All projects" }))
+    expect(
+      await screen.findByRole("option", { name: /auth other/ })
+    ).toBeVisible()
+    expect(
+      await screen.findByRole("option", { name: /auth.ts Project 2/ })
+    ).toBeVisible()
+  })
+
+  it("does not include hidden chat folders in all projects", async () => {
+    workspace.folders.push({
+      ...workspace.folders[0],
+      id: 3,
+      path: "/chat",
+      kind: "chat",
+    })
+    workspace.conversations.push(
+      conversation(3, { title: "auth chat", folder_id: 3 })
+    )
+    renderDialog(true, "all")
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "auth" },
+    })
+    await userEvent.click(screen.getByRole("button", { name: "All projects" }))
+    await screen.findByRole("option", { name: /auth other/ })
+    expect(screen.queryByRole("option", { name: /auth chat/ })).toBeNull()
+    expect(listAllConversations).toHaveBeenLastCalledWith({
+      folder_ids: [1, 2],
+    })
+    expect(listWorkspaceFiles).not.toHaveBeenCalledWith("/chat")
+  })
+
+  it("never sends an unrestricted query when no projects are registered", async () => {
+    workspace.activeFolderId = null
+    workspace.folders = []
+    renderDialog(true, "all")
+    await userEvent.click(screen.getByRole("button", { name: "All projects" }))
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "auth" },
+    })
+    expect(listAllConversations).not.toHaveBeenCalled()
+    expect(listWorkspaceFiles).not.toHaveBeenCalled()
+    expect(screen.queryAllByRole("option")).toHaveLength(0)
+  })
+
+  it("resets to the current project after closing and reopening", async () => {
+    const view = renderDialog(true, "all")
+    await userEvent.click(screen.getByRole("button", { name: "All projects" }))
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "auth" },
+    })
+    await screen.findByRole("option", { name: /auth other/ })
+    const dialog = (open: boolean) => (
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <SearchCommandDialog
+          open={open}
+          onOpenChange={workspace.onOpenChange}
+          initialTab="all"
+        />
+      </NextIntlClientProvider>
+    )
+    view.rerender(dialog(false))
+    view.rerender(dialog(true))
+    expect(
+      screen.getByRole("button", { name: "Current project" })
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("combobox")).toHaveValue("")
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "auth" },
+    })
+    await screen.findByRole("option", { name: /auth current/ })
+    expect(screen.queryByRole("option", { name: /auth other/ })).toBeNull()
+    expect(screen.getAllByRole("option", { name: /auth.ts/ })).toHaveLength(1)
+  })
+
+  it("ignores a late all-project response after narrowing back to the current project", async () => {
+    let resolveAll!: (rows: DbConversationSummary[]) => void
+    vi.mocked(listAllConversations)
+      .mockResolvedValueOnce([conversation(1, { title: "auth current" })])
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveAll = resolve
+          })
+      )
+      .mockResolvedValueOnce([conversation(1, { title: "auth current" })])
+    renderDialog(true, "all")
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "auth" },
+    })
+    await screen.findByRole("option", { name: /auth current/ })
+    await userEvent.click(screen.getByRole("button", { name: "All projects" }))
+    await waitFor(() => expect(listAllConversations).toHaveBeenCalledTimes(2))
+    await userEvent.click(
+      screen.getByRole("button", { name: "Current project" })
+    )
+    await screen.findByRole("option", { name: /auth current/ })
+    await act(async () =>
+      resolveAll([conversation(2, { title: "auth other", folder_id: 2 })])
+    )
+    expect(screen.queryByRole("option", { name: /auth other/ })).toBeNull()
+    expect(screen.getByRole("option", { name: /auth current/ })).toBeVisible()
+  })
+
+  it("shows successful project files when another project fails to load", async () => {
+    vi.mocked(listWorkspaceFiles).mockImplementation(async (path) => {
+      if (path === "/repo-2") throw new Error("unavailable")
+      return [{ name: "auth.ts", path: "src/auth.ts", kind: "file" }]
+    })
+    renderDialog(true, "all")
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "auth.ts" },
+    })
+    await userEvent.click(screen.getByRole("button", { name: "All projects" }))
+    expect(
+      await screen.findByRole("option", { name: /auth.ts Project 1/ })
+    ).toBeVisible()
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Could not load files from 1 projects"
+    )
+  })
+
+  it("ignores files arriving from an old all-project scan after narrowing the scope", async () => {
+    let resolveOther!: (
+      files: { name: string; path: string; kind: "file" }[]
+    ) => void
+    vi.mocked(listWorkspaceFiles).mockImplementation(async (path) => {
+      if (path === "/repo-2")
+        return new Promise((resolve) => {
+          resolveOther = resolve
+        })
+      return [{ name: "auth.ts", path: "src/auth.ts", kind: "file" }]
+    })
+    renderDialog(true, "all")
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "auth.ts" },
+    })
+    await screen.findByRole("option", { name: /auth.ts/ })
+    await userEvent.click(screen.getByRole("button", { name: "All projects" }))
+    await waitFor(() =>
+      expect(listWorkspaceFiles).toHaveBeenCalledWith("/repo-2")
+    )
+    await userEvent.click(
+      screen.getByRole("button", { name: "Current project" })
+    )
+    await screen.findByRole("option", { name: /auth.ts/ })
+    await act(async () =>
+      resolveOther([
+        { name: "auth-other.ts", path: "auth-other.ts", kind: "file" },
+      ])
+    )
+    expect(screen.queryByRole("option", { name: /auth-other.ts/ })).toBeNull()
+    expect(screen.getAllByRole("option")).toHaveLength(1)
+  })
+
+  it("limits concurrent scans and eventually searches every registered project", async () => {
+    workspace.folders = Array.from({ length: 6 }, (_, index) => ({
+      ...workspace.folders[0],
+      id: index + 1,
+      name: `Project ${index + 1}`,
+      path: `/repo-${index + 1}`,
+    }))
+    const scans: (() => void)[] = []
+    let activeScans = 0
+    let peakScans = 0
+    vi.mocked(listWorkspaceFiles).mockImplementation(() => {
+      activeScans++
+      peakScans = Math.max(peakScans, activeScans)
+      return new Promise((resolve) => {
+        scans.push(() => {
+          activeScans--
+          resolve([{ name: "auth.ts", path: "auth.ts", kind: "file" }])
+        })
+      })
+    })
+    renderDialog()
+    await userEvent.click(screen.getByRole("button", { name: "All projects" }))
+    await userEvent.click(screen.getByRole("button", { name: "Files" }))
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "auth.ts" },
+    })
+    await waitFor(() => expect(scans).toHaveLength(4))
+    await act(async () => {
+      scans.slice(0, 4).forEach((complete) => complete())
+    })
+    await waitFor(() => expect(scans).toHaveLength(6))
+    await act(async () => {
+      scans.slice(4).forEach((complete) => complete())
+    })
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(6))
+    expect(peakScans).toBe(4)
+    expect(screen.getByRole("option", { name: /Project 6/ })).toBeVisible()
+  })
+
+  it("keeps directory matches in current-project search", async () => {
+    workspace.files = [
+      {
+        name: "auth",
+        relativePath: "src/auth",
+        kind: "dir",
+        lowerName: "auth",
+        lowerPath: "src/auth",
+      },
+    ]
+    renderDialog(true, "all")
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "src/auth" },
+    })
+    await userEvent.click(
+      await screen.findByRole("option", { name: /src\/auth/ })
+    )
+    expect(workspace.revealInFileTree).toHaveBeenCalledWith("src/auth")
+    expect(workspace.openFilePreview).not.toHaveBeenCalled()
+  })
+
+  it("reuses loaded project files when switching result categories", async () => {
+    renderDialog(true, "all")
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "auth.ts" },
+    })
+    await screen.findByRole("option", { name: /auth.ts/ })
+    await userEvent.click(screen.getByRole("button", { name: "Conversations" }))
+    await userEvent.click(screen.getByRole("button", { name: "Files" }))
+    await screen.findByRole("option", { name: /auth.ts/ })
+    expect(listWorkspaceFiles).toHaveBeenCalledTimes(1)
   })
 })

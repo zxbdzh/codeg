@@ -2446,6 +2446,11 @@
       "collapseSubsessions": "Recolher subconversas"
     },
     "search": {
+      "scopeLabel": "Âmbito da pesquisa",
+      "scopeCurrentProject": "Projeto atual",
+      "scopeAllProjects": "Todos os projetos",
+      "typeToSearchAllProjects": "Pesquisar conversas, etiquetas e arquivos em todos os projetos",
+      "fileLoadFailed": "Não foi possível carregar arquivos de {count} projetos. Os resultados podem estar incompletos.",
       "dialogTitle": "Buscar",
       "dialogTitleWithFolder": "Buscar — {name}",
       "tabAll": "Tudo",

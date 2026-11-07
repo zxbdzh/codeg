@@ -2446,6 +2446,11 @@
       "collapseSubsessions": "하위 대화 접기"
     },
     "search": {
+      "scopeLabel": "검색 범위",
+      "scopeCurrentProject": "현재 프로젝트",
+      "scopeAllProjects": "모든 프로젝트",
+      "typeToSearchAllProjects": "모든 프로젝트의 대화, 태그 및 파일 검색",
+      "fileLoadFailed": "{count}개 프로젝트의 파일을 불러오지 못했습니다. 결과가 불완전할 수 있습니다.",
       "dialogTitle": "검색",
       "dialogTitleWithFolder": "검색 — {name}",
       "tabAll": "전체",

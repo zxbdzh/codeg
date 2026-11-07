@@ -2508,6 +2508,11 @@
       "collapseSubsessions": "Collapse sub-conversations"
     },
     "search": {
+      "scopeLabel": "Search scope",
+      "scopeCurrentProject": "Current project",
+      "scopeAllProjects": "All projects",
+      "typeToSearchAllProjects": "Search conversations, tags and files in all projects",
+      "fileLoadFailed": "Could not load files from {count} projects. Results may be incomplete.",
       "dialogTitle": "Search",
       "dialogTitleWithFolder": "Search — {name}",
       "tabAll": "All",

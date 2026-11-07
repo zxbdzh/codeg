@@ -2446,6 +2446,11 @@
       "collapseSubsessions": "サブ会話を折りたたむ"
     },
     "search": {
+      "scopeLabel": "検索範囲",
+      "scopeCurrentProject": "現在のプロジェクト",
+      "scopeAllProjects": "すべてのプロジェクト",
+      "typeToSearchAllProjects": "すべてのプロジェクトの会話、タグ、ファイルを検索",
+      "fileLoadFailed": "{count} 個のプロジェクトのファイルを読み込めませんでした。結果が不完全な可能性があります。",
       "dialogTitle": "検索",
       "dialogTitleWithFolder": "検索 — {name}",
       "tabAll": "すべて",
