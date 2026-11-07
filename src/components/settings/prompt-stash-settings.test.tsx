@@ -86,11 +86,16 @@ afterEach(() => {
 describe("PromptStashSettings", () => {
   it("loads management metadata without a scope or restoring attachments", async () => {
     listStash.mockResolvedValue([
-      entry(1, { conversationDeleted: true, preview: "Input with attachments" }),
+      entry(1, {
+        conversationDeleted: true,
+        preview: "Input with attachments",
+      }),
     ])
     renderSettings()
 
-    const row = (await screen.findByText("Input with attachments")).closest("tr")!
+    const row = (await screen.findByText("Input with attachments")).closest(
+      "tr"
+    )!
     expect(within(row).getByText("Conversation 1")).toBeInTheDocument()
     expect(within(row).getByText("Project Atlas")).toBeInTheDocument()
     expect(within(row).getByText("Conversation deleted")).toBeInTheDocument()
@@ -127,7 +132,9 @@ describe("PromptStashSettings", () => {
     }
     await user.clear(search)
     await user.type(search, "missing")
-    expect(screen.getByText("No favorites match the current search and filter.")).toBeInTheDocument()
+    expect(
+      screen.getByText("No favorites match the current search and filter.")
+    ).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Clear filters" }))
     expect(screen.getByText("Write tests")).toBeInTheDocument()
   })
@@ -179,46 +186,75 @@ describe("PromptStashSettings", () => {
     const user = userEvent.setup()
     renderSettings()
     await screen.findByText("Saved input 1")
-    await user.click(screen.getByRole("button", { name: "Delete favorite: Saved input 1" }))
+    await user.click(
+      screen.getByRole("button", { name: "Delete favorite: Saved input 1" })
+    )
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
     expect(removeStash).not.toHaveBeenCalled()
-    await user.click(screen.getByRole("button", { name: "Cancel", exact: true }))
+    await user.click(
+      screen.getByRole("button", { name: "Cancel", exact: true })
+    )
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
     expect(removeStash).not.toHaveBeenCalled()
 
     listStash.mockResolvedValue([])
-    await user.click(screen.getByRole("button", { name: "Delete favorite: Saved input 1" }))
-    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete favorites", exact: true }))
+    await user.click(
+      screen.getByRole("button", { name: "Delete favorite: Saved input 1" })
+    )
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Delete favorites",
+        exact: true,
+      })
+    )
     await waitFor(() => expect(removeStash).toHaveBeenCalledWith(1))
     expect(removeStash.mock.calls).toEqual([[1]])
-    expect(await screen.findByText("No saved favorites. Save input from a conversation to see it here.")).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        "No saved favorites. Save input from a conversation to see it here."
+      )
+    ).toBeInTheDocument()
   })
 
   it("selects only the current filtered rows and keeps newly refreshed data after deleting the confirmed IDs", async () => {
     const user = userEvent.setup()
     const deletion = deferred<void>()
-    listStash.mockResolvedValueOnce([
-      entry(1),
-      entry(2, { conversationStatus: "completed" }),
-      entry(3, { conversationStatus: "cancelled" }),
-    ]).mockResolvedValue([
-      entry(1),
-      entry(4, { preview: "A newly saved favorite", conversationStatus: "completed" }),
-    ])
+    listStash
+      .mockResolvedValueOnce([
+        entry(1),
+        entry(2, { conversationStatus: "completed" }),
+        entry(3, { conversationStatus: "cancelled" }),
+      ])
+      .mockResolvedValue([
+        entry(1),
+        entry(4, {
+          preview: "A newly saved favorite",
+          conversationStatus: "completed",
+        }),
+      ])
     removeStash.mockImplementation(() => deletion.promise)
     renderSettings()
     await screen.findByText("Saved input 1")
     await chooseFilter("Completed / cancelled")
-    await user.click(screen.getByRole("checkbox", { name: "Select all filtered favorites" }))
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select all filtered favorites" })
+    )
     expect(screen.getByText(/2 selected/)).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Delete selected", exact: true }))
+    await user.click(
+      screen.getByRole("button", { name: "Delete selected", exact: true })
+    )
     expect(removeStash).not.toHaveBeenCalled()
-    const confirm = within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete favorites", exact: true })
+    const confirm = within(screen.getByRole("alertdialog")).getByRole(
+      "button",
+      { name: "Delete favorites", exact: true }
+    )
     await user.dblClick(confirm)
     expect(removeStash.mock.calls).toEqual([[2], [3]])
     await act(async () => deletion.resolve(undefined))
 
-    expect(await screen.findByText("A newly saved favorite")).toBeInTheDocument()
+    expect(
+      await screen.findByText("A newly saved favorite")
+    ).toBeInTheDocument()
     expect(screen.queryByText("Saved input 2")).not.toBeInTheDocument()
     expect(screen.queryByText("Saved input 3")).not.toBeInTheDocument()
     expect(removeStash.mock.calls).toEqual([[2], [3]])
@@ -235,26 +271,48 @@ describe("PromptStashSettings", () => {
     })
     renderSettings()
     await screen.findByText("Saved input 3")
-    await user.click(screen.getByRole("checkbox", { name: "Select all filtered favorites" }))
-    await user.click(screen.getByRole("button", { name: "Delete selected", exact: true }))
-    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete favorites", exact: true }))
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select all filtered favorites" })
+    )
+    await user.click(
+      screen.getByRole("button", { name: "Delete selected", exact: true })
+    )
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Delete favorites",
+        exact: true,
+      })
+    )
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("permission denied")
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "permission denied"
+    )
     expect(screen.queryByText("Saved input 1")).not.toBeInTheDocument()
     expect(screen.queryByText("Saved input 3")).not.toBeInTheDocument()
     expect(screen.getByText("Saved input 2")).toBeInTheDocument()
-    expect(screen.getByRole("checkbox", { name: "Select favorite: Saved input 2" })).toBeChecked()
+    expect(
+      screen.getByRole("checkbox", { name: "Select favorite: Saved input 2" })
+    ).toBeChecked()
     expect(screen.getByText(/1 selected/)).toBeInTheDocument()
     expect(listStash).toHaveBeenCalledTimes(1)
 
     removeStash.mockResolvedValue(undefined)
     listStash.mockResolvedValue([])
-    await user.click(screen.getByRole("button", { name: "Delete selected", exact: true }))
+    await user.click(
+      screen.getByRole("button", { name: "Delete selected", exact: true })
+    )
     expect(removeStash).toHaveBeenCalledTimes(3)
-    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete favorites", exact: true }))
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Delete favorites",
+        exact: true,
+      })
+    )
     await waitFor(() => expect(removeStash).toHaveBeenCalledTimes(4))
     expect(removeStash.mock.calls[3]).toEqual([2])
-    await waitFor(() => expect(screen.queryByText("Saved input 2")).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByText("Saved input 2")).not.toBeInTheDocument()
+    )
   })
 
   it("shows loading, a recoverable load error and the empty state", async () => {
@@ -266,13 +324,19 @@ describe("PromptStashSettings", () => {
     await act(async () => request.reject(new Error("offline")))
     expect(await screen.findByRole("alert")).toHaveTextContent("offline")
     await user.click(screen.getByRole("button", { name: "Retry", exact: true }))
-    expect(await screen.findByText("No saved favorites. Save input from a conversation to see it here.")).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        "No saved favorites. Save input from a conversation to see it here."
+      )
+    ).toBeInTheDocument()
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   })
 
   it("does not let an old page request replace a new page after unmount", async () => {
     const oldRequest = deferred<PromptStashEntry[]>()
-    listStash.mockReturnValueOnce(oldRequest.promise).mockResolvedValue([entry(2)])
+    listStash
+      .mockReturnValueOnce(oldRequest.promise)
+      .mockResolvedValue([entry(2)])
     const oldPage = renderSettings()
     oldPage.unmount()
     renderSettings()
@@ -288,8 +352,15 @@ describe("PromptStashSettings", () => {
     removeStash.mockReturnValue(deletion.promise)
     const oldPage = renderSettings()
     await screen.findByText("Saved input 1")
-    await user.click(screen.getByRole("button", { name: "Delete favorite: Saved input 1" }))
-    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete favorites", exact: true }))
+    await user.click(
+      screen.getByRole("button", { name: "Delete favorite: Saved input 1" })
+    )
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Delete favorites",
+        exact: true,
+      })
+    )
     oldPage.unmount()
     listStash.mockResolvedValue([entry(2)])
     renderSettings()

@@ -201,9 +201,7 @@ export function PromptStashSettings() {
           <Bookmark className="size-4" strokeWidth={1.5} aria-hidden />
           {t("title")}
         </h1>
-        <p className="text-muted-foreground text-[13px]">
-          {t("description")}
-        </p>
+        <p className="text-muted-foreground text-[13px]">{t("description")}</p>
       </header>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -257,7 +255,10 @@ export function PromptStashSettings() {
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
         <p className="text-muted-foreground tabular-nums" aria-live="polite">
-          {t("results", { visible: visibleEntries.length, total: entries.length })}
+          {t("results", {
+            visible: visibleEntries.length,
+            total: entries.length,
+          })}
           {selected.size > 0 && ` · ${t("selected", { count: selected.size })}`}
         </p>
         <div className="flex items-center gap-2">
@@ -286,7 +287,10 @@ export function PromptStashSettings() {
       </div>
 
       {loadError !== null && (
-        <div role="alert" className="text-destructive flex items-center gap-2 text-[13px]">
+        <div
+          role="alert"
+          className="text-destructive flex items-center gap-2 text-[13px]"
+        >
           <span>{t("loadFailed", { message: loadError })}</span>
           <Button
             variant="outline"
@@ -324,12 +328,24 @@ export function PromptStashSettings() {
                   onCheckedChange={(checked) => toggleVisible(checked === true)}
                 />
               </th>
-              <th className="px-3 font-medium" scope="col">{t("columns.preview")}</th>
-              <th className="px-3 font-medium" scope="col">{t("columns.source")}</th>
-              <th className="px-3 font-medium" scope="col">{t("columns.status")}</th>
-              <th className="px-3 font-medium" scope="col">{t("columns.savedAt")}</th>
-              <th className="px-3 text-right font-medium" scope="col">{t("columns.attachments")}</th>
-              <th className="px-3 font-medium" scope="col"><span className="sr-only">{t("columns.actions")}</span></th>
+              <th className="px-3 font-medium" scope="col">
+                {t("columns.preview")}
+              </th>
+              <th className="px-3 font-medium" scope="col">
+                {t("columns.source")}
+              </th>
+              <th className="px-3 font-medium" scope="col">
+                {t("columns.status")}
+              </th>
+              <th className="px-3 font-medium" scope="col">
+                {t("columns.savedAt")}
+              </th>
+              <th className="px-3 text-right font-medium" scope="col">
+                {t("columns.attachments")}
+              </th>
+              <th className="px-3 font-medium" scope="col">
+                <span className="sr-only">{t("columns.actions")}</span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -354,13 +370,21 @@ export function PromptStashSettings() {
                     />
                   </td>
                   <td className="w-2/5 px-3 py-2">
-                    <p className="line-clamp-2 max-w-md wrap-anywhere whitespace-pre-wrap" title={preview}>
+                    <p
+                      className="line-clamp-2 max-w-md wrap-anywhere whitespace-pre-wrap"
+                      title={preview}
+                    >
                       {preview}
                     </p>
                   </td>
                   <td className="max-w-48 px-3 py-2">
-                    <p className="truncate" title={sourceLabel(entry)}>{sourceLabel(entry)}</p>
-                    <p className="text-muted-foreground truncate text-[11px]" title={entry.folderName ?? undefined}>
+                    <p className="truncate" title={sourceLabel(entry)}>
+                      {sourceLabel(entry)}
+                    </p>
+                    <p
+                      className="text-muted-foreground truncate text-[11px]"
+                      title={entry.folderName ?? undefined}
+                    >
                       {entry.folderName || t("noProject")}
                     </p>
                   </td>
@@ -375,10 +399,15 @@ export function PromptStashSettings() {
                     {Number.isNaN(date.getTime()) ? (
                       t("unknownTime")
                     ) : (
-                      <time dateTime={entry.updatedAt}>{dateFormatter.format(date)}</time>
+                      <time dateTime={entry.updatedAt}>
+                        {dateFormatter.format(date)}
+                      </time>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums" title={t("assetBytes", { bytes: entry.assetBytes })}>
+                  <td
+                    className="px-3 py-2 text-right tabular-nums"
+                    title={t("assetBytes", { bytes: entry.assetBytes })}
+                  >
                     {entry.attachmentCount}
                   </td>
                   <td className="px-3 py-2">
@@ -390,7 +419,11 @@ export function PromptStashSettings() {
                       disabled={busy}
                       onClick={() => setPendingIds([entry.id])}
                     >
-                      <Trash2 className="size-4" strokeWidth={1.5} aria-hidden />
+                      <Trash2
+                        className="size-4"
+                        strokeWidth={1.5}
+                        aria-hidden
+                      />
                     </Button>
                   </td>
                 </tr>
@@ -399,8 +432,15 @@ export function PromptStashSettings() {
           </tbody>
         </table>
         {loading && (
-          <p role="status" className="text-muted-foreground flex items-center justify-center gap-2 p-5 text-[13px]">
-            <Loader2 className="size-4 animate-spin" strokeWidth={1.5} aria-hidden />
+          <p
+            role="status"
+            className="text-muted-foreground flex items-center justify-center gap-2 p-5 text-[13px]"
+          >
+            <Loader2
+              className="size-4 animate-spin"
+              strokeWidth={1.5}
+              aria-hidden
+            />
             {t("loading")}
           </p>
         )}
@@ -412,7 +452,10 @@ export function PromptStashSettings() {
                 variant="outline"
                 size="sm"
                 className="h-8 rounded-md"
-                onClick={() => { setQuery(""); setFilter("all") }}
+                onClick={() => {
+                  setQuery("")
+                  setFilter("all")
+                }}
               >
                 {t("clearFilters")}
               </Button>
@@ -423,13 +466,19 @@ export function PromptStashSettings() {
 
       <AlertDialog
         open={pendingIds !== null}
-        onOpenChange={(open) => { if (!open && !deleteLock.current) setPendingIds(null) }}
+        onOpenChange={(open) => {
+          if (!open && !deleteLock.current) setPendingIds(null)
+        }}
       >
         <AlertDialogContent className="rounded-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("confirmDelete.title", { count: pendingIds?.length ?? 0 })}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("confirmDelete.title", { count: pendingIds?.length ?? 0 })}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {t("confirmDelete.description", { count: pendingIds?.length ?? 0 })}
+              {t("confirmDelete.description", {
+                count: pendingIds?.length ?? 0,
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -440,7 +489,10 @@ export function PromptStashSettings() {
               variant="destructive"
               disabled={deleting}
               className="rounded-md"
-              onClick={(event) => { event.preventDefault(); void confirmDelete() }}
+              onClick={(event) => {
+                event.preventDefault()
+                void confirmDelete()
+              }}
             >
               {deleting ? t("deleting") : t("confirmDelete.confirm")}
             </AlertDialogAction>

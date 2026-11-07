@@ -2258,10 +2258,16 @@ export function MessageInput({
                     feedbackAddDisabled={feedbackAddDisabled}
                   />
                   <PromptStashControl
-                    key={promptStashScopeKey ?? effectiveDraftStorageKey ?? "unbound"}
+                    key={
+                      promptStashScopeKey ??
+                      effectiveDraftStorageKey ??
+                      "unbound"
+                    }
                     scopeKey={promptStashScopeKey ?? effectiveDraftStorageKey}
                     draftScopeKey={
-                      (promptStashScopeKey ?? effectiveDraftStorageKey)?.startsWith("conv:")
+                      (
+                        promptStashScopeKey ?? effectiveDraftStorageKey
+                      )?.startsWith("conv:")
                         ? effectiveDraftStorageKey?.startsWith("canvas-draft:")
                           ? effectiveDraftStorageKey
                           : attachmentTabId

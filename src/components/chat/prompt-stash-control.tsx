@@ -43,7 +43,9 @@ interface PromptStashControlProps {
 
 export function PromptStashControl(props: PromptStashControlProps) {
   // 归属改变就卸载旧列表及删除确认；旧请求不能回填新对话的输入框。
-  return <ScopedPromptStashControl key={props.scopeKey ?? "unbound"} {...props} />
+  return (
+    <ScopedPromptStashControl key={props.scopeKey ?? "unbound"} {...props} />
+  )
 }
 
 function ScopedPromptStashControl({
@@ -69,7 +71,9 @@ function ScopedPromptStashControl({
   const mounted = useRef(true)
   useEffect(() => {
     mounted.current = true
-    return () => { mounted.current = false }
+    return () => {
+      mounted.current = false
+    }
   }, [])
   const act = useCallback(
     async (event?: React.MouseEvent<HTMLButtonElement>) => {
@@ -130,7 +134,11 @@ function ScopedPromptStashControl({
     setBusy(true)
     setError(null)
     try {
-      const snapshot = await restorePromptStash(entry.id, scopeKey, draftScopeKey)
+      const snapshot = await restorePromptStash(
+        entry.id,
+        scopeKey,
+        draftScopeKey
+      )
       if (!mounted.current) return
       // 输入框已有内容时放弃回填，此时模板原样保留。
       if (!restoreIfEmpty(snapshot)) {

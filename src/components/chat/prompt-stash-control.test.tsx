@@ -86,11 +86,7 @@ describe("PromptStashControl", () => {
     await waitFor(() => expect(restoreIfEmpty).toHaveBeenCalled())
     // 取用即消费：后端记录随之删除，列表不再保留这一条。
     await waitFor(() =>
-      expect(api.removePromptStash).toHaveBeenCalledWith(
-        1,
-        "conv:1",
-        undefined
-      )
+      expect(api.removePromptStash).toHaveBeenCalledWith(1, "conv:1", undefined)
     )
   })
 
@@ -119,11 +115,7 @@ describe("PromptStashControl", () => {
     await user.click(within(dialog).getByRole("button", { name: "Delete" }))
 
     await waitFor(() =>
-      expect(api.removePromptStash).toHaveBeenCalledWith(
-        1,
-        "conv:1",
-        undefined
-      )
+      expect(api.removePromptStash).toHaveBeenCalledWith(1, "conv:1", undefined)
     )
     await waitFor(() => expect(screen.queryByText("first")).toBeNull())
     expect(api.restorePromptStash).not.toHaveBeenCalled()
