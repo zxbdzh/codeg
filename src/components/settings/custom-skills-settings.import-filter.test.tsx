@@ -89,6 +89,8 @@ beforeEach(() => {
 })
 
 describe("importing skills from an agent", () => {
+  // openImportFromAgent 会 resetModules 后重载整个组件模块树，全量并发跑时
+  // 重载耗时经常超过默认 5s，因此这两条用例单独放宽超时（断言逻辑不变）。
   it("leaves out Codeg's own ui-render, like the other packs' skills", async () => {
     generativeUiSkillInfo.mockResolvedValue({
       id: "ui-render",
@@ -98,12 +100,12 @@ describe("importing skills from an agent", () => {
 
     expect(screen.queryByText("ui-render", { selector: "span" })).toBeNull()
     expect(screen.queryByText("brainstorming", { selector: "span" })).toBeNull()
-  })
+  }, 30_000)
 
   it("still leaves out the other packs' skills when ui-render cannot be asked about", async () => {
     generativeUiSkillInfo.mockRejectedValue(new Error("offline"))
     await openImportFromAgent()
 
     expect(screen.queryByText("brainstorming", { selector: "span" })).toBeNull()
-  })
+  }, 30_000)
 })
