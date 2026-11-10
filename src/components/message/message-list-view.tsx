@@ -130,6 +130,10 @@ import { unescapeComposerText } from "@/lib/composer-copy-text"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { MarkdownImageProvider } from "@/components/ai-elements/markdown-local-image"
+import {
+  snapshotForkPrompt,
+  type ForkPromptSnapshot,
+} from "@/lib/research-branch"
 
 interface MessageListViewProps {
   conversationId: number
@@ -213,7 +217,8 @@ interface MessageListViewProps {
   onForkFromPrompt?: (
     turnId: string,
     promptText: string,
-    fromStart?: boolean
+    fromStart?: boolean,
+    sourcePrompt?: ForkPromptSnapshot
   ) => void
   forkPromptBusy?: boolean
   /**
@@ -1309,7 +1314,8 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   onForkFromPrompt?: (
     turnId: string,
     promptText: string,
-    fromStart?: boolean
+    fromStart?: boolean,
+    sourcePrompt?: ForkPromptSnapshot
   ) => void
   promptFromStart?: boolean
   forkDisabled?: boolean
@@ -1372,7 +1378,8 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
                   onForkFromPrompt(
                     promptTurn.source_turn_id ?? promptTurn.id,
                     promptText,
-                    promptFromStart
+                    promptFromStart,
+                    snapshotForkPrompt(promptTurn)
                   )
                 }
               />

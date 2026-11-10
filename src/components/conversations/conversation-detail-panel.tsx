@@ -82,7 +82,10 @@ import {
   parkResearchSummary,
   RESEARCH_SUMMARY_READY_EVENT,
 } from "@/lib/research-summary-handoff"
-import { createResearchBranch } from "@/lib/research-branch"
+import {
+  createResearchBranch,
+  type ForkPromptSnapshot,
+} from "@/lib/research-branch"
 import {
   finishResearchCreation,
   pendingResearchCreation,
@@ -1405,7 +1408,12 @@ const ConversationTabView = memo(function ConversationTabView({
   const tResearch = useTranslations("ResearchBranch")
   // 独立连接创建分支，主行、主连接和草稿保持原样；历史提示词只进入新分支的输入框。
   const handleForkFromPrompt = useCallback(
-    async (turnId: string, promptText: string, fromStart = false) => {
+    async (
+      turnId: string,
+      promptText: string,
+      fromStart = false,
+      sourcePrompt?: ForkPromptSnapshot
+    ) => {
       if (fromStart && workingDirForConnection) {
         const target = useTabStore
           .getState()
@@ -1433,8 +1441,14 @@ const ConversationTabView = memo(function ConversationTabView({
         return false
       }
       const requestId =
-        pendingResearchCreation(sourceConversationId, turnId) ?? randomUUID()
-      rememberResearchCreation(sourceConversationId, requestId, turnId)
+        pendingResearchCreation(sourceConversationId, turnId, sourcePrompt) ??
+        randomUUID()
+      rememberResearchCreation(
+        sourceConversationId,
+        requestId,
+        turnId,
+        sourcePrompt
+      )
       promptForkRequestRef.current = true
       setPromptForking(true)
       try {
@@ -1443,6 +1457,7 @@ const ConversationTabView = memo(function ConversationTabView({
           sourceConversationId,
           requestId,
           sourceTurnId: turnId,
+          sourcePrompt,
         })
         finishResearchCreation(sourceConversationId, requestId, turnId)
         if (!mountedRef.current || dbConvIdRef.current !== sourceConversationId)

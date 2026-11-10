@@ -4,6 +4,8 @@ use crate::acp::manager::ConnectionManager;
 use crate::app_error::AppCommandError;
 use crate::db::service::research_branch_service;
 use crate::db::AppDatabase;
+#[cfg(feature = "tauri-runtime")]
+use crate::research_branch::PromptSnapshot;
 use crate::research_branch::{self, CreateRequest, ResearchBranchInfo, SummaryAnswer};
 use crate::web::event_bridge::EventEmitter;
 
@@ -66,6 +68,7 @@ pub async fn research_branch_create(
     source_conversation_id: i32,
     request_id: String,
     source_turn_id: Option<String>,
+    source_prompt: Option<PromptSnapshot>,
 ) -> Result<ResearchBranchInfo, AppCommandError> {
     let emitter = EventEmitter::Tauri(app.clone());
     research_branch_create_core(
@@ -78,6 +81,7 @@ pub async fn research_branch_create(
             source_conversation_id,
             request_id,
             source_turn_id,
+            source_prompt,
         },
     )
     .await

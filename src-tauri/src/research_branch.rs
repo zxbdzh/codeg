@@ -46,6 +46,112 @@ pub struct CreateRequest {
     pub source_conversation_id: i32,
     pub request_id: String,
     pub source_turn_id: Option<String>,
+    pub source_prompt: Option<PromptSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PromptSnapshot {
+    pub text: String,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub agent_message_id: Option<String>,
+}
+
+impl PromptSnapshot {
+    fn from_turn(turn: &MessageTurn) -> Result<Self, AppCommandError> {
+        if !matches!(turn.role, TurnRole::User)
+            || turn.blocks.is_empty()
+            || turn
+                .blocks
+                .iter()
+                .any(|block| !matches!(block, ContentBlock::Text { .. }))
+        {
+            return Err(AppCommandError::invalid_input(
+                "Choose a saved text-only message of your own to fork",
+            ));
+        }
+        let text = turn
+            .blocks
+            .iter()
+            .filter_map(|block| match block {
+                ContentBlock::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        if text.trim().is_empty() {
+            return Err(AppCommandError::invalid_input(
+                "The selected prompt is empty",
+            ));
+        }
+        Ok(Self {
+            text,
+            timestamp: turn.timestamp,
+            agent_message_id: turn.agent_message_id.clone(),
+        })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct HistoryBoundary {
+    prompt: PromptSnapshot,
+    fingerprints: Vec<String>,
+}
+
+fn history_fingerprints(turns: &[MessageTurn]) -> Result<Vec<String>, AppCommandError> {
+    turns
+        .iter()
+        .map(|turn| {
+            // fork 会重写位置 ID、耗时与用量；边界以角色和全部内容块为准，不能只比最后一句。
+            let content = serde_json::to_vec(&(&turn.role, &turn.blocks))
+                .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?;
+            Ok(format!("{:x}", Sha256::digest(content)))
+        })
+        .collect()
+}
+
+fn validate_history(expected: &[String], actual: &[MessageTurn]) -> Result<(), AppCommandError> {
+    if expected != history_fingerprints(actual)? {
+        return Err(AppCommandError::task_execution_failed(
+            "The forked history does not match the selected boundary; the source conversation is unchanged",
+        ).with_detail(serde_json::json!({
+            "reason": "history_boundary_mismatch",
+            "expectedTurns": expected.len(),
+            "actualTurns": actual.len(),
+        }).to_string()));
+    }
+    Ok(())
+}
+
+fn select_prompt_boundary(
+    turns: &[MessageTurn],
+    turn_id: &str,
+    prompt: Option<&PromptSnapshot>,
+    agent: crate::models::AgentType,
+) -> Result<(crate::acp::fork::ForkPoint, HistoryBoundary), AppCommandError> {
+    let index = turns
+        .iter()
+        .position(|turn| turn.id == turn_id)
+        .ok_or_else(|| AppCommandError::invalid_input("The selected prompt no longer exists"))?;
+    let current = PromptSnapshot::from_turn(&turns[index])?;
+    // turn-N 是位置索引；压缩或重解析后同一个 ID 可能已指向另一条消息。
+    if prompt != Some(&current) {
+        return Err(AppCommandError::invalid_input(
+            "The selected message changed; reopen the fork picker and select it again",
+        ));
+    }
+    let point = crate::acp::fork::resolve_fork_point(turns, turn_id, agent).ok_or_else(|| {
+        AppCommandError::invalid_input(
+            "This prompt has no supported earlier reply; choose another message",
+        )
+    })?;
+    Ok((
+        point,
+        HistoryBoundary {
+            prompt: current,
+            fingerprints: history_fingerprints(&turns[..index])?,
+        },
+    ))
 }
 
 #[derive(Serialize)]
@@ -164,6 +270,8 @@ struct Recovery {
     source_turn_id: Option<String>,
     #[serde(default)]
     before_prompt: bool,
+    #[serde(default)]
+    history: Option<HistoryBoundary>,
 }
 
 fn recovery_path(data_dir: &Path, request_id: &str) -> PathBuf {
@@ -197,6 +305,32 @@ async fn persist(
     db: &AppDatabase,
     record: &Recovery,
 ) -> Result<ResearchBranchInfo, AppCommandError> {
+    if record.before_prompt {
+        let boundary = record.history.as_ref().ok_or_else(|| {
+            AppCommandError::task_execution_failed(
+                "This interrupted historical fork has no boundary proof and cannot be recovered safely",
+            )
+        })?;
+        let source = service::live_conversation(&db.conn, record.source_conversation_id)
+            .await
+            .map_err(db_error)?;
+        let agent = crate::models::AgentType::from_wire(&source.agent_type)
+            .ok_or_else(|| AppCommandError::invalid_input("Unknown source agent"))?;
+        // ACP 成功响应不保证锚点被执行；落库和恢复重试都必须核对 S2 的完整历史。
+        // 部分适配器响应早于日志落盘，短暂等待允许正常的文件写入完成。
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let result = match read_turns(db, agent, record.branch_session_id.clone()).await {
+                Ok(turns) => validate_history(&boundary.fingerprints, &turns),
+                Err(error) => Err(error),
+            };
+            match result {
+                Ok(()) => break,
+                Err(error) if tokio::time::Instant::now() >= deadline => return Err(error),
+                Err(_) => tokio::time::sleep(Duration::from_millis(250)).await,
+            }
+        }
+    }
     service::create_with_boundary(
         &db.conn,
         &record.request_id,
@@ -204,7 +338,11 @@ async fn persist(
         &record.source_session_id,
         &record.branch_session_id,
         record.source_turn_id.clone(),
-        if record.before_prompt { "before_prompt" } else { "session_tail" },
+        if record.before_prompt {
+            "before_prompt"
+        } else {
+            "session_tail"
+        },
     )
     .await
     .map_err(db_error)
@@ -295,6 +433,9 @@ pub async fn create(
                 || record.request_id != request.request_id
                 || record.before_prompt != request.source_turn_id.is_some()
                 || (record.before_prompt && record.source_turn_id != request.source_turn_id)
+                || (record.before_prompt
+                    && record.history.as_ref().map(|history| &history.prompt)
+                        != request.source_prompt.as_ref())
             {
                 return Err(AppCommandError::invalid_input(
                     "Research recovery belongs to another source",
@@ -417,20 +558,20 @@ async fn create_inner(
         ));
     }
     let turns = read_turns(db, agent, session_id.clone()).await?;
-    let (source_turn_id, fork_point) = if let Some(turn_id) = &request.source_turn_id {
-        let selected = turns.iter().find(|turn| &turn.id == turn_id)
-            .ok_or_else(|| AppCommandError::invalid_input("The selected prompt no longer exists"))?;
-        if !matches!(selected.role, TurnRole::User) {
-            return Err(AppCommandError::invalid_input("Choose one of your own messages to fork"));
-        }
-        // 用户选择的位置必须精确；不能解析锚点时明确报错，避免复制了错误的历史范围。
-        let point = crate::acp::fork::resolve_fork_point(&turns, turn_id, agent)
-            .ok_or_else(|| AppCommandError::invalid_input("This prompt has no supported earlier reply"))?;
-        (Some(turn_id.clone()), Some(point))
+    let (source_turn_id, fork_point, history) = if let Some(turn_id) = &request.source_turn_id {
+        let (point, history) =
+            select_prompt_boundary(&turns, turn_id, request.source_prompt.as_ref(), agent)?;
+        (Some(turn_id.clone()), Some(point), Some(history))
     } else {
-        (turns.iter().rev()
-            .find(|turn| matches!(turn.role, TurnRole::Assistant))
-            .map(|turn| turn.id.clone()), None)
+        (
+            turns
+                .iter()
+                .rev()
+                .find(|turn| matches!(turn.role, TurnRole::Assistant))
+                .map(|turn| turn.id.clone()),
+            None,
+            None,
+        )
     };
     let runtime_env =
         crate::commands::acp::build_session_runtime_env(db, agent, Some(&session_id), data_dir)
@@ -492,14 +633,12 @@ async fn create_inner(
         branch_session_id: String::new(),
         source_turn_id,
         before_prompt: request.source_turn_id.is_some(),
+        history,
     };
     // 先落 pending：崩溃在协议响应和本地记录之间时，宁可明确未知，也不能重试制造第二个 S2。
     append_recovery(recovery_file, &record, true).await?;
     if cmd_tx
-        .send(ConnectionCommand::Fork {
-            fork_point,
-            reply,
-        })
+        .send(ConnectionCommand::Fork { fork_point, reply })
         .await
         .is_err()
     {
@@ -805,6 +944,146 @@ mod tests {
         }
     }
 
+    fn history_turns(messages: &[(TurnRole, &str)]) -> Vec<MessageTurn> {
+        messages
+            .iter()
+            .enumerate()
+            .map(|(index, (role, text))| {
+                let mut message = turn(role.clone(), (*text).into());
+                message.id = format!("turn-{index}");
+                message
+            })
+            .collect()
+    }
+
+    #[test]
+    fn historical_fork_distinguishes_repeated_replies_and_rejects_tail_or_other_branch() {
+        let turns = history_turns(&[
+            (TurnRole::User, "first"),
+            (TurnRole::Assistant, "same answer"),
+            (TurnRole::User, "second"),
+            (TurnRole::Assistant, "same answer"),
+            (TurnRole::User, "continue differently"),
+            (TurnRole::Assistant, "later answer"),
+        ]);
+        let prompt = PromptSnapshot::from_turn(&turns[4]).unwrap();
+        let (point, boundary) =
+            select_prompt_boundary(&turns, "turn-4", Some(&prompt), AgentType::Codex).unwrap();
+        assert_eq!(point.message_occurrence, Some(2));
+        assert!(validate_history(&boundary.fingerprints, &turns[..4]).is_ok());
+        assert!(validate_history(&boundary.fingerprints, &turns[..2]).is_err());
+        assert!(validate_history(&boundary.fingerprints, &turns).is_err());
+        let mut abandoned_branch = turns[..4].to_vec();
+        abandoned_branch[0].blocks = vec![ContentBlock::Text {
+            text: "other branch".into(),
+        }];
+        assert!(validate_history(&boundary.fingerprints, &abandoned_branch).is_err());
+    }
+
+    #[test]
+    fn historical_fork_rejects_missing_or_drifted_user_selection() {
+        let turns = history_turns(&[
+            (TurnRole::User, "first"),
+            (TurnRole::Assistant, "reply"),
+            (TurnRole::User, "second"),
+        ]);
+        let original = PromptSnapshot::from_turn(&turns[2]).unwrap();
+        for (id, selection) in [
+            ("gone", Some(&original)),
+            ("turn-1", Some(&original)),
+            ("turn-2", None),
+        ] {
+            assert!(select_prompt_boundary(&turns, id, selection, AgentType::ClaudeCode).is_err());
+        }
+        let mut changed = turns.clone();
+        changed[2].blocks = vec![ContentBlock::Text {
+            text: "different message".into(),
+        }];
+        assert!(
+            select_prompt_boundary(&changed, "turn-2", Some(&original), AgentType::ClaudeCode,)
+                .is_err()
+        );
+        changed[2] = turns[2].clone();
+        changed[2].timestamp += chrono::Duration::seconds(1);
+        assert!(
+            select_prompt_boundary(&changed, "turn-2", Some(&original), AgentType::ClaudeCode,)
+                .is_err()
+        );
+        assert!(select_prompt_boundary(&turns, "turn-2", Some(&original), AgentType::Pi,).is_err());
+    }
+
+    #[test]
+    fn historical_fork_preserves_all_steps_and_rejects_compressed_or_incomplete_history() {
+        let mut turns = history_turns(&[
+            (TurnRole::User, "inspect"),
+            (TurnRole::Assistant, "checking"),
+            (TurnRole::Assistant, "finished"),
+            (TurnRole::User, "continue"),
+        ]);
+        turns[1].blocks.push(ContentBlock::Thinking {
+            text: "reasoning".into(),
+        });
+        let prompt = PromptSnapshot::from_turn(&turns[3]).unwrap();
+        let (_, boundary) =
+            select_prompt_boundary(&turns, "turn-3", Some(&prompt), AgentType::DeepSeek).unwrap();
+        let mut forked = turns[..3].to_vec();
+        for message in &mut forked {
+            message.id = format!("new-{}", message.id);
+            message.timestamp += chrono::Duration::hours(1);
+            message.completed_at = None;
+            message.agent_message_id = Some("rewritten".into());
+        }
+        assert!(validate_history(&boundary.fingerprints, &forked).is_ok());
+        forked.remove(1);
+        assert!(validate_history(&boundary.fingerprints, &forked).is_err());
+        let compressed = history_turns(&[(TurnRole::System, "summary of earlier history")]);
+        assert!(validate_history(&boundary.fingerprints, &compressed).is_err());
+    }
+
+    #[test]
+    fn historical_fork_handles_empty_replies_only_when_the_agent_can_name_them() {
+        let mut turns = history_turns(&[
+            (TurnRole::User, "first"),
+            (TurnRole::Assistant, ""),
+            (TurnRole::User, "second"),
+        ]);
+        let prompt = PromptSnapshot::from_turn(&turns[2]).unwrap();
+        assert!(
+            select_prompt_boundary(&turns, "turn-2", Some(&prompt), AgentType::ClaudeCode,)
+                .is_err()
+        );
+        turns[1].agent_message_id = Some("assistant-with-tools".into());
+        let (_, boundary) =
+            select_prompt_boundary(&turns, "turn-2", Some(&prompt), AgentType::ClaudeCode).unwrap();
+        assert!(validate_history(&boundary.fingerprints, &turns[..2]).is_ok());
+        assert!(
+            select_prompt_boundary(&turns, "turn-2", Some(&prompt), AgentType::Codex,).is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn historical_fork_recovery_without_boundary_proof_never_creates_a_row() {
+        use sea_orm::{EntityTrait, PaginatorTrait};
+        let db = crate::db::test_helpers::fresh_in_memory_db().await;
+        let record = Recovery {
+            request_id: "legacy-history".into(),
+            source_conversation_id: 1,
+            source_session_id: "S1".into(),
+            branch_session_id: "S2".into(),
+            source_turn_id: Some("turn-2".into()),
+            before_prompt: true,
+            history: None,
+        };
+        assert!(persist(&db, &record).await.is_err());
+        assert_eq!(
+            crate::db::entities::conversation::Entity::find()
+                .count(&db.conn)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+
     #[test]
     fn research_branch_summary_snapshot_is_bounded_unicode_body_only() {
         let turns = vec![
@@ -859,6 +1138,7 @@ mod tests {
             branch_session_id: String::new(),
             source_turn_id: Some("turn-2".into()),
             before_prompt: false,
+            history: None,
         };
         assert!(read_recovery(&path).await.unwrap().is_none());
         append_recovery(&path, &record, true).await.unwrap();
@@ -890,6 +1170,7 @@ mod tests {
                 source_conversation_id: 1,
                 request_id: "missing-source".into(),
                 source_turn_id: None,
+                source_prompt: None,
             },
         )
         .await;
@@ -996,6 +1277,7 @@ mod tests {
             branch_session_id: "already-forked-S2".into(),
             source_turn_id: Some("turn-4".into()),
             before_prompt: false,
+            history: None,
         };
         append_recovery(&path, &record, true).await.unwrap();
         let manager = ConnectionManager::new();
@@ -1004,6 +1286,7 @@ mod tests {
             source_conversation_id: source_id,
             request_id: record.request_id,
             source_turn_id: None,
+            source_prompt: None,
         };
         let result = create(
             &db,

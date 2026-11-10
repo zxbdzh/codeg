@@ -38,6 +38,7 @@ import {
   RESEARCH_BRANCH_MAX_SUMMARY_CHARS,
   saveResearchBranchSummary,
   type ResearchBranchInfo,
+  type ForkPromptSnapshot,
 } from "@/lib/research-branch"
 import { getTransport } from "@/lib/transport"
 import {
@@ -66,7 +67,8 @@ export interface ResearchBranchPanelProps {
   onForkFromPrompt?: (
     turnId: string,
     text: string,
-    fromStart?: boolean
+    fromStart?: boolean,
+    sourcePrompt?: ForkPromptSnapshot
   ) => Promise<boolean>
 }
 
@@ -682,11 +684,12 @@ function ResearchBranchPanelContent({
           {pickerOpen && (
             <PromptForkPicker
               conversationId={conversationId}
-              onSelect={async (turnId, text, fromStart) => {
+              onSelect={async (turnId, text, fromStart, sourcePrompt) => {
                 const succeeded = await onForkFromPrompt(
                   turnId,
                   text,
-                  fromStart
+                  fromStart,
+                  sourcePrompt
                 )
                 if (succeeded) setPickerOpen(false)
                 return succeeded

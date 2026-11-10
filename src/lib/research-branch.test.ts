@@ -9,6 +9,7 @@ import {
   generateResearchBranchSummary,
   listResearchBranches,
   saveResearchBranchSummary,
+  snapshotForkPrompt,
 } from "./research-branch"
 
 beforeEach(() => {
@@ -22,6 +23,11 @@ describe("research branch API", () => {
       sourceConversationId: 10,
       requestId: "historical-1",
       sourceTurnId: "turn-4",
+      sourcePrompt: {
+        text: "Exact selected text",
+        timestamp: "2026-11-10T01:00:00Z",
+        agentMessageId: null,
+      },
     }
     await createResearchBranch(request)
     expect(transport.call).toHaveBeenCalledWith(
@@ -29,6 +35,24 @@ describe("research branch API", () => {
       request,
       { timeoutMs: 1_800_000 }
     )
+  })
+
+  it("keeps the saved prompt text and timestamp separate from composer unescaping", () => {
+    expect(
+      snapshotForkPrompt({
+        id: "turn-2",
+        role: "user",
+        blocks: [
+          { type: "text", text: "a &amp; b" },
+          { type: "text", text: "\\*literal\\*" },
+        ],
+        timestamp: "2026-11-10T01:00:00Z",
+      })
+    ).toEqual({
+      text: "a &amp; b\n\\*literal\\*",
+      timestamp: "2026-11-10T01:00:00Z",
+      agentMessageId: null,
+    })
   })
 
   it("creates at the session tail with camelCase arguments and a long timeout", async () => {

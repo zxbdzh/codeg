@@ -2381,9 +2381,8 @@ impl ConnectionManager {
         link_conversation_id: Option<i32>,
         link_folder_id: Option<i32>,
         // Fork at this rendered turn instead of at the tail ("fork from here").
-        // Resolved to an agent-specific `ForkPoint` below; a turn this agent
-        // cannot name simply forks at the tail, which is what fork-send has
-        // always done.
+        // Resolved to an agent-specific `ForkPoint` below; an unresolvable
+        // selection is rejected rather than silently changing the boundary.
         fork_from_turn_id: Option<String>,
     ) -> Result<ForkResultInfo, AcpError> {
         let (state_arc, cmd_tx, emitter) = {
@@ -2445,8 +2444,8 @@ impl ConnectionManager {
 
         // Resolve the fork point BEFORE the cancellation shield below: this is
         // a read-only parse, so a caller that disappears here has changed
-        // nothing. Assistant replies retain their historical tail fallback;
-        // user-selected prompts must have a precise earlier reply anchor.
+        // nothing. Every explicitly selected message needs a precise anchor;
+        // only an explicit tail request may omit it.
         let fork_point = match fork_from_turn_id {
             None => None,
             Some(turn_id) => {
@@ -2461,7 +2460,7 @@ impl ConnectionManager {
                         "Could not read the selected fork message: {error}"
                     ))
                 })?;
-                let selected_turn = detail
+                detail
                     .turns
                     .iter()
                     .find(|turn| turn.id == turn_id)
@@ -2470,25 +2469,15 @@ impl ConnectionManager {
                             "The selected fork message is no longer in this conversation",
                         )
                     })?;
-                let selected_user_message =
-                    matches!(&selected_turn.role, crate::models::TurnRole::User);
                 let point = crate::acp::fork::resolve_fork_point(
                     &detail.turns,
                     &turn_id,
                     agent_type,
                 );
-                if selected_user_message && point.is_none() {
-                    return Err(AcpError::protocol(
-                        "Cannot fork from this prompt because there is no supported earlier reply",
-                    ));
-                }
                 if point.is_none() {
-                    tracing::info!(
-                        connection_id = %conn_id,
-                        turn_id = %turn_id,
-                        agent = %agent_type,
-                        "[ACP] no fork point for this assistant turn; forking at the tail"
-                    );
+                    return Err(AcpError::protocol(
+                        "Cannot resolve the selected history boundary; refusing to fork at the tail",
+                    ));
                 }
                 point
             }

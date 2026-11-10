@@ -1,6 +1,23 @@
 import { getTransport } from "@/lib/transport"
+import type { MessageTurn } from "@/lib/types"
 
 export const RESEARCH_BRANCH_MAX_SUMMARY_CHARS = 12_000
+
+export interface ForkPromptSnapshot {
+  text: string
+  timestamp: string
+  agentMessageId: string | null
+}
+
+export function snapshotForkPrompt(turn: MessageTurn): ForkPromptSnapshot {
+  return {
+    text: turn.blocks
+      .flatMap((block) => (block.type === "text" ? [block.text] : []))
+      .join("\n"),
+    timestamp: turn.timestamp,
+    agentMessageId: turn.agent_message_id ?? null,
+  }
+}
 
 export interface ResearchBranchInfo {
   id: number
@@ -21,6 +38,7 @@ export interface CreateResearchBranchRequest {
   sourceConversationId: number
   requestId: string
   sourceTurnId?: string
+  sourcePrompt?: ForkPromptSnapshot
 }
 
 export interface GenerateResearchBranchSummaryRequest {

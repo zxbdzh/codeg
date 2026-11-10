@@ -21,6 +21,7 @@ const turns = [
   {
     id: "turn-0",
     role: "user",
+    timestamp: "2026-11-10T01:00:00Z",
     blocks: [{ type: "text", text: "Original question" }],
   },
   {
@@ -31,6 +32,7 @@ const turns = [
   {
     id: "turn-2",
     role: "user",
+    timestamp: "2026-11-10T01:01:00Z",
     blocks: [{ type: "text", text: "Try another approach" }],
   },
   {
@@ -63,7 +65,10 @@ function view() {
 }
 
 beforeEach(() => {
-  api.detail.mockReset().mockResolvedValue({ turns })
+  api.detail.mockReset().mockResolvedValue({
+    turns,
+    summary: { agent_type: "claude_code" },
+  })
   onSelect.mockReset().mockResolvedValue(true)
   onTail.mockReset()
 })
@@ -96,7 +101,12 @@ describe("prompt fork picker", () => {
     expect(onSelect).toHaveBeenCalledWith(
       "turn-2",
       "Try another approach",
-      false
+      false,
+      {
+        text: "Try another approach",
+        timestamp: "2026-11-10T01:01:00Z",
+        agentMessageId: null,
+      }
     )
     expect(onTail).not.toHaveBeenCalled()
   })
@@ -113,7 +123,11 @@ describe("prompt fork picker", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Original question" })
     )
-    expect(onSelect).toHaveBeenCalledWith("turn-0", "Original question", true)
+    expect(onSelect).toHaveBeenCalledWith("turn-0", "Original question", true, {
+      text: "Original question",
+      timestamp: "2026-11-10T01:00:00Z",
+      agentMessageId: null,
+    })
   })
 
   it("blocks duplicate selection and closing while a fork is pending", async () => {
@@ -150,4 +164,24 @@ describe("prompt fork picker", () => {
     )
     expect(api.detail).toHaveBeenCalledTimes(2)
   })
+
+  it.each([
+    ["claude_code", "messageBoundary"],
+    ["codex", "turnBoundary"],
+    ["deepseek", "turnBoundary"],
+  ] as const)(
+    "explains the %s history boundary and shared files",
+    async (agent, label) => {
+      api.detail.mockResolvedValue({ turns, summary: { agent_type: agent } })
+      render(view())
+      await screen.findByRole("button", { name: "Original question" })
+      expect(
+        screen.getByText(
+          (text) =>
+            text.includes(enMessages.ResearchBranch[label]) &&
+            text.includes(enMessages.ResearchBranch.sharedDirectory)
+        )
+      ).toBeInTheDocument()
+    }
+  )
 })

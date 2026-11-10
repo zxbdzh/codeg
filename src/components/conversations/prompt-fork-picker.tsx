@@ -16,6 +16,10 @@ import { getFolderConversation } from "@/lib/api"
 import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 import { unescapeComposerText } from "@/lib/composer-copy-text"
 import type { MessageTurn } from "@/lib/types"
+import {
+  snapshotForkPrompt,
+  type ForkPromptSnapshot,
+} from "@/lib/research-branch"
 
 export function PromptForkPicker({
   conversationId,
@@ -26,7 +30,8 @@ export function PromptForkPicker({
   onSelect: (
     turnId: string,
     text: string,
-    fromStart?: boolean
+    fromStart?: boolean,
+    sourcePrompt?: ForkPromptSnapshot
   ) => Promise<boolean>
   onTail: () => void
 }) {
@@ -36,12 +41,25 @@ export function PromptForkPicker({
   const [search, setSearch] = useState("")
   const [pending, setPending] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  const [granularity, setGranularity] = useState<"message" | "turn" | null>(
+    null
+  )
 
   useEffect(() => {
     let current = true
     void getFolderConversation(conversationId).then(
       (detail) => {
-        if (current) setTurns(detail.turns)
+        if (current) {
+          setTurns(detail.turns)
+          const agent = detail.summary?.agent_type
+          setGranularity(
+            agent === "claude_code"
+              ? "message"
+              : agent === "codex" || agent === "deepseek"
+                ? "turn"
+                : null
+          )
+        }
       },
       (reason: unknown) => {
         if (current)
@@ -81,6 +99,10 @@ export function PromptForkPicker({
       {
         id: turn.id,
         text,
+        snapshot: snapshotForkPrompt(turn),
+        number:
+          (turns ?? []).slice(0, index).filter((item) => item.role === "user")
+            .length + 1,
         fromStart,
         supported: (hasAnchor || fromStart) && textOnly,
       },
@@ -107,6 +129,12 @@ export function PromptForkPicker({
           {t("choosePromptHelp")}
         </DialogDescription>
       </DialogHeader>
+      {granularity && (
+        <p className="text-[11px] text-muted-foreground">
+          {t(granularity === "message" ? "messageBoundary" : "turnBoundary")}{" "}
+          {t("sharedDirectory")}
+        </p>
+      )}
       <DialogClose asChild>
         <Button
           type="button"
@@ -152,7 +180,7 @@ export function PromptForkPicker({
       ) : (
         <div className="max-h-[min(50vh,28rem)] overflow-y-auto">
           <ul aria-label={t("yourPrompts")} className="divide-y divide-border">
-            {filtered.map((prompt, index) => (
+            {filtered.map((prompt) => (
               <li key={prompt.id}>
                 <Button
                   type="button"
@@ -166,7 +194,12 @@ export function PromptForkPicker({
                     if (pending) return
                     setPending(true)
                     try {
-                      await onSelect(prompt.id, prompt.text, prompt.fromStart)
+                      await onSelect(
+                        prompt.id,
+                        prompt.text,
+                        prompt.fromStart,
+                        prompt.snapshot
+                      )
                     } finally {
                       setPending(false)
                     }
@@ -176,7 +209,7 @@ export function PromptForkPicker({
                     aria-hidden="true"
                     className="mt-0.5 text-[11px] tabular-nums text-muted-foreground"
                   >
-                    {index + 1}
+                    {prompt.number}
                   </span>
                   <span className="line-clamp-3 min-w-0 flex-1 break-words">
                     {prompt.text}

@@ -217,6 +217,10 @@ AIR 锚点属于 `_meta.jetbrains.air.fork` 实验契约。
 | C：历史继续 | 复用已有锚点 fork，保留原会话，禁止未告知的尾部降级，展示 turn/message 边界 | 3–5 人日 |
 | D：文件恢复 | 文件 checkpoint、代理覆盖差异、并发修改识别、预览及冲突撤销 | 另需 10–20+ 人日 |
 
+实施记录：[A：轻旁问](side-questions-a.md)、
+[B：持久研究旁支](research-branches-b.md)、
+[C：从历史消息继续](history-continuation-c.md)。
+
 B/C 共享连接和关系基础，不能直接相加。Claude、Codex、DeepSeek 先按能力门控，
 Pi 另做适配验证；做到稳定日用版约 2–4 周是合理粗估。
 A 的范围不包含“所有代理都严格无工具且拥有完整原生上下文”；

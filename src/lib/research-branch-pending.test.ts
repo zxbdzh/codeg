@@ -40,4 +40,35 @@ describe("pending research creation", () => {
     finishResearchCreation(12, "fork-started")
     expect(pendingResearchCreation(12)).toBeNull()
   })
+
+  it("never replays a pending fork for a different message at the same position", () => {
+    const snapshot = {
+      text: "original",
+      timestamp: "2026-11-10T01:00:00Z",
+      agentMessageId: null,
+    }
+    rememberResearchCreation(12, "original-request", "turn-2", snapshot)
+    expect(pendingResearchCreation(12, "turn-2", snapshot)).toBe(
+      "original-request"
+    )
+    expect(
+      pendingResearchCreation(12, "turn-2", {
+        ...snapshot,
+        text: "changed after compaction",
+      })
+    ).toBeNull()
+    clearResearchCreationCache()
+    expect(pendingResearchCreation(12, "turn-2", snapshot)).toBe(
+      "original-request"
+    )
+    expect(
+      pendingResearchCreation(12, "turn-2", {
+        ...snapshot,
+        timestamp: "2026-11-10T01:01:00Z",
+      })
+    ).toBeNull()
+    rememberResearchCreation(12, "new-request", "turn-2", snapshot)
+    finishResearchCreation(12, "original-request", "turn-2")
+    expect(pendingResearchCreation(12, "turn-2", snapshot)).toBe("new-request")
+  })
 })
