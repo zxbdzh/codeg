@@ -161,6 +161,7 @@ pub fn build_delegation_stack(
     use crate::acp::delegation::spawner::ConnectionSpawner;
     use crate::acp::manager::ConnectionManagerSpawner;
 
+    connection_manager.install_checkpoint_directory(data_dir.clone());
     let cm_arc = Arc::new(connection_manager.clone_ref());
     let db_arc = Arc::new(AppDatabase {
         conn: db_conn.clone(),

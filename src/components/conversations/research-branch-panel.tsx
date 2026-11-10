@@ -29,6 +29,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { PromptForkPicker } from "./prompt-fork-picker"
 import { ConversationForkProgress } from "./conversation-fork-progress"
+import { FileCheckpointPanel } from "./file-checkpoint-panel"
 import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 import {
   cancelResearchBranchSummary,
@@ -83,11 +84,20 @@ export function ResearchBranchPanel(props: ResearchBranchPanelProps) {
 
   // 切换会话或连接时隔离整个异步作用域，旧保存结果不能回填新来源。
   return (
-    <ResearchBranchPanelContent
-      key={`${props.conversationId}:${props.connectionId ?? ""}`}
-      {...props}
-      conversationId={props.conversationId}
-    />
+    <div className="flex shrink-0 items-start border-b border-border">
+      <ResearchBranchPanelContent
+        key={`${props.conversationId}:${props.connectionId ?? ""}`}
+        {...props}
+        conversationId={props.conversationId}
+      />
+      <div className="flex h-9 shrink-0 items-center pr-3">
+        <FileCheckpointPanel
+          conversationId={props.conversationId}
+          isViewer={props.isViewer}
+          busy={props.busy}
+        />
+      </div>
+    </div>
   )
 }
 
@@ -492,7 +502,7 @@ function ResearchBranchPanelContent({
 
   return (
     <section
-      className="shrink-0 border-b border-border text-[13px]"
+      className="min-w-0 flex-1 text-[13px]"
       aria-label={t("title")}
       aria-busy={loading}
     >

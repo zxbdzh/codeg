@@ -454,6 +454,7 @@ pub struct ConnectionManager {
     /// can sync Telegram topic names without threading the manager through
     /// every `send_prompt_linked` caller. Optional in tests.
     chat_channel: Arc<std::sync::OnceLock<crate::chat_channel::manager::ChatChannelManager>>,
+    checkpoint_directory: Arc<std::sync::OnceLock<PathBuf>>,
     /// Per-agent-type serialization for `probe_agent_options`. Without
     /// this, rapid agent-tab clicks in the settings UI would fan out one
     /// real CLI process per click — each one running up to 60s. The
@@ -574,6 +575,7 @@ impl ConnectionManager {
             terminal_shell_config: TerminalShellRuntimeConfig::new(),
             delegation_injection: Arc::new(std::sync::OnceLock::new()),
             chat_channel: Arc::new(std::sync::OnceLock::new()),
+            checkpoint_directory: Arc::new(std::sync::OnceLock::new()),
             probe_locks: Arc::new(Mutex::new(HashMap::new())),
             pending_questions: Arc::new(Mutex::new(HashMap::new())),
             question_registration: Arc::new(Mutex::new(())),
@@ -592,6 +594,7 @@ impl ConnectionManager {
             terminal_shell_config: self.terminal_shell_config.clone(),
             delegation_injection: self.delegation_injection.clone(),
             chat_channel: self.chat_channel.clone(),
+            checkpoint_directory: self.checkpoint_directory.clone(),
             probe_locks: self.probe_locks.clone(),
             pending_questions: self.pending_questions.clone(),
             question_registration: self.question_registration.clone(),
@@ -700,6 +703,10 @@ impl ConnectionManager {
         self.delegation_injection.get().cloned()
     }
 
+    pub fn install_checkpoint_directory(&self, directory: PathBuf) {
+        let _ = self.checkpoint_directory.set(directory);
+    }
+
     /// Returns the shared terminal-shell setting consumed by ACP terminal
     /// runtimes. Keeping the handle shared makes saves apply immediately to
     /// connections that are already running.
@@ -719,6 +726,7 @@ impl ConnectionManager {
             spawn_handshake_timeout: timeout,
             terminal_shell_config: TerminalShellRuntimeConfig::new(),
             delegation_injection: Arc::new(std::sync::OnceLock::new()),
+            checkpoint_directory: Arc::new(std::sync::OnceLock::new()),
             chat_channel: Arc::new(std::sync::OnceLock::new()),
             probe_locks: Arc::new(Mutex::new(HashMap::new())),
             pending_questions: Arc::new(Mutex::new(HashMap::new())),
@@ -1340,6 +1348,26 @@ impl ConnectionManager {
             .reserve()
             .await
             .map_err(|_| AcpError::ProcessExited)?;
+        let checkpoint_gate = crate::file_checkpoint::admission_gate().clone();
+        let _checkpoint_guard = checkpoint_gate.write_owned().await;
+        if let Some(directory) = self.checkpoint_directory.get() {
+            let state = state_arc.read().await;
+            if let (Some(root), Some(conversation_id)) =
+                (state.working_dir.clone(), state.conversation_id)
+            {
+                let label = user_prompt_text_preview(&blocks).unwrap_or_default();
+                drop(state);
+                crate::file_checkpoint::automatic(
+                    directory.clone(),
+                    root,
+                    conversation_id,
+                    format!("Before send: {}", label.chars().take(120).collect::<String>()),
+                    self,
+                )
+                .await
+                .map_err(|error| AcpError::protocol(error.message))?;
+            }
+        }
         {
             let mut s = state_arc.write().await;
             if s.turn_in_flight {

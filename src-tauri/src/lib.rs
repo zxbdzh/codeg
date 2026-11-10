@@ -43,6 +43,7 @@ pub mod computer;
 pub mod db;
 pub mod deep_link;
 pub mod folder_links;
+pub mod file_checkpoint;
 pub mod forge;
 pub mod git_credential;
 pub mod git_repo;
@@ -1984,6 +1985,7 @@ mod tauri_app {
                 research_branch_commands::research_branch_list,
                 research_branch_commands::research_branch_save_summary,
                 research_branch_commands::research_branch_generate_summary,
+                crate::commands::file_checkpoint::file_checkpoint,
                 side_question_commands::side_question_cancel,
                 side_question_commands::get_side_question_settings,
                 side_question_commands::set_side_question_settings,

@@ -22,6 +22,7 @@ import ptMessages from "@/i18n/messages/pt.json"
 import zhMessages from "@/i18n/messages/zh-CN.json"
 import twMessages from "@/i18n/messages/zh-TW.json"
 import type { ResearchBranchInfo } from "@/lib/research-branch"
+import type { FileCheckpointResponse } from "@/lib/file-checkpoint"
 import { clearResearchSummaryHandoffs } from "@/lib/research-summary-handoff"
 import { clearResearchCreationCache } from "@/lib/research-branch-pending"
 
@@ -33,6 +34,7 @@ const api = vi.hoisted(() => ({
   cancel: vi.fn(),
   onReconnect: vi.fn(),
   unsubscribe: vi.fn(),
+  checkpoint: vi.fn(),
 }))
 
 vi.mock("@/lib/research-branch", () => ({
@@ -44,7 +46,10 @@ vi.mock("@/lib/research-branch", () => ({
   cancelResearchBranchSummary: api.cancel,
 }))
 vi.mock("@/lib/transport", () => ({
-  getTransport: () => ({ onReconnect: api.onReconnect }),
+  getTransport: () => ({
+    onReconnect: api.onReconnect,
+    call: api.checkpoint,
+  }),
   getActiveRemoteConnectionId: () => null,
 }))
 
@@ -148,6 +153,57 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("ResearchBranchPanel", () => {
+  it("includes checkpoints next to the branches menu without requiring native provider fork support", async () => {
+    const rendered = render(view({ supportsFork: false, connectionId: null }))
+    const checkpoint = screen.getByRole("button", {
+      name: enMessages.FileCheckpoint.title,
+    })
+    expect(checkpoint).toBeEnabled()
+    rendered.rerender(view({ busy: true }))
+    expect(
+      screen.getByRole("button", { name: enMessages.FileCheckpoint.title })
+    ).toBeDisabled()
+    rendered.rerender(view({ isViewer: true }))
+    expect(
+      screen.queryByRole("button", { name: enMessages.FileCheckpoint.title })
+    ).not.toBeInTheDocument()
+    await waitFor(() => expect(api.list).toHaveBeenCalled())
+  })
+
+  it("keeps the checkpoint request and global lock when its connection becomes ready", async () => {
+    const pending = deferred<FileCheckpointResponse>()
+    api.checkpoint.mockReturnValue(pending.promise)
+    const rendered = render(
+      view({ connectionId: null, connectionReady: false })
+    )
+    await userEvent.click(
+      screen.getByRole("button", { name: enMessages.FileCheckpoint.title })
+    )
+    expect(screen.getByRole("dialog")).toHaveAttribute("aria-busy", "true")
+    rendered.rerender(view({ connectionId: "connection-ready" }))
+    expect(screen.getByRole("dialog")).toHaveAttribute("aria-busy", "true")
+    const escape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    })
+    window.dispatchEvent(escape)
+    expect(escape.defaultPrevented).toBe(true)
+    expect(api.checkpoint).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      pending.resolve({
+        enabled: false,
+        root: "F:\\workspace",
+        checkpoints: [],
+        lastRestoreId: null,
+      })
+    })
+    expect(screen.getByRole("dialog")).toHaveAttribute("aria-busy", "false")
+    expect(
+      screen.getByText(enMessages.FileCheckpoint.disabled)
+    ).toBeInTheDocument()
+  })
+
   it("does not render or fetch for drafts and virtual conversation IDs", () => {
     const rendered = render(view({ conversationId: null }))
     expect(screen.queryByRole("button")).not.toBeInTheDocument()

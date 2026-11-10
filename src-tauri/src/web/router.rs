@@ -718,6 +718,10 @@ pub fn build_router_with_proxy_auth(
             post(handlers::research_branch::research_branch_create),
         )
         .route(
+            "/file_checkpoint",
+            post(handlers::file_checkpoint::file_checkpoint),
+        )
+        .route(
             "/research_branch_list",
             post(handlers::research_branch::research_branch_list),
         )

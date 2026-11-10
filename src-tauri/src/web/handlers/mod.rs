@@ -17,6 +17,7 @@ pub mod chat_channel;
 pub mod commit_message;
 pub mod side_question;
 pub mod research_branch;
+pub mod file_checkpoint;
 pub mod config_sync;
 pub mod conversation_tags;
 pub mod conversations;

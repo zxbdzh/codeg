@@ -219,7 +219,8 @@ AIR 锚点属于 `_meta.jetbrains.air.fork` 实验契约。
 
 实施记录：[A：轻旁问](side-questions-a.md)、
 [B：持久研究旁支](research-branches-b.md)、
-[C：从历史消息继续](history-continuation-c.md)。
+[C：从历史消息继续](history-continuation-c.md)、
+[D：工作区文件检查点与恢复](file-checkpoints-d.md)。
 
 B/C 共享连接和关系基础，不能直接相加。Claude、Codex、DeepSeek 先按能力门控，
 Pi 另做适配验证；做到稳定日用版约 2–4 周是合理粗估。
