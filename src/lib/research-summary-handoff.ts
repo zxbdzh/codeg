@@ -4,6 +4,19 @@ export const RESEARCH_SUMMARY_READY_EVENT = "codeg:research-summary-ready"
 
 const pending = new Map<number, string[]>()
 const summaryDrafts = new Map<number, { text: string; saved: string }>()
+const forkPromptDrafts = new Map<string, string>()
+
+export function parkForkPromptDraft(tabId: string, text: string): void {
+  forkPromptDrafts.set(tabId, text)
+  if (typeof window !== "undefined")
+    window.dispatchEvent(new Event(RESEARCH_SUMMARY_READY_EVENT))
+}
+
+export function consumeForkPromptDraft(tabId: string): string | null {
+  const text = forkPromptDrafts.get(tabId) ?? null
+  forkPromptDrafts.delete(tabId)
+  return text
+}
 
 export function readResearchSummaryDraft(
   conversationId: number
@@ -44,6 +57,7 @@ export function consumeResearchSummaries(conversationId: number): string[] {
 export function clearResearchSummaryHandoffs(): void {
   pending.clear()
   summaryDrafts.clear()
+  forkPromptDrafts.clear()
 }
 
 registerBackendScopedStoreReset(clearResearchSummaryHandoffs)

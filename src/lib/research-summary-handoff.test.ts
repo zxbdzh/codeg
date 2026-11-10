@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   clearResearchSummaryHandoffs,
   consumeResearchSummaries,
+  consumeForkPromptDraft,
+  parkForkPromptDraft,
   parkResearchSummary,
   RESEARCH_SUMMARY_READY_EVENT,
 } from "./research-summary-handoff"
@@ -10,6 +12,16 @@ import {
 beforeEach(clearResearchSummaryHandoffs)
 
 describe("research summary draft handoff", () => {
+  it("keeps a first prompt in a draft tab until the composer consumes it once", () => {
+    parkForkPromptDraft("new-tab", "My first question")
+    expect(consumeForkPromptDraft("other-tab")).toBeNull()
+    expect(consumeForkPromptDraft("new-tab")).toBe("My first question")
+    expect(consumeForkPromptDraft("new-tab")).toBeNull()
+    parkForkPromptDraft("new-tab", "old backend")
+    clearResearchSummaryHandoffs()
+    expect(consumeForkPromptDraft("new-tab")).toBeNull()
+  })
+
   it("keeps summaries on their selected source and consumes only once", () => {
     parkResearchSummary(12, "first")
     parkResearchSummary(12, "second")

@@ -1,11 +1,34 @@
 "use client"
 
 import { useCallback, useEffect, useId, useRef, useState } from "react"
-import { ChevronDown, ChevronRight, GitBranch, RefreshCw } from "lucide-react"
+import {
+  ArrowLeft,
+  ChevronDown,
+  Columns2,
+  GitBranch,
+  RefreshCw,
+  X,
+} from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Textarea } from "@/components/ui/textarea"
+import { PromptForkPicker } from "./prompt-fork-picker"
+import { ConversationForkProgress } from "./conversation-fork-progress"
 import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 import {
   cancelResearchBranchSummary,
@@ -30,11 +53,21 @@ import {
 export interface ResearchBranchPanelProps {
   conversationId: number | null
   connectionId: string | null
-  canCreate: boolean
+  supportsFork: boolean
+  connectionReady: boolean
+  isViewer: boolean
   busy: boolean
-  onOpenConversation: (conversationId: number, split?: boolean) => void
+  onOpenConversation: (
+    conversationId: number,
+    split?: boolean
+  ) => void | Promise<void>
   onReturnSummary: (sourceConversationId: number, summary: string) => void
   onCreated?: (info: ResearchBranchInfo) => void
+  onForkFromPrompt?: (
+    turnId: string,
+    text: string,
+    fromStart?: boolean
+  ) => Promise<boolean>
 }
 
 interface OperationError {
@@ -59,16 +92,21 @@ export function ResearchBranchPanel(props: ResearchBranchPanelProps) {
 function ResearchBranchPanelContent({
   conversationId,
   connectionId,
-  canCreate,
+  supportsFork,
+  connectionReady,
+  isViewer,
   busy,
   onOpenConversation,
   onReturnSummary,
   onCreated,
+  onForkFromPrompt,
 }: ResearchBranchPanelProps & { conversationId: number }) {
   const t = useTranslations("ResearchBranch")
-  const panelId = useId()
   const summaryId = useId()
-  const [expanded, setExpanded] = useState(false)
+  const unavailableId = useId()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [relations, setRelations] = useState<ResearchBranchInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -90,6 +128,7 @@ function ResearchBranchPanelContent({
   const createRequest = useRef<string | null>(null)
   const generateRequest = useRef<string | null>(null)
   const saveRequest = useRef<object | null>(null)
+  const summaryTrigger = useRef<HTMLButtonElement>(null)
 
   const updateDraft = useCallback(
     (next: typeof draft) => {
@@ -159,7 +198,9 @@ function ResearchBranchPanelContent({
   const working = creating || generating || saving
   const createDisabled =
     busy ||
-    !canCreate ||
+    !supportsFork ||
+    !connectionReady ||
+    isViewer ||
     !connectionId ||
     working ||
     loading ||
@@ -180,6 +221,7 @@ function ResearchBranchPanelContent({
       crypto.randomUUID()
     rememberResearchCreation(conversationId, requestId)
     createRequest.current = requestId
+    setMenuOpen(false)
     setCreating(true)
     setOperationError(null)
     setNotice(null)
@@ -198,7 +240,7 @@ function ResearchBranchPanelContent({
       ])
       setLoading(false)
       onCreated?.(info)
-      onOpenConversation(info.branchConversationId, true)
+      await onOpenConversation(info.branchConversationId, true)
     } catch (error: unknown) {
       const code = extractAppCommandError(error)?.code
       if (
@@ -321,8 +363,10 @@ function ResearchBranchPanelContent({
       updateDraft({ text: saved.summary, saved: saved.summary })
       setNotice(handoff ? "returned" : "saved")
       // 只把已持久化摘要交给主线输入框；不发送正文，也不改变主线会话。
-      if (handoff)
+      if (handoff) {
+        setSummaryOpen(false)
         onReturnSummary(ownBranch.sourceConversationId, saved.summary)
+      }
     } catch (error: unknown) {
       if (mounted.current && saveRequest.current === operation) {
         setOperationError({
@@ -359,142 +403,349 @@ function ResearchBranchPanelContent({
     }
   }
 
-  const unavailable = busy
-    ? t("waitForCompletion")
-    : !canCreate
-      ? t("unsupported")
-      : !connectionId
-        ? t("connectionRequired")
-        : null
+  // 未连接、握手未完成和只读视图都不代表代理不支持 fork。
+  const unavailable = isViewer
+    ? t("viewer")
+    : !connectionId
+      ? t("connectionRequired")
+      : busy
+        ? t("waitForCompletion")
+        : !connectionReady
+          ? t("connectionPending")
+          : !supportsFork
+            ? t("unsupported")
+            : null
+
+  const createButton = (
+    <span
+      className="min-w-0"
+      title={
+        onForkFromPrompt
+          ? t("choosePrompt")
+          : (unavailable ?? `${t("boundary")} ${t("sharedDirectory")}`)
+      }
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 max-w-full min-w-0 gap-2 rounded-md px-2 text-[13px]"
+        disabled={
+          onForkFromPrompt
+            ? working || loading || loadError !== null
+            : createDisabled
+        }
+        aria-describedby={unavailable ? unavailableId : undefined}
+        onClick={() => (onForkFromPrompt ? setPickerOpen(true) : void create())}
+      >
+        <GitBranch className="size-4" strokeWidth={1.5} aria-hidden="true" />
+        <span className="truncate">
+          {t(
+            creating
+              ? "creating"
+              : onForkFromPrompt
+                ? "forkConversation"
+                : "create"
+          )}
+        </span>
+      </Button>
+    </span>
+  )
+
+  const operationFeedback = (
+    <>
+      {operationError && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-2 text-[13px] text-destructive"
+        >
+          <span className="min-w-0 break-words">{operationError.message}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 rounded-md"
+            disabled={
+              working ||
+              (operationError.action === "generate" && busy) ||
+              (operationError.action === "create" && createDisabled) ||
+              ((operationError.action === "save" ||
+                operationError.action === "return") &&
+                tooLong) ||
+              (operationError.action === "return" && !draft.text.trim())
+            }
+            onClick={retry}
+          >
+            {t("retry")}
+          </Button>
+        </div>
+      )}
+      {notice && (
+        <p role="status" className="text-[11px] text-muted-foreground">
+          {t(notice)}
+        </p>
+      )}
+    </>
+  )
 
   return (
     <section
       className="shrink-0 border-b border-border text-[13px]"
       aria-label={t("title")}
+      aria-busy={loading}
     >
-      <div className="flex min-h-9 items-center gap-2 px-4">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 gap-2 rounded-md px-2 text-[13px]"
-          aria-expanded={expanded}
-          aria-controls={panelId}
-          disabled={
-            !expanded &&
-            relations.length === 0 &&
-            unavailable !== null &&
-            loadError === null
-          }
-          title={unavailable ?? undefined}
-          onClick={() => setExpanded((current) => !current)}
-        >
-          <GitBranch className="size-4" strokeWidth={1.5} aria-hidden="true" />
-          {t("title")}
-          {expanded ? (
-            <ChevronDown className="size-4" aria-hidden="true" />
-          ) : (
-            <ChevronRight className="size-4" aria-hidden="true" />
-          )}
-        </Button>
-        {unavailable && (
-          <span
-            className="min-w-0 truncate text-[11px] text-muted-foreground"
-            title={unavailable}
-          >
-            {unavailable}
-          </span>
-        )}
-      </div>
-      {expanded && (
-        <div
-          id={panelId}
-          className="max-h-[min(60vh,36rem)] space-y-3 overflow-y-auto px-4 pb-3"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
-            <p className="min-w-0 flex-1 text-[11px] text-muted-foreground">
-              {t("boundary")}
-            </p>
+      <ConversationForkProgress open={creating} />
+      {unavailable && (
+        <span id={unavailableId} className="sr-only">
+          {unavailable}
+        </span>
+      )}
+      <div className="flex h-9 items-center gap-1 px-3">
+        {ownBranch ? (
+          <>
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 rounded-md"
-              disabled={loading}
-              onClick={() => void reload()}
+              className="h-8 min-w-0 shrink gap-2 rounded-md px-2 text-[13px]"
+              onClick={() => onOpenConversation(ownBranch.sourceConversationId)}
             >
-              <RefreshCw
+              <ArrowLeft
                 className="size-4"
                 strokeWidth={1.5}
                 aria-hidden="true"
               />
-              {t("refresh")}
+              <span className="truncate">{t("returnToSource")}</span>
             </Button>
+            <span
+              className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground"
+              title={ownBranch.sourceTitle}
+            >
+              {ownBranch.sourceTitle}
+            </span>
+            <Button
+              ref={summaryTrigger}
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 min-w-0 shrink rounded-md px-2 text-[13px]"
+              onClick={() => setSummaryOpen(true)}
+            >
+              <span className="truncate">{t("bringBack")}</span>
+            </Button>
+          </>
+        ) : (
+          <>
+            {createButton}
+            <span className="flex-1" />
+          </>
+        )}
+        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+          <PopoverTrigger asChild>
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="h-8 rounded-md"
-              disabled={createDisabled}
-              onClick={() => void create()}
+              className="h-8 gap-1.5 rounded-md px-2 text-[13px] text-muted-foreground"
+              aria-label={t("branches")}
             >
-              {t(creating ? "creating" : "create")}
+              {ownBranch ? (
+                <GitBranch
+                  className="size-4"
+                  strokeWidth={1.5}
+                  aria-hidden="true"
+                />
+              ) : (
+                t("existing")
+              )}
+              {branches.length > 0 && (
+                <span aria-hidden="true" className="text-[11px] tabular-nums">
+                  {branches.length}
+                </span>
+              )}
+              <ChevronDown
+                className="size-4"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
             </Button>
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            {t("sharedDirectory")}
-          </p>
-          {loading && (
-            <p role="status" className="text-muted-foreground">
-              {t("loading")}
-            </p>
-          )}
-          {loadError && (
-            <div
-              role="alert"
-              className="flex items-center justify-between gap-2 text-destructive"
-            >
-              <span className="min-w-0 break-words">
-                {t("loadFailed")} {loadError}
-              </span>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            aria-label={t("branches")}
+            className="w-80 max-w-[calc(100vw-2rem)] gap-2 rounded-lg border border-border p-3 text-[13px] shadow-lg ring-0"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">{t("branches")}</span>
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
-                className="h-8 rounded-md"
+                size="icon-sm"
+                className="rounded-md"
+                aria-label={t("refresh")}
+                title={t("refresh")}
                 disabled={loading}
                 onClick={() => void reload()}
               >
-                {t("retry")}
+                <RefreshCw
+                  className="size-4"
+                  strokeWidth={1.5}
+                  aria-hidden="true"
+                />
               </Button>
             </div>
-          )}
-          {ownBranch && (
-            <div className="space-y-2">
-              <div className="flex min-h-9 items-center gap-2 border-b border-border">
-                <span className="shrink-0 text-muted-foreground">
-                  {t("source")}
-                </span>
-                <span
-                  className="min-w-0 flex-1 truncate"
-                  title={ownBranch.sourceTitle}
-                >
-                  {ownBranch.sourceTitle}
+            {loading && (
+              <p role="status" className="text-muted-foreground">
+                {t("loading")}
+              </p>
+            )}
+            {loadError && (
+              <div
+                role="alert"
+                className="flex items-center justify-between gap-2 text-destructive"
+              >
+                <span className="min-w-0 break-words">
+                  {t("loadFailed")} {loadError}
                 </span>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   className="h-8 rounded-md"
-                  onClick={() =>
-                    onOpenConversation(ownBranch.sourceConversationId)
-                  }
+                  disabled={loading}
+                  onClick={() => void reload()}
                 >
-                  {t("returnToSource")}
+                  {t("retry")}
                 </Button>
               </div>
+            )}
+            {branches.length > 0 && (
+              <ul
+                aria-label={t("branches")}
+                className="max-h-64 overflow-y-auto"
+              >
+                {branches.map((info) => (
+                  <li key={info.id} className="flex min-h-9 items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 min-w-0 flex-1 justify-start rounded-md px-2 text-[13px]"
+                      title={info.title}
+                      onClick={() => {
+                        setMenuOpen(false)
+                        onOpenConversation(info.branchConversationId)
+                      }}
+                    >
+                      <span className="truncate">
+                        {info.title.replace(/^\[(Research|Fork)\]\s*/, "")}
+                      </span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="rounded-md"
+                      aria-label={t("split")}
+                      title={t("split")}
+                      onClick={() => {
+                        setMenuOpen(false)
+                        onOpenConversation(info.branchConversationId, true)
+                      }}
+                    >
+                      <Columns2
+                        className="size-4"
+                        strokeWidth={1.5}
+                        aria-hidden="true"
+                      />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {!loading && !loadError && branches.length === 0 && (
+              <p className="text-muted-foreground">{t("empty")}</p>
+            )}
+            <div className="space-y-1 border-t border-border pt-2 text-[11px] text-muted-foreground">
+              {unavailable && <p>{unavailable}</p>}
+              <p>{t("boundary")}</p>
+              <p>{t("sharedDirectory")}</p>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+      {!summaryOpen && (operationError || notice === "returned") && (
+        <div className="space-y-1 px-4 pb-2">{operationFeedback}</div>
+      )}
+      {onForkFromPrompt && (
+        <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
+          {pickerOpen && (
+            <PromptForkPicker
+              conversationId={conversationId}
+              onSelect={async (turnId, text, fromStart) => {
+                const succeeded = await onForkFromPrompt(
+                  turnId,
+                  text,
+                  fromStart
+                )
+                if (succeeded) setPickerOpen(false)
+                return succeeded
+              }}
+              onTail={() => {
+                setPickerOpen(false)
+                void create()
+              }}
+            />
+          )}
+        </Dialog>
+      )}
+      {ownBranch && (
+        <Dialog
+          open={summaryOpen}
+          onOpenChange={(open) => {
+            if (saving) return
+            setSummaryOpen(open)
+            // 关闭即停止整理；编辑稿保留，隐藏的生成请求不能在之后覆盖它。
+            if (!open && generateRequest.current) void cancel()
+          }}
+        >
+          <DialogContent
+            showCloseButton={false}
+            className="max-w-xl gap-4 rounded-lg p-4"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault()
+              summaryTrigger.current?.focus()
+            }}
+          >
+            <DialogHeader className="pr-10">
+              <DialogTitle className="text-[15px]">
+                {t("bringBack")}
+              </DialogTitle>
+              <DialogDescription className="text-[13px]">
+                {t("summaryHelp")}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogClose asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="absolute top-3 right-3 rounded-md"
+                aria-label={t("close")}
+                disabled={saving}
+              >
+                <X className="size-4" strokeWidth={1.5} aria-hidden="true" />
+              </Button>
+            </DialogClose>
+            <p
+              className="truncate text-[11px] text-muted-foreground"
+              title={ownBranch.sourceTitle}
+            >
+              {t("source")}: {ownBranch.sourceTitle}
+            </p>
+            <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <label htmlFor={summaryId} className="font-medium">
+                <label htmlFor={summaryId} className="text-[13px] font-medium">
                   {t("summary")}
                 </label>
                 <span className="text-[11px] tabular-nums text-muted-foreground">
@@ -507,33 +758,31 @@ function ResearchBranchPanelContent({
               <Textarea
                 id={summaryId}
                 value={draft.text}
-                rows={5}
-                className="max-h-64 min-h-28 resize-y rounded-md px-3 py-2 text-[13px] md:text-[13px]"
+                rows={8}
+                className="max-h-80 min-h-48 resize-y rounded-md px-3 py-2 text-[13px] md:text-[13px]"
                 placeholder={t("summaryPlaceholder")}
                 disabled={generating || saving}
                 aria-invalid={tooLong}
-                aria-describedby={`${summaryId}-help`}
+                aria-describedby={tooLong ? `${summaryId}-error` : undefined}
                 onChange={(event) => {
                   updateDraft({ ...draftRef.current, text: event.target.value })
                   setNotice(null)
                 }}
               />
-              <p
-                id={`${summaryId}-help`}
-                className={
-                  tooLong
-                    ? "text-[11px] text-destructive"
-                    : "text-[11px] text-muted-foreground"
-                }
-              >
-                {t(tooLong ? "tooLong" : "summaryHelp")}
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
+              {tooLong && (
+                <p
+                  id={`${summaryId}-error`}
+                  className="text-[11px] text-destructive"
+                >
+                  {t("tooLong")}
+                </p>
+              )}
+              <div className="flex items-center gap-2">
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-8 rounded-md"
+                  className="h-8 rounded-md text-[13px]"
                   disabled={busy || working}
                   onClick={() => void generate()}
                 >
@@ -544,31 +793,12 @@ function ResearchBranchPanelContent({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-8 rounded-md"
+                    className="h-8 rounded-md text-[13px]"
                     onClick={() => void cancel()}
                   >
                     {t("cancel")}
                   </Button>
                 )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 rounded-md"
-                  disabled={working || !dirty || tooLong}
-                  onClick={() => void save(false)}
-                >
-                  {t(saving ? "saving" : "save")}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="h-8 rounded-md"
-                  disabled={working || !draft.text.trim() || tooLong}
-                  onClick={() => void save(true)}
-                >
-                  {t("returnSummary")}
-                </Button>
                 {dirty && (
                   <span className="text-[11px] text-muted-foreground">
                     {t("unsaved")}
@@ -581,77 +811,30 @@ function ResearchBranchPanelContent({
                 </p>
               )}
             </div>
-          )}
-          {branches.length > 0 && (
-            <ul aria-label={t("branches")} className="divide-y divide-border">
-              {branches.map((info) => (
-                <li key={info.id} className="flex min-h-10 items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate" title={info.title}>
-                    {info.title}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 rounded-md"
-                    onClick={() =>
-                      onOpenConversation(info.branchConversationId)
-                    }
-                  >
-                    {t("open")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 rounded-md"
-                    onClick={() =>
-                      onOpenConversation(info.branchConversationId, true)
-                    }
-                  >
-                    {t("split")}
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {!loading && !loadError && relations.length === 0 && (
-            <p className="text-muted-foreground">{t("empty")}</p>
-          )}
-          {operationError && (
-            <div
-              role="alert"
-              className="flex items-center justify-between gap-2 text-destructive"
-            >
-              <span className="min-w-0 break-words">
-                {operationError.message}
-              </span>
+            {operationFeedback}
+            <DialogFooter className="border-t border-border pt-3">
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-8 rounded-md"
-                disabled={
-                  working ||
-                  (operationError.action === "generate" && busy) ||
-                  (operationError.action === "create" && createDisabled) ||
-                  ((operationError.action === "save" ||
-                    operationError.action === "return") &&
-                    tooLong) ||
-                  (operationError.action === "return" && !draft.text.trim())
-                }
-                onClick={retry}
+                className="h-8 rounded-md text-[13px]"
+                disabled={working || !dirty || tooLong}
+                onClick={() => void save(false)}
               >
-                {t("retry")}
+                {t(saving ? "saving" : "save")}
               </Button>
-            </div>
-          )}
-          {notice && (
-            <p role="status" className="text-[11px] text-muted-foreground">
-              {t(notice)}
-            </p>
-          )}
-        </div>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 rounded-md text-[13px]"
+                disabled={working || !draft.text.trim() || tooLong}
+                onClick={() => void save(true)}
+              >
+                {t("returnSummary")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </section>
   )

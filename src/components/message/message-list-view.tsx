@@ -82,6 +82,7 @@ import {
   AlertCircle,
   CheckIcon,
   CopyIcon,
+  GitBranch,
   Loader2,
   Plus,
   RefreshCw,
@@ -208,6 +209,13 @@ interface MessageListViewProps {
    * action isn't offered. MUST be referentially stable.
    */
   onSaveNoteSelection?: (text: string) => void
+  /** Forks before a persisted user prompt and places its text in the composer. */
+  onForkFromPrompt?: (
+    turnId: string,
+    promptText: string,
+    fromStart?: boolean
+  ) => void
+  forkPromptBusy?: boolean
   /**
    * Fork the session at a rendered assistant turn ("fork from here"). Undefined
    * hides the affordance everywhere in this view — pass it only where a fork
@@ -1162,6 +1170,27 @@ const UserMessageTaskButton = memo(function UserMessageTaskButton({
   )
 })
 
+const UserMessageForkButton = memo(function UserMessageForkButton({
+  disabled,
+  onFork,
+}: {
+  disabled: boolean
+  onFork: () => void
+}) {
+  const t = useTranslations("Folder.chat.messageList")
+  return (
+    <MessageAction
+      tooltip={t(disabled ? "forkBusy" : "forkFromPrompt")}
+      className="opacity-0 group-hover/user-msg:opacity-100 transition-opacity self-end"
+      aria-disabled={disabled || undefined}
+      onClick={disabled ? undefined : onFork}
+      size="icon-xs"
+    >
+      <GitBranch size={12} aria-hidden="true" />
+    </MessageAction>
+  )
+})
+
 /**
  * Flag the thread's last rendered element, which is where the backend's tail
  * fork would land — a user message or a compaction divider after the newest
@@ -1212,6 +1241,43 @@ export function isForkPointUnnamed(
   return forkPoint.source_turn_id == null && isLiveTurnId(forkPoint.id)
 }
 
+export function hasPriorAssistantForkAnchor(
+  turns: readonly MessageTurn[],
+  promptTurnId: string
+): boolean {
+  const promptIndex = turns.findIndex(
+    (turn) => turn.id === promptTurnId || turn.source_turn_id === promptTurnId
+  )
+  if (promptIndex < 0 || turns[promptIndex].role !== "user") return false
+  for (let index = promptIndex - 1; index >= 0; index -= 1) {
+    if (turns[index].role === "user") return false
+    if (turns[index].role === "assistant") return true
+  }
+  return false
+}
+
+export function supportsPromptFork(agentType: AgentType): boolean {
+  return (
+    agentType === "claude_code" ||
+    agentType === "codex" ||
+    agentType === "deepseek"
+  )
+}
+
+export function isFirstUserPrompt(
+  turns: readonly MessageTurn[],
+  turnId: string
+): boolean {
+  const index = turns.findIndex(
+    (turn) => turn.id === turnId || turn.source_turn_id === turnId
+  )
+  return (
+    index >= 0 &&
+    turns[index].role === "user" &&
+    !turns.slice(0, index).some((turn) => turn.role !== "system")
+  )
+}
+
 const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   group,
   dimmed = false,
@@ -1224,6 +1290,8 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   onRoundOpenChange,
   foldEpoch = 0,
   onForkFromTurn,
+  onForkFromPrompt,
+  promptFromStart = false,
   forkDisabled = false,
   isThreadTail = false,
 }: {
@@ -1238,6 +1306,12 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   onRoundOpenChange?: (open: boolean) => void
   foldEpoch?: number
   onForkFromTurn?: (turnId: string) => void
+  onForkFromPrompt?: (
+    turnId: string,
+    promptText: string,
+    fromStart?: boolean
+  ) => void
+  promptFromStart?: boolean
   forkDisabled?: boolean
   /** Whether nothing follows this group in the thread — the one position where
    *  a turn the backend cannot name still forks where the user pointed. */
@@ -1261,6 +1335,16 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   const forkPoint = sourceTurns?.length
     ? sourceTurns[sourceTurns.length - 1]
     : null
+  const promptTurn =
+    group.role === "user"
+      ? sourceTurns?.find((turn) => turn.role === "user")
+      : undefined
+  const promptText = unescapeComposerText(extractTextFromParts(group.parts))
+  const canForkPrompt =
+    promptTurn != null &&
+    promptTurn.blocks.length > 0 &&
+    promptTurn.blocks.every((block) => block.type === "text") &&
+    promptText.trim().length > 0
   const forkPointUnnamed = isForkPointUnnamed(forkPoint, isThreadTail)
 
   return (
@@ -1278,6 +1362,21 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
         ) : null}
         {group.role === "user" ? (
           <div className="group/user-msg flex w-fit ml-auto max-w-full items-start gap-1">
+            {onForkFromPrompt &&
+            promptTurn &&
+            canForkPrompt &&
+            isResponseComplete ? (
+              <UserMessageForkButton
+                disabled={forkDisabled}
+                onFork={() =>
+                  onForkFromPrompt(
+                    promptTurn.source_turn_id ?? promptTurn.id,
+                    promptText,
+                    promptFromStart
+                  )
+                }
+              />
+            ) : null}
             <UserMessageTaskButton parts={group.parts} />
             <UserMessageCopyButton parts={group.parts} />
             <MessageContent>
@@ -1435,6 +1534,8 @@ export function MessageListView({
   onSideQuestionSelection,
   onSaveNoteSelection,
   onForkFromTurn,
+  onForkFromPrompt,
+  forkPromptBusy = false,
 }: MessageListViewProps) {
   const t = useTranslations("Folder.chat.messageList")
   const sharedT = useTranslations("Folder.chat.shared")
@@ -1452,6 +1553,10 @@ export function MessageListView({
   const liveMessage = session?.liveMessage ?? null
   const timelineTurns = useConversationRuntimeStore((s) =>
     selectTimelineTurns(s, conversationId)
+  )
+  const forkAnchorTurns = useMemo(
+    () => timelineTurns.map((entry) => entry.turn),
+    [timelineTurns]
   )
 
   // Reverse infinite scroll: older history exists above the loaded window
@@ -1749,7 +1854,7 @@ export function MessageListView({
   // the host keeps `onForkFromTurn` set for the whole "prompting" window (see
   // its gate in `conversation-detail-panel`), and every reply's footer says
   // "not right now" instead of dropping its button and shifting the icon row.
-  const forkBusy = connStatus === "prompting"
+  const forkBusy = connStatus === "prompting" || forkPromptBusy
 
   const renderThreadItem = useCallback(
     (item: ThreadRenderItem) => {
@@ -1760,6 +1865,13 @@ export function MessageListView({
             item.group.role === "user" && userTurnHeader
               ? userTurnHeader(item.group)
               : null
+          const promptTurn =
+            item.group.role === "user"
+              ? item.sourceTurns.find((turn) => turn.role === "user")
+              : undefined
+          const promptTurnId = promptTurn
+            ? (promptTurn.source_turn_id ?? promptTurn.id)
+            : null
           return (
             <div style={pt > 0 ? { paddingTop: pt } : undefined}>
               {phaseLabel ? (
@@ -1783,6 +1895,24 @@ export function MessageListView({
                 onRoundOpenChange={handleRoundOpenChange}
                 foldEpoch={fold.epoch}
                 onForkFromTurn={onForkFromTurn}
+                onForkFromPrompt={
+                  onForkFromPrompt &&
+                  supportsPromptFork(agentType) &&
+                  item.phase === "persisted" &&
+                  item.isResponseComplete &&
+                  promptTurnId != null &&
+                  (hasPriorAssistantForkAnchor(forkAnchorTurns, promptTurnId) ||
+                    (detail != null &&
+                      !hasOlderTurns &&
+                      isFirstUserPrompt(forkAnchorTurns, promptTurnId)))
+                    ? onForkFromPrompt
+                    : undefined
+                }
+                promptFromStart={
+                  promptTurnId != null &&
+                  !hasOlderTurns &&
+                  isFirstUserPrompt(forkAnchorTurns, promptTurnId)
+                }
                 forkDisabled={forkBusy}
                 isThreadTail={item.isThreadTail}
               />
@@ -1819,6 +1949,11 @@ export function MessageListView({
       fold.epoch,
       handleRoundOpenChange,
       onForkFromTurn,
+      onForkFromPrompt,
+      agentType,
+      forkAnchorTurns,
+      detail,
+      hasOlderTurns,
       forkBusy,
     ]
   )

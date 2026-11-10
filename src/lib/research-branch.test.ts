@@ -16,6 +16,21 @@ beforeEach(() => {
 })
 
 describe("research branch API", () => {
+  it("sends the selected user message to the independent fork endpoint", async () => {
+    const request = {
+      connectionId: "source",
+      sourceConversationId: 10,
+      requestId: "historical-1",
+      sourceTurnId: "turn-4",
+    }
+    await createResearchBranch(request)
+    expect(transport.call).toHaveBeenCalledWith(
+      "research_branch_create",
+      request,
+      { timeoutMs: 1_800_000 }
+    )
+  })
+
   it("creates at the session tail with camelCase arguments and a long timeout", async () => {
     const request = {
       connectionId: "connection-1",

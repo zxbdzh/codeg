@@ -1,15 +1,18 @@
 import { getActiveRemoteConnectionId } from "@/lib/transport"
 import { registerBackendScopedStoreReset } from "@/stores/backend-scoped-store-reset"
 
-function key(conversationId: number): string {
+function key(conversationId: number, sourceTurnId?: string): string {
   const backend = getActiveRemoteConnectionId() ?? "local"
-  return `research-branch:pending:${backend}:${conversationId}`
+  return `research-branch:pending:${backend}:${conversationId}${sourceTurnId ? `:prompt:${sourceTurnId}` : ""}`
 }
 
 const pending = new Map<string, string>()
 
-export function pendingResearchCreation(conversationId: number): string | null {
-  const storageKey = key(conversationId)
+export function pendingResearchCreation(
+  conversationId: number,
+  sourceTurnId?: string
+): string | null {
+  const storageKey = key(conversationId, sourceTurnId)
   const active = pending.get(storageKey)
   if (active) return active
   try {
@@ -21,9 +24,10 @@ export function pendingResearchCreation(conversationId: number): string | null {
 
 export function rememberResearchCreation(
   conversationId: number,
-  requestId: string
+  requestId: string,
+  sourceTurnId?: string
 ): void {
-  const storageKey = key(conversationId)
+  const storageKey = key(conversationId, sourceTurnId)
   // 原生 fork 可能在页面离开后完成，刷新或重连重试必须复用原编号。
   pending.set(storageKey, requestId)
   try {
@@ -35,10 +39,12 @@ export function rememberResearchCreation(
 
 export function finishResearchCreation(
   conversationId: number,
-  requestId: string
+  requestId: string,
+  sourceTurnId?: string
 ): void {
-  if (pendingResearchCreation(conversationId) !== requestId) return
-  const storageKey = key(conversationId)
+  if (pendingResearchCreation(conversationId, sourceTurnId) !== requestId)
+    return
+  const storageKey = key(conversationId, sourceTurnId)
   pending.delete(storageKey)
   try {
     sessionStorage.removeItem(storageKey)

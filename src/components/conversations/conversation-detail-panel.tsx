@@ -59,7 +59,10 @@ import {
 } from "@/lib/ask-selection-handoff"
 import { useConnectionLifecycle } from "@/hooks/use-connection-lifecycle"
 import { useMessageQueue, type QueuedMessage } from "@/hooks/use-message-queue"
-import { MessageListView } from "@/components/message/message-list-view"
+import {
+  MessageListView,
+  supportsPromptFork,
+} from "@/components/message/message-list-view"
 import {
   GoalControlProvider,
   type GoalControlValue,
@@ -67,14 +70,24 @@ import {
 import { useAdvertisedGoalActions } from "@/hooks/use-goal-actions"
 import { ConversationShell } from "@/components/chat/conversation-shell"
 import { ResearchBranchPanel } from "@/components/conversations/research-branch-panel"
+import { ConversationForkProgress } from "@/components/conversations/conversation-fork-progress"
 import {
   openResearchConversation,
   returnResearchSummary,
 } from "@/lib/research-branch-navigation"
 import {
   consumeResearchSummaries,
+  consumeForkPromptDraft,
+  parkForkPromptDraft,
+  parkResearchSummary,
   RESEARCH_SUMMARY_READY_EVENT,
 } from "@/lib/research-summary-handoff"
+import { createResearchBranch } from "@/lib/research-branch"
+import {
+  finishResearchCreation,
+  pendingResearchCreation,
+  rememberResearchCreation,
+} from "@/lib/research-branch-pending"
 import { SessionConfigStaleBanner } from "@/components/chat/session-config-stale-banner"
 import { PiProjectTrustBanner } from "@/components/chat/pi-project-trust-banner"
 import { FeedbackNotesDisplay } from "@/components/chat/feedback-notes-display"
@@ -104,7 +117,6 @@ import { isDesktop } from "@/lib/platform"
 import { ChromeReserve } from "@/components/layout/chrome-reserve"
 import { leftChromeReserve, rightChromeReserve } from "@/lib/window-chrome"
 import {
-  acpFork,
   acpStopAsyncTask,
   createChatConversation,
   createChatDir,
@@ -119,9 +131,8 @@ import {
   shouldQueueDirectSend,
   shouldRejectDuplicateCreate,
 } from "@/lib/queue-flush"
-import { TurnBusyError } from "@/lib/turn-busy"
 import { deliverQueuedSteer } from "@/lib/queued-steer"
-import { toErrorMessage } from "@/lib/app-error"
+import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 import { blockingPrompts } from "@/lib/blocking-prompts"
 import { notify } from "@/lib/notify"
 import {
@@ -1389,103 +1400,80 @@ const ConversationTabView = memo(function ConversationTabView({
     handleSendRef.current = handleSend
   }, [handleSend])
 
-  // "Fork from here": fork at a rendered assistant turn, sending nothing. The
-  // ONLY fork entry point — the composer's fork-and-send was removed once this
-  // existed, since the tail is just one of the turns this can be aimed at.
-  //
-  // No draft is at stake, so a failure is simply reported: the session is
-  // untouched and the same click can be retried, or aimed elsewhere.
-  //
-  // Which turns the agent can actually name is the backend's call
-  // (`resolve_fork_point`): a turn it cannot name forks at the tail rather than
-  // failing, so this never has to reason about per-agent identity.
-  //
-  // Liveness is read off `connStatusRef` rather than captured: this callback is
-  // handed to every rendered reply, so taking `connStatus` as a dependency
-  // would swap its identity at both ends of every turn and re-render the whole
-  // mounted transcript window for nothing. The ref is also the fresher answer
-  // at click time.
-  const handleForkFromTurn = useCallback(
-    async (turnId: string) => {
+  const promptForkRequestRef = useRef(false)
+  const [promptForking, setPromptForking] = useState(false)
+  const tResearch = useTranslations("ResearchBranch")
+  // 独立连接创建分支，主行、主连接和草稿保持原样；历史提示词只进入新分支的输入框。
+  const handleForkFromPrompt = useCallback(
+    async (turnId: string, promptText: string, fromStart = false) => {
+      if (fromStart && workingDirForConnection) {
+        const target = useTabStore
+          .getState()
+          .openNewConversationTab(folderId, workingDirForConnection, {
+            forceAgent: selectedAgent,
+          })
+        parkForkPromptDraft(target.tabId, promptText)
+        return true
+      }
       const connectionId = conn.connectionId
-      if (!connectionId || connStatusRef.current !== "connected") return
-      // Snapshot which live turns belong to the PRE-fork session, before the
-      // await. The fork RPC is a window in which a send can still start — a
-      // queued auto-flush, a fast typist, another client — and such a turn
-      // legitimately runs on the forked session, so it must not be swept away
-      // with the history it isn't part of. Naming the stale turns instead of
-      // clearing wholesale is what keeps that distinction.
-      //
-      // COMPLETED turns only. An optimistic user turn is one whose prompt has
-      // not reached the agent yet, and the backend refuses a fork while a turn
-      // is in flight (`AcpError::TurnInProgress`) — so a fork that SUCCEEDS
-      // proves any optimistic turn standing at this moment never started a
-      // turn on the old session, and it will therefore run on the forked one.
-      // Sweeping it would erase the user's own message while its reply streams
-      // in underneath.
-      const preForkSession = useConversationRuntimeStore
-        .getState()
-        .byConversationId.get(effectiveConversationId)
-      const staleLiveTurnIds = (preForkSession?.localTurns ?? []).map(
-        (t) => t.id
-      )
-      try {
-        const { forkedSessionId } = await acpFork(
-          connectionId,
-          dbConvIdRef.current,
-          folderId,
-          turnId
+      const sourceConversationId = dbConvIdRef.current
+      if (
+        !connectionId ||
+        sourceConversationId == null ||
+        connStatusRef.current !== "connected" ||
+        promptForkRequestRef.current
+      ) {
+        toast.info(
+          tResearch(
+            connStatusRef.current === "prompting"
+              ? "waitForCompletion"
+              : "connectionRequired"
+          )
         )
-        sessionIdRef.current = forkedSessionId
-        setExternalId(effectiveConversationId, forkedSessionId)
-        // The backend's two-row reshuffle: the current row now points at S2
-        // and a freshly inserted sibling preserves S1.
-        refreshConversations()
-        // This row's HISTORY just changed — the whole point is that S2 ends
-        // at the chosen turn. The turns rendered right now came
-        // from S1 — the persisted detail plus every turn this session streamed
-        // — so leaving them would show the fork with the parent's full history
-        // until the tab is closed and reopened.
-        //
-        // The removal rides ON the refetch rather than preceding it, so the
-        // two land as one dispatch: no frame shows S2's history beside S1's
-        // turns, and a refetch that FAILS removes nothing (it dispatches
-        // `FETCH_DETAIL_ERROR`, leaving the timeline as it was rather than
-        // stranding the row with neither the old turns nor new ones).
-        // `preserveLive` keeps everything else — the point of naming the stale
-        // turns is that a reply started during the fork survives.
-        refetchDetail(effectiveConversationId, {
-          preserveLive: true,
-          dropLiveTurnIds: staleLiveTurnIds,
+        return false
+      }
+      const requestId =
+        pendingResearchCreation(sourceConversationId, turnId) ?? randomUUID()
+      rememberResearchCreation(sourceConversationId, requestId, turnId)
+      promptForkRequestRef.current = true
+      setPromptForking(true)
+      try {
+        const branch = await createResearchBranch({
+          connectionId,
+          sourceConversationId,
+          requestId,
+          sourceTurnId: turnId,
         })
-      } catch (err) {
-        // A turn in flight is transient here, not a failure to report as one —
-        // there is no draft to re-queue, so say so and let the user retry.
-        notify({
-          level: "error",
-          key: `fork-failed:${connectionId}`,
-          title:
-            err instanceof TurnBusyError
-              ? t("forkSessionBusy")
-              : t("forkSessionFailed", {
-                  error:
-                    err instanceof Error
-                      ? err.message
-                      : typeof err === "object" && err !== null
-                        ? JSON.stringify(err)
-                        : String(err),
-                }),
-        })
+        finishResearchCreation(sourceConversationId, requestId, turnId)
+        if (!mountedRef.current || dbConvIdRef.current !== sourceConversationId)
+          return true
+        void refreshConversations()
+        parkResearchSummary(branch.branchConversationId, promptText)
+        await openResearchConversation(branch.branchConversationId)
+        return true
+      } catch (error: unknown) {
+        const commandError = extractAppCommandError(error)
+        if (
+          commandError?.code === "invalid_input" ||
+          commandError?.code === "turn_in_progress" ||
+          commandError?.code === "not_found"
+        )
+          finishResearchCreation(sourceConversationId, requestId, turnId)
+        if (mountedRef.current)
+          toast.error(commandError?.message ?? toErrorMessage(error))
+        return false
+      } finally {
+        promptForkRequestRef.current = false
+        if (mountedRef.current) setPromptForking(false)
       }
     },
     [
       conn.connectionId,
-      effectiveConversationId,
       folderId,
-      refetchDetail,
       refreshConversations,
-      setExternalId,
-      t,
+      selectedAgent,
+      tResearch,
+      workingDirForConnection,
     ]
   )
 
@@ -1776,6 +1764,17 @@ const ConversationTabView = memo(function ConversationTabView({
   }, [])
 
   useEffect(() => {
+    if (composerInject !== null) return
+    const drain = () => {
+      const prompt = consumeForkPromptDraft(tabId)
+      if (prompt !== null) setComposerInject({ text: prompt, mode: "append" })
+    }
+    drain()
+    window.addEventListener(RESEARCH_SUMMARY_READY_EVENT, drain)
+    return () => window.removeEventListener(RESEARCH_SUMMARY_READY_EVENT, drain)
+  }, [composerInject, tabId])
+
+  useEffect(() => {
     if (
       dbConversationId == null ||
       acpLoadError ||
@@ -1797,10 +1796,12 @@ const ConversationTabView = memo(function ConversationTabView({
 
   const handleOpenResearchConversation = useCallback(
     (targetConversationId: number, split = false) => {
-      void openResearchConversation(
+      return openResearchConversation(
         targetConversationId,
         split ? (dbConvIdRef.current ?? undefined) : undefined
-      ).catch((error: unknown) => toast.error(toErrorMessage(error)))
+      ).catch((error: unknown) => {
+        toast.error(toErrorMessage(error))
+      })
     },
     []
   )
@@ -2211,6 +2212,7 @@ const ConversationTabView = memo(function ConversationTabView({
           agentType={selectedAgent}
           availableCommands={connectionCommands}
           connStatus={connStatus}
+          forkPromptBusy={promptForking}
           isActive={isActive}
           sendSignal={sendSignal}
           detailLoading={detailLoading}
@@ -2232,22 +2234,13 @@ const ConversationTabView = memo(function ConversationTabView({
           // blocked (session/load failure) can still spawn the question elsewhere.
           onAskSelection={canAskSelection ? handleAskSelection : undefined}
           onSideQuestionSelection={handleSideQuestionSelection}
-          // Fork carries no draft, so — unlike a send — a non-empty queue is
-          // not at risk of being jumped and needs no guard here. A turn in
-          // flight is still rejected, by the backend, which is the only place
-          // that can see it without racing.
-          //
-          // "prompting" belongs on this side of the gate (same shape as the
-          // goal-control gate above): this answers "can this surface fork at
-          // all", and a turn in flight is a passing "not right now" that the
-          // view greys the button out for. Dropping the handler instead made
-          // every reply's fork icon disappear for the length of each reply.
-          // `handleForkFromTurn` re-checks liveness at click time.
-          onForkFromTurn={
+          // A prompt fork moves the selected text into the draft after the
+          // session fork succeeds; it is not queued or sent on its own.
+          onForkFromPrompt={
             (connStatus === "connected" || connStatus === "prompting") &&
             hasPersistedConversation &&
             conn.supportsFork
-              ? handleForkFromTurn
+              ? handleForkFromPrompt
               : undefined
           }
         />
@@ -2354,6 +2347,7 @@ const ConversationTabView = memo(function ConversationTabView({
       getSentHistory={getSentHistory}
       topBanner={
         <>
+          <ConversationForkProgress open={promptForking} />
           <SessionConfigStaleBanner contextKey={tabId} />
           <PiProjectTrustBanner
             contextKey={tabId}
@@ -2364,12 +2358,15 @@ const ConversationTabView = memo(function ConversationTabView({
             <ResearchBranchPanel
               conversationId={dbConversationId}
               connectionId={conn.connectionId}
-              canCreate={
-                conn.supportsFork &&
-                !conn.isViewer &&
-                (connStatus === "connected" || connStatus === "prompting")
+              supportsFork={conn.supportsFork}
+              connectionReady={connectionReady}
+              isViewer={conn.isViewer}
+              busy={connStatus === "prompting" || promptForking}
+              onForkFromPrompt={
+                supportsPromptFork(selectedAgent)
+                  ? handleForkFromPrompt
+                  : undefined
               }
-              busy={connStatus === "prompting"}
               onOpenConversation={handleOpenResearchConversation}
               onReturnSummary={handleReturnResearchSummary}
               onCreated={handleResearchCreated}

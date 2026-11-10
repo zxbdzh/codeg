@@ -101,21 +101,16 @@ fn fingerprint_occurrence(turns: &[MessageTurn], idx: usize, fingerprint: &str) 
         + 1
 }
 
-/// Build the fork point naming `turn_id`, or `None` when this agent/turn cannot
-/// be named — in which case the caller forks at the tail, as before.
-///
-/// Only ASSISTANT turns are fork points: every adapter resolves the point
-/// against an agent message, and "continue from my own prompt" is already what
-/// a plain fork-send does.
-pub fn resolve_fork_point(
+/// Build the fork point for an assistant turn. ACP adapters resolve fork
+/// points against an agent message, so this helper keeps that protocol detail
+/// in one place while the public resolver can accept a user-selected prompt.
+fn resolve_assistant_fork_point(
     turns: &[MessageTurn],
-    turn_id: &str,
+    idx: usize,
     agent_type: AgentType,
 ) -> Option<ForkPoint> {
-    let idx = turns
-        .iter()
-        .position(|t| t.id == turn_id && matches!(t.role, TurnRole::Assistant))?;
     let turn = &turns[idx];
+    let turn_id = turn.id.as_str();
 
     match agent_type {
         // Codex rollouts carry no item ids, so the id can never match and the
@@ -179,6 +174,36 @@ pub fn resolve_fork_point(
         }
         // Every other agent either has no `session/fork` or no fork point in
         // it; forking at the tail is the honest fallback.
+        _ => None,
+    }
+}
+
+/// Build a fork point naming either an assistant reply or a user prompt.
+///
+/// The UI lets users choose their own prompt, which is the natural Pi-style
+/// interaction. ACP still requires an assistant message as the wire anchor, so
+/// a prompt resolves to the previous assistant reply; the prompt itself can
+/// then be placed back into the composer for editing and resending.
+pub fn resolve_fork_point(
+    turns: &[MessageTurn],
+    turn_id: &str,
+    agent_type: AgentType,
+) -> Option<ForkPoint> {
+    let index = turns.iter().position(|turn| turn.id == turn_id)?;
+    match turns[index].role {
+        TurnRole::Assistant => resolve_assistant_fork_point(turns, index, agent_type),
+        TurnRole::User => {
+            let assistant_index = turns[..index]
+                .iter()
+                .rposition(|turn| matches!(turn.role, TurnRole::Assistant))?;
+            if turns[assistant_index + 1..index]
+                .iter()
+                .any(|turn| matches!(turn.role, TurnRole::User))
+            {
+                return None;
+            }
+            resolve_assistant_fork_point(turns, assistant_index, agent_type)
+        }
         _ => None,
     }
 }
@@ -695,14 +720,39 @@ mod tests {
         );
     }
 
-    /// Forking "up to" a user turn is what a plain fork-send already does, and
-    /// no adapter resolves an id against a user message.
+    /// A user-selected prompt resolves to the previous assistant reply so the
+    /// selected prompt can be edited and sent on the new branch.
     #[test]
-    fn user_turns_are_not_fork_points() {
-        let turns = vec![turn("turn-0", TurnRole::User, "hi", Some("msg_01"))];
+    fn user_turns_resolve_to_their_previous_assistant_reply() {
+        let turns = vec![
+            turn("turn-0", TurnRole::User, "hi", None),
+            turn("turn-1", TurnRole::Assistant, "hello", Some("msg_01")),
+            turn("turn-2", TurnRole::User, "continue", None),
+            turn("turn-3", TurnRole::Assistant, "later reply", Some("msg_02")),
+        ];
+        let point = resolve_fork_point(&turns, "turn-2", AgentType::ClaudeCode).unwrap();
+        assert_eq!(point.message_id, "msg_01");
+    }
+
+    #[test]
+    fn first_user_turn_has_no_historical_assistant_anchor() {
+        let turns = vec![
+            turn("turn-0", TurnRole::User, "hi", None),
+            turn("turn-1", TurnRole::Assistant, "hello", Some("msg_01")),
+        ];
         assert!(resolve_fork_point(&turns, "turn-0", AgentType::ClaudeCode).is_none());
-        assert!(resolve_fork_point(&turns, "turn-0", AgentType::Codex).is_none());
-        assert!(resolve_fork_point(&turns, "turn-0", AgentType::DeepSeek).is_none());
+    }
+
+    #[test]
+    fn user_turn_after_an_unanswered_prompt_does_not_jump_to_an_older_reply() {
+        let turns = vec![
+            turn("turn-0", TurnRole::User, "first", None),
+            turn("turn-1", TurnRole::Assistant, "answer", Some("msg_01")),
+            turn("turn-2", TurnRole::User, "interrupted", None),
+            turn("turn-3", TurnRole::User, "selected", None),
+            turn("turn-4", TurnRole::Assistant, "later", Some("msg_02")),
+        ];
+        assert!(resolve_fork_point(&turns, "turn-3", AgentType::ClaudeCode).is_none());
     }
 
     /// Every other agent forks at the tail — advertising a fork point they do

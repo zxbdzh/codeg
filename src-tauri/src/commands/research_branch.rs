@@ -65,6 +65,7 @@ pub async fn research_branch_create(
     connection_id: String,
     source_conversation_id: i32,
     request_id: String,
+    source_turn_id: Option<String>,
 ) -> Result<ResearchBranchInfo, AppCommandError> {
     let emitter = EventEmitter::Tauri(app.clone());
     research_branch_create_core(
@@ -76,6 +77,7 @@ pub async fn research_branch_create(
             connection_id,
             source_conversation_id,
             request_id,
+            source_turn_id,
         },
     )
     .await

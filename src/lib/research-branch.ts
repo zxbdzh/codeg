@@ -9,7 +9,7 @@ export interface ResearchBranchInfo {
   sourceSessionId: string
   branchSessionId: string
   sourceTurnId: string | null
-  boundary: "session_tail"
+  boundary: "session_tail" | "before_prompt"
   title: string
   sourceTitle: string
   summary: string
@@ -20,6 +20,7 @@ export interface CreateResearchBranchRequest {
   connectionId: string
   sourceConversationId: number
   requestId: string
+  sourceTurnId?: string
 }
 
 export interface GenerateResearchBranchSummaryRequest {

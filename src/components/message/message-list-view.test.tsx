@@ -8,11 +8,14 @@ import {
   extractDelegationSources,
   extractMessageDelegationSources,
   groupDelegationSources,
+  hasPriorAssistantForkAnchor,
+  isFirstUserPrompt,
   hoistedCompaction,
   isForkPointUnnamed,
   markThreadTail,
   mergeConsecutiveAssistantTurns,
   singletonSourceTurns,
+  supportsPromptFork,
   threadDelegationStatusTasks,
   type MergedAssistantRunCache,
   type ReplyFoldState,
@@ -973,6 +976,66 @@ describe("isForkPointUnnamed", () => {
   it("says nothing about a group with no turns", () => {
     expect(isForkPointUnnamed(null, false)).toBe(false)
   })
+})
+
+describe("hasPriorAssistantForkAnchor", () => {
+  const prompt = (id: string): MessageTurn => ({
+    id,
+    role: "user",
+    blocks: [{ type: "text", text: id }],
+    timestamp: "",
+  })
+
+  it("allows selecting a persisted prompt after an assistant reply", () => {
+    expect(
+      hasPriorAssistantForkAnchor(
+        [prompt("prompt-1"), turn("reply-1"), prompt("prompt-2")],
+        "prompt-2"
+      )
+    ).toBe(true)
+  })
+
+  it("resolves a live prompt by its parser turn id", () => {
+    expect(
+      hasPriorAssistantForkAnchor(
+        [
+          turn("reply-1"),
+          { ...prompt("live-user"), source_turn_id: "prompt-2" },
+        ],
+        "prompt-2"
+      )
+    ).toBe(true)
+  })
+
+  it("does not offer a first prompt or one after an unanswered prompt", () => {
+    expect(isFirstUserPrompt([prompt("first")], "first")).toBe(true)
+    expect(hasPriorAssistantForkAnchor([prompt("first")], "first")).toBe(false)
+    expect(
+      hasPriorAssistantForkAnchor(
+        [turn("reply-1"), prompt("interrupted"), prompt("selected")],
+        "selected"
+      )
+    ).toBe(false)
+    expect(isFirstUserPrompt([turn("answer"), prompt("next")], "next")).toBe(
+      false
+    )
+  })
+})
+
+describe("supportsPromptFork", () => {
+  it.each(["claude_code", "codex", "deepseek"] as const)(
+    "enables exact prompt anchors for %s",
+    (agentType) => {
+      expect(supportsPromptFork(agentType)).toBe(true)
+    }
+  )
+
+  it.each(["gemini", "grok", "opencode", "openclaw"] as const)(
+    "keeps prompt forking hidden for %s",
+    (agentType) => {
+      expect(supportsPromptFork(agentType)).toBe(false)
+    }
+  )
 })
 
 describe("markThreadTail", () => {

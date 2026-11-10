@@ -2445,44 +2445,52 @@ impl ConnectionManager {
 
         // Resolve the fork point BEFORE the cancellation shield below: this is
         // a read-only parse, so a caller that disappears here has changed
-        // nothing. Failing to resolve is not an error — it degrades to the tail
-        // fork rather than refusing the user's click.
+        // nothing. Assistant replies retain their historical tail fallback;
+        // user-selected prompts must have a precise earlier reply anchor.
         let fork_point = match fork_from_turn_id {
             None => None,
             Some(turn_id) => {
                 let agent_type = state_arc.read().await.agent_type;
-                match crate::commands::conversations::get_folder_conversation_core(
+                let (detail, _) = crate::commands::conversations::get_folder_conversation_core(
                     &db.conn,
                     conversation_id,
                 )
                 .await
-                {
-                    Ok((detail, _)) => {
-                        let point = crate::acp::fork::resolve_fork_point(
-                            &detail.turns,
-                            &turn_id,
-                            agent_type,
-                        );
-                        if point.is_none() {
-                            tracing::info!(
-                                connection_id = %conn_id,
-                                turn_id = %turn_id,
-                                agent = %agent_type,
-                                "[ACP] no fork point for this turn; forking at the tail"
-                            );
-                        }
-                        point
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            connection_id = %conn_id,
-                            turn_id = %turn_id,
-                            "[ACP] could not read the conversation to resolve a fork point \
-                             ({e}); forking at the tail"
-                        );
-                        None
-                    }
+                .map_err(|error| {
+                    AcpError::protocol(format!(
+                        "Could not read the selected fork message: {error}"
+                    ))
+                })?;
+                let selected_turn = detail
+                    .turns
+                    .iter()
+                    .find(|turn| turn.id == turn_id)
+                    .ok_or_else(|| {
+                        AcpError::protocol(
+                            "The selected fork message is no longer in this conversation",
+                        )
+                    })?;
+                let selected_user_message =
+                    matches!(&selected_turn.role, crate::models::TurnRole::User);
+                let point = crate::acp::fork::resolve_fork_point(
+                    &detail.turns,
+                    &turn_id,
+                    agent_type,
+                );
+                if selected_user_message && point.is_none() {
+                    return Err(AcpError::protocol(
+                        "Cannot fork from this prompt because there is no supported earlier reply",
+                    ));
                 }
+                if point.is_none() {
+                    tracing::info!(
+                        connection_id = %conn_id,
+                        turn_id = %turn_id,
+                        agent = %agent_type,
+                        "[ACP] no fork point for this assistant turn; forking at the tail"
+                    );
+                }
+                point
             }
         };
 

@@ -157,6 +157,25 @@ pub async fn create(
     branch_session_id: &str,
     source_turn_id: Option<String>,
 ) -> Result<ResearchBranchInfo, DbError> {
+    create_with_boundary(conn, request_id, source_id, source_session_id,
+        branch_session_id, source_turn_id, "session_tail").await
+}
+
+pub async fn create_with_boundary(
+    conn: &DatabaseConnection,
+    request_id: &str,
+    source_id: i32,
+    source_session_id: &str,
+    branch_session_id: &str,
+    source_turn_id: Option<String>,
+    boundary: &str,
+) -> Result<ResearchBranchInfo, DbError> {
+    if !matches!(boundary, "session_tail" | "before_prompt") {
+        return Err(DbError::Validation("Unknown research boundary".into()));
+    }
+    if boundary == "before_prompt" && source_turn_id.as_deref().is_none_or(str::is_empty) {
+        return Err(DbError::Validation("A historical fork must name its prompt".into()));
+    }
     if let Some(existing) = by_request(conn, request_id, source_id).await? {
         return Ok(existing);
     }
@@ -200,7 +219,8 @@ pub async fn create(
     }
     let now = Utc::now();
     let title = format!(
-        "[Research] {}",
+        "[{}] {}",
+        if boundary == "before_prompt" { "Fork" } else { "Research" },
         source.title.as_deref().unwrap_or("Research")
     );
     let mut branch: conversation::ActiveModel = source.into();
@@ -228,7 +248,7 @@ pub async fn create(
         source_session_id: Set(source_session_id.into()),
         branch_session_id: Set(branch_session_id.into()),
         source_turn_id: Set(source_turn_id),
-        boundary: Set("session_tail".into()),
+        boundary: Set(boundary.into()),
         summary: Set(String::new()),
         created_at: Set(now),
     }
@@ -275,6 +295,24 @@ mod tests {
         active.status = Set(conversation::ConversationStatus::PendingReview);
         active.update(&db.conn).await.unwrap();
         id
+    }
+
+    #[tokio::test]
+    async fn historical_research_branch_preserves_its_boundary_and_source() {
+        let db = fresh_in_memory_db().await;
+        let source_id = source(&db).await;
+        let before = live_conversation(&db.conn, source_id).await.unwrap();
+        let branch = create_with_boundary(
+            &db.conn, "historical", source_id, "S1", "S2",
+            Some("turn-4".into()), "before_prompt",
+        ).await.unwrap();
+        assert_eq!(branch.boundary, "before_prompt");
+        assert_eq!(branch.source_turn_id.as_deref(), Some("turn-4"));
+        assert!(branch.title.starts_with("[Fork]"));
+        assert_eq!(before, live_conversation(&db.conn, source_id).await.unwrap());
+        let loaded = by_request(&db.conn, "historical", source_id).await.unwrap().unwrap();
+        assert_eq!(loaded.branch_session_id, "S2");
+        assert_eq!(loaded.source_turn_id, branch.source_turn_id);
     }
 
     #[tokio::test]

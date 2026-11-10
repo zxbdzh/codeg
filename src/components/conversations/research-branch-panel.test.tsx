@@ -90,7 +90,9 @@ function view(overrides: Partial<ResearchBranchPanelProps> = {}) {
       <ResearchBranchPanel
         conversationId={10}
         connectionId="connection-1"
-        canCreate
+        supportsFork
+        connectionReady
+        isViewer={false}
         busy={false}
         onOpenConversation={onOpen}
         onReturnSummary={onReturn}
@@ -102,11 +104,20 @@ function view(overrides: Partial<ResearchBranchPanelProps> = {}) {
 }
 
 async function expand() {
-  await userEvent.click(screen.getByRole("button", { name: "Research branch" }))
   await waitFor(() =>
     expect(
-      screen.queryByText("Loading research branches…")
-    ).not.toBeInTheDocument()
+      screen.getByRole("region", { name: "Research branch" })
+    ).toHaveAttribute("aria-busy", "false")
+  )
+  await userEvent.click(
+    screen.queryByRole("button", { name: "Bring back findings" }) ??
+      screen.getByRole("button", { name: "Research branches" })
+  )
+}
+
+async function openBranches() {
+  await userEvent.click(
+    screen.getByRole("button", { name: "Research branches" })
   )
 }
 
@@ -145,27 +156,44 @@ describe("ResearchBranchPanel", () => {
     expect(api.list).not.toHaveBeenCalled()
   })
 
-  it("disables the busy entry and explicitly asks to wait for completion", async () => {
+  it("keeps busy guidance with the action instead of a permanent banner", async () => {
     render(view({ busy: true }))
-    expect(
-      screen.getByRole("button", { name: "Research branch" })
-    ).toBeDisabled()
+    expect(screen.getByRole("button", { name: "New research" })).toBeDisabled()
     expect(
       screen.getByText(enMessages.ResearchBranch.waitForCompletion)
-    ).toBeInTheDocument()
-    await userEvent.click(
-      screen.getByRole("button", { name: "Research branch" })
-    )
+    ).toHaveClass("sr-only")
+    await userEvent.click(screen.getByRole("button", { name: "New research" }))
     expect(api.create).not.toHaveBeenCalled()
   })
 
-  it.each([{ canCreate: false }, { connectionId: null }])(
-    "disables unavailable creation: %j",
-    (overrides) => {
+  it.each([
+    { supportsFork: false },
+    { connectionId: null },
+    { connectionReady: false },
+    { isViewer: true },
+  ])("disables unavailable creation: %j", (overrides) => {
+    render(view(overrides))
+    expect(screen.getByRole("button", { name: "New research" })).toBeDisabled()
+  })
+
+  it.each([
+    [{ connectionId: null, supportsFork: false }, "connectionRequired"],
+    [{ connectionReady: false, supportsFork: false }, "connectionPending"],
+    [{ isViewer: true, supportsFork: false }, "viewer"],
+    [{ supportsFork: false }, "unsupported"],
+  ] as const)(
+    "explains unavailable creation accurately: %j",
+    async (overrides, key) => {
       render(view(overrides))
+      await expand()
       expect(
-        screen.getByRole("button", { name: "Research branch" })
-      ).toBeDisabled()
+        screen.getByRole("button", { name: "New research" }).parentElement
+      ).toHaveAttribute("title", enMessages.ResearchBranch[key])
+      if (key !== "unsupported") {
+        expect(
+          screen.queryByText(enMessages.ResearchBranch.unsupported)
+        ).not.toBeInTheDocument()
+      }
     }
   )
 
@@ -174,7 +202,7 @@ describe("ResearchBranchPanel", () => {
     api.create.mockReturnValue(pending.promise)
     render(view())
     await expand()
-    const button = screen.getByRole("button", { name: "Create branch" })
+    const button = screen.getByRole("button", { name: "New research" })
     fireEvent.click(button)
     fireEvent.click(button)
     expect(api.create).toHaveBeenCalledTimes(1)
@@ -183,17 +211,40 @@ describe("ResearchBranchPanel", () => {
       sourceConversationId: 10,
       requestId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4/),
     })
-    expect(screen.getByRole("button", { name: "Creating…" })).toBeDisabled()
+    expect(
+      screen.getByRole("dialog", {
+        name: enMessages.ResearchBranch.forking,
+      })
+    ).toHaveAttribute("aria-busy", "true")
     await act(async () => pending.resolve(info()))
     expect(onCreated).toHaveBeenCalledWith(info())
     expect(onOpen).toHaveBeenCalledWith(20, true)
+  })
+
+  it("keeps the workspace locked until the new conversation opens", async () => {
+    const opening = deferred<void>()
+    api.create.mockResolvedValue(info())
+    onOpen.mockReturnValue(opening.promise)
+    render(view())
+    await expand()
+    await userEvent.click(screen.getByRole("button", { name: "New research" }))
+    await waitFor(() => expect(onOpen).toHaveBeenCalledWith(20, true))
+    expect(
+      screen.getByRole("dialog", {
+        name: enMessages.ResearchBranch.forking,
+      })
+    ).toBeInTheDocument()
+    await act(async () => opening.resolve())
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
   })
 
   it("blocks create if the source becomes busy after opening the panel", async () => {
     const rendered = render(view())
     await expand()
     rendered.rerender(view({ busy: true }))
-    expect(screen.getByRole("button", { name: "Create branch" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "New research" })).toBeDisabled()
     expect(api.create).not.toHaveBeenCalled()
   })
 
@@ -203,7 +254,7 @@ describe("ResearchBranchPanel", () => {
       .mockResolvedValue(info())
     render(view())
     await expand()
-    await userEvent.click(screen.getByRole("button", { name: "Create branch" }))
+    await userEvent.click(screen.getByRole("button", { name: "New research" }))
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "fork unavailable"
     )
@@ -217,21 +268,32 @@ describe("ResearchBranchPanel", () => {
   it("shows source branches with open and existing right-split callbacks", async () => {
     api.list.mockResolvedValue([info()])
     render(view())
+    expect(screen.queryByRole("list")).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(enMessages.ResearchBranch.boundary)
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(enMessages.ResearchBranch.sharedDirectory)
+    ).not.toBeInTheDocument()
     await expand()
     expect(api.list).toHaveBeenCalledWith(10)
     expect(
       screen.getByRole("list", { name: "Research branches" })
     ).toHaveTextContent("Research branch 1")
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: "Open" }))
-    await userEvent.click(screen.getByRole("button", { name: "Split right" }))
-    expect(onOpen.mock.calls).toEqual([[20], [20, true]])
     expect(
       screen.getByText(enMessages.ResearchBranch.boundary)
     ).toBeInTheDocument()
     expect(
       screen.getByText(enMessages.ResearchBranch.sharedDirectory)
     ).toBeInTheDocument()
+    await userEvent.click(
+      screen.getByRole("button", { name: "Research branch 1" })
+    )
+    expect(screen.queryByRole("list")).not.toBeInTheDocument()
+    await openBranches()
+    await userEvent.click(screen.getByRole("button", { name: "Split right" }))
+    expect(onOpen.mock.calls).toEqual([[20], [20, true]])
   })
 
   it("reuses an uncertain creation ID after the connection remounts", async () => {
@@ -240,12 +302,12 @@ describe("ResearchBranchPanel", () => {
       .mockResolvedValue(info())
     const rendered = render(view())
     await expand()
-    await userEvent.click(screen.getByRole("button", { name: "Create branch" }))
+    await userEvent.click(screen.getByRole("button", { name: "New research" }))
     await screen.findByRole("alert")
     const firstId = api.create.mock.calls[0][0].requestId
     rendered.rerender(view({ connectionId: "reconnected" }))
     await expand()
-    await userEvent.click(screen.getByRole("button", { name: "Create branch" }))
+    await userEvent.click(screen.getByRole("button", { name: "New research" }))
     expect(api.create.mock.calls[1][0].requestId).toBe(firstId)
     expect(onOpen).toHaveBeenCalledWith(20, true)
   })
@@ -253,19 +315,20 @@ describe("ResearchBranchPanel", () => {
   it("identifies a branch by branchConversationId and truncates long source titles", async () => {
     const title = "Source title ".repeat(50).trim()
     api.list.mockResolvedValue([info({ sourceTitle: title })])
-    render(view({ conversationId: 20, canCreate: false, busy: true }))
+    render(view({ conversationId: 20, supportsFork: false, busy: true }))
     await waitFor(() => expect(api.list).toHaveBeenCalledWith(20))
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Research branch" })
+        screen.getByRole("button", { name: "Return to source" })
       ).toBeEnabled()
     )
-    await expand()
     expect(screen.getByTitle(title)).toHaveClass("truncate")
     await userEvent.click(
       screen.getByRole("button", { name: "Return to source" })
     )
     expect(onOpen).toHaveBeenCalledWith(10)
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    await expand()
     expect(
       screen.getByRole("button", { name: "Summarize findings" })
     ).toBeDisabled()
@@ -288,6 +351,53 @@ describe("ResearchBranchPanel", () => {
     expect(onReturn).not.toHaveBeenCalled()
   })
 
+  it("opens findings on demand and retains edits when closed without saving", async () => {
+    api.list.mockResolvedValue([info()])
+    render(view({ conversationId: 20 }))
+    const trigger = await screen.findByRole("button", {
+      name: "Bring back findings",
+    })
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    await userEvent.click(trigger)
+    expect(screen.getByRole("dialog")).toHaveAccessibleName(
+      "Bring back findings"
+    )
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Keep my draft while reading" },
+    })
+    await userEvent.click(screen.getByRole("button", { name: "Close" }))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+    expect(api.save).not.toHaveBeenCalled()
+    expect(onReturn).not.toHaveBeenCalled()
+    await userEvent.click(trigger)
+    expect(screen.getByRole("textbox")).toHaveValue(
+      "Keep my draft while reading"
+    )
+  })
+
+  it("cancels generation when the findings dialog closes and keeps late results out", async () => {
+    const pending = deferred<{ summary: string }>()
+    api.generate.mockReturnValue(pending.promise)
+    await showBranch()
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "My findings" },
+    })
+    await userEvent.click(
+      screen.getByRole("button", { name: "Summarize findings" })
+    )
+    const requestId = api.generate.mock.calls[0][0].requestId
+    await userEvent.keyboard("{Escape}")
+    expect(api.cancel).toHaveBeenCalledWith(requestId)
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    await act(async () => pending.resolve({ summary: "Late findings" }))
+    await expand()
+    expect(screen.getByRole("textbox")).toHaveValue("My findings")
+    expect(api.save).not.toHaveBeenCalled()
+    expect(onReturn).not.toHaveBeenCalled()
+  })
+
   it("persists the exact draft before handing it to the original source", async () => {
     const pending = deferred<ResearchBranchInfo>()
     api.save.mockReturnValue(pending.promise)
@@ -296,17 +406,18 @@ describe("ResearchBranchPanel", () => {
       target: { value: "Unsaved finding" },
     })
     await userEvent.click(
-      screen.getByRole("button", { name: "Bring back to source" })
+      screen.getByRole("button", { name: "Add to source draft" })
     )
     expect(api.save).toHaveBeenCalledWith(20, "Unsaved finding")
     expect(onReturn).not.toHaveBeenCalled()
     expect(screen.getByRole("textbox")).toBeDisabled()
     expect(
-      screen.getByRole("button", { name: "Bring back to source" })
+      screen.getByRole("button", { name: "Add to source draft" })
     ).toBeDisabled()
     await act(async () => pending.resolve(info({ summary: "Unsaved finding" })))
     expect(onReturn).toHaveBeenCalledWith(10, "Unsaved finding")
     expect(onOpen).not.toHaveBeenCalled()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
   it("retries a failed save without losing text or handing off early", async () => {
@@ -316,7 +427,7 @@ describe("ResearchBranchPanel", () => {
       target: { value: "Keep this finding" },
     })
     await userEvent.click(
-      screen.getByRole("button", { name: "Bring back to source" })
+      screen.getByRole("button", { name: "Add to source draft" })
     )
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "save unavailable"
@@ -335,18 +446,18 @@ describe("ResearchBranchPanel", () => {
     fireEvent.change(textarea, { target: { value: "😀".repeat(12_000) } })
     expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled()
     expect(
-      screen.getByRole("button", { name: "Bring back to source" })
+      screen.getByRole("button", { name: "Add to source draft" })
     ).toBeEnabled()
     fireEvent.change(textarea, { target: { value: "😀".repeat(12_001) } })
     expect(textarea).toHaveAttribute("aria-invalid", "true")
     expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
     expect(
-      screen.getByRole("button", { name: "Bring back to source" })
+      screen.getByRole("button", { name: "Add to source draft" })
     ).toBeDisabled()
     fireEvent.change(textarea, { target: { value: "" } })
     expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled()
     expect(
-      screen.getByRole("button", { name: "Bring back to source" })
+      screen.getByRole("button", { name: "Add to source draft" })
     ).toBeDisabled()
   })
 
@@ -540,7 +651,7 @@ describe("ResearchBranchPanel", () => {
     api.save.mockReturnValue(pending.promise)
     const rendered = await showBranch()
     await userEvent.click(
-      screen.getByRole("button", { name: "Bring back to source" })
+      screen.getByRole("button", { name: "Add to source draft" })
     )
     api.list.mockResolvedValue([
       info({
@@ -562,20 +673,20 @@ describe("ResearchBranchPanel", () => {
     render(view())
     await expand()
     expect(await screen.findByRole("alert")).toHaveTextContent("offline")
-    expect(screen.getByRole("button", { name: "Create branch" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "New research" })).toBeDisabled()
     api.list.mockResolvedValue([info()])
     await userEvent.click(screen.getByRole("button", { name: "Retry" }))
     await screen.findByText("Research branch 1")
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Create branch" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "New research" })).toBeEnabled()
   })
 
   it("keeps relation-load retry accessible when the agent cannot create branches", async () => {
     api.list.mockRejectedValueOnce(new Error("relations offline"))
-    render(view({ conversationId: 20, canCreate: false, busy: true }))
+    render(view({ conversationId: 20, supportsFork: false, busy: true }))
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Research branch" })
+        screen.getByRole("button", { name: "Research branches" })
       ).toBeEnabled()
     )
     await expand()
@@ -584,8 +695,22 @@ describe("ResearchBranchPanel", () => {
     )
     api.list.mockResolvedValue([info()])
     await userEvent.click(screen.getByRole("button", { name: "Retry" }))
-    expect(await screen.findByRole("textbox")).toHaveValue("Saved finding")
-    expect(screen.getByRole("button", { name: "Create branch" })).toBeDisabled()
+    expect(
+      await screen.findByRole("button", { name: "Return to source" })
+    ).toBeEnabled()
+    expect(
+      screen.queryByRole("button", { name: "New research" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen
+        .getAllByText(enMessages.ResearchBranch.waitForCompletion)
+        .some((element) => !element.classList.contains("sr-only"))
+    ).toBe(true)
+    await openBranches()
+    await userEvent.click(
+      screen.getByRole("button", { name: "Bring back findings" })
+    )
+    expect(screen.getByRole("textbox")).toHaveValue("Saved finding")
   })
 
   it("reloads on reconnect or refresh, not prop/token-like rerenders, preserving unsaved edits", async () => {
@@ -599,9 +724,13 @@ describe("ResearchBranchPanel", () => {
     await act(async () => api.onReconnect.mock.calls[0][0]())
     expect(api.list).toHaveBeenCalledTimes(2)
     expect(textarea).toHaveValue("Local draft")
+    await userEvent.click(screen.getByRole("button", { name: "Close" }))
+    await openBranches()
     await userEvent.click(screen.getByRole("button", { name: "Refresh" }))
     expect(api.list).toHaveBeenCalledTimes(3)
-    expect(textarea).toHaveValue("Local draft")
+    await openBranches()
+    await expand()
+    expect(screen.getByRole("textbox")).toHaveValue("Local draft")
   })
 
   it("ignores a stale relationship load after changing conversations", async () => {
@@ -622,13 +751,18 @@ describe("ResearchBranchPanel", () => {
     api.list.mockResolvedValue([info()])
     const onSubmit = vi.fn((event) => event.preventDefault())
     render(<form onSubmit={onSubmit}>{view({ conversationId: 20 })}</form>)
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Return to source" })
+    )
     await expand()
     screen
       .getAllByRole("button")
       .forEach((button) => expect(button).toHaveAttribute("type", "button"))
-    await userEvent.click(
-      screen.getByRole("button", { name: "Return to source" })
-    )
+    await userEvent.click(screen.getByRole("button", { name: "Close" }))
+    await openBranches()
+    screen
+      .getAllByRole("button")
+      .forEach((button) => expect(button).toHaveAttribute("type", "button"))
     expect(onSubmit).not.toHaveBeenCalled()
   })
 

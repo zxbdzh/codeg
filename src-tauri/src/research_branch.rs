@@ -45,6 +45,7 @@ pub struct CreateRequest {
     pub connection_id: String,
     pub source_conversation_id: i32,
     pub request_id: String,
+    pub source_turn_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -161,6 +162,8 @@ struct Recovery {
     source_session_id: String,
     branch_session_id: String,
     source_turn_id: Option<String>,
+    #[serde(default)]
+    before_prompt: bool,
 }
 
 fn recovery_path(data_dir: &Path, request_id: &str) -> PathBuf {
@@ -194,13 +197,14 @@ async fn persist(
     db: &AppDatabase,
     record: &Recovery,
 ) -> Result<ResearchBranchInfo, AppCommandError> {
-    service::create(
+    service::create_with_boundary(
         &db.conn,
         &record.request_id,
         record.source_conversation_id,
         &record.source_session_id,
         &record.branch_session_id,
         record.source_turn_id.clone(),
+        if record.before_prompt { "before_prompt" } else { "session_tail" },
     )
     .await
     .map_err(db_error)
@@ -275,12 +279,22 @@ pub async fn create(
         .await
         .map_err(db_error)?
         {
+            if (existing.boundary == "before_prompt") != request.source_turn_id.is_some()
+                || (request.source_turn_id.is_some()
+                    && existing.source_turn_id != request.source_turn_id)
+            {
+                return Err(AppCommandError::invalid_input(
+                    "Research request id belongs to another fork point",
+                ));
+            }
             return Ok(existing);
         }
         let path = recovery_path(&data_dir, &request.request_id);
         let result = if let Some(record) = read_recovery(&path).await? {
             if record.source_conversation_id != request.source_conversation_id
                 || record.request_id != request.request_id
+                || record.before_prompt != request.source_turn_id.is_some()
+                || (record.before_prompt && record.source_turn_id != request.source_turn_id)
             {
                 return Err(AppCommandError::invalid_input(
                     "Research recovery belongs to another source",
@@ -403,11 +417,21 @@ async fn create_inner(
         ));
     }
     let turns = read_turns(db, agent, session_id.clone()).await?;
-    let source_turn_id = turns
-        .iter()
-        .rev()
-        .find(|turn| matches!(turn.role, TurnRole::Assistant))
-        .map(|turn| turn.id.clone());
+    let (source_turn_id, fork_point) = if let Some(turn_id) = &request.source_turn_id {
+        let selected = turns.iter().find(|turn| &turn.id == turn_id)
+            .ok_or_else(|| AppCommandError::invalid_input("The selected prompt no longer exists"))?;
+        if !matches!(selected.role, TurnRole::User) {
+            return Err(AppCommandError::invalid_input("Choose one of your own messages to fork"));
+        }
+        // 用户选择的位置必须精确；不能解析锚点时明确报错，避免复制了错误的历史范围。
+        let point = crate::acp::fork::resolve_fork_point(&turns, turn_id, agent)
+            .ok_or_else(|| AppCommandError::invalid_input("This prompt has no supported earlier reply"))?;
+        (Some(turn_id.clone()), Some(point))
+    } else {
+        (turns.iter().rev()
+            .find(|turn| matches!(turn.role, TurnRole::Assistant))
+            .map(|turn| turn.id.clone()), None)
+    };
     let runtime_env =
         crate::commands::acp::build_session_runtime_env(db, agent, Some(&session_id), data_dir)
             .await
@@ -467,12 +491,13 @@ async fn create_inner(
         source_session_id: session_id.clone(),
         branch_session_id: String::new(),
         source_turn_id,
+        before_prompt: request.source_turn_id.is_some(),
     };
     // 先落 pending：崩溃在协议响应和本地记录之间时，宁可明确未知，也不能重试制造第二个 S2。
     append_recovery(recovery_file, &record, true).await?;
     if cmd_tx
         .send(ConnectionCommand::Fork {
-            fork_point: None,
+            fork_point,
             reply,
         })
         .await
@@ -833,6 +858,7 @@ mod tests {
             source_session_id: "S1".into(),
             branch_session_id: String::new(),
             source_turn_id: Some("turn-2".into()),
+            before_prompt: false,
         };
         assert!(read_recovery(&path).await.unwrap().is_none());
         append_recovery(&path, &record, true).await.unwrap();
@@ -863,6 +889,7 @@ mod tests {
                 connection_id: "gone".into(),
                 source_conversation_id: 1,
                 request_id: "missing-source".into(),
+                source_turn_id: None,
             },
         )
         .await;
@@ -968,6 +995,7 @@ mod tests {
             source_session_id: "S1".into(),
             branch_session_id: "already-forked-S2".into(),
             source_turn_id: Some("turn-4".into()),
+            before_prompt: false,
         };
         append_recovery(&path, &record, true).await.unwrap();
         let manager = ConnectionManager::new();
@@ -975,6 +1003,7 @@ mod tests {
             connection_id: "old-connection-gone".into(),
             source_conversation_id: source_id,
             request_id: record.request_id,
+            source_turn_id: None,
         };
         let result = create(
             &db,
