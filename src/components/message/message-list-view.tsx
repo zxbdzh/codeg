@@ -201,6 +201,7 @@ interface MessageListViewProps {
    * on the same terms as `onQuoteSelection`. MUST be referentially stable.
    */
   onAskSelection?: (selection: string, question: string) => void
+  onSideQuestionSelection?: (selection: string) => void
   /**
    * Keep a text selection from this transcript as a note next to it. Only the
    * canvas has a board to put one on, so every other surface omits it and the
@@ -1431,6 +1432,7 @@ export function MessageListView({
   userTurnHeader = null,
   onQuoteSelection,
   onAskSelection,
+  onSideQuestionSelection,
   onSaveNoteSelection,
   onForkFromTurn,
 }: MessageListViewProps) {
@@ -2242,6 +2244,7 @@ export function MessageListView({
           containerRef={selectionBoxRef}
           onQuote={onQuoteSelection}
           onAsk={onAskSelection}
+          onSideQuestion={onSideQuestionSelection}
           onSaveAsNote={onSaveNoteSelection}
         />
       </div>

@@ -28,7 +28,7 @@ import {
   toAbsoluteFilePath,
   toFolderRelativePath,
 } from "@/lib/file-path-display"
-import { isLocalDesktop, revealItemInDir } from "@/lib/platform"
+import { isLocalDesktop, openPath, revealItemInDir } from "@/lib/platform"
 import { copyTextFromMenu } from "@/lib/utils"
 
 /** The two path forms offered by the badge's action menu. */
@@ -52,7 +52,7 @@ export interface FileReferencePaths {
  * Returns null when the target isn't a local file at all (a web link, an
  * embedded `codeg://` attachment badge) or when a relative target can't be made
  * absolute for lack of an active folder — in those cases the badge shows no
- * action button, since none of the three actions could do anything.
+ * action button, since none of its path actions could do anything.
  *
  * Parsing goes through link-safety's {@link parseLocalFileTarget} so the menu
  * resolves the same path a click on the badge would open (line suffixes like
@@ -118,14 +118,15 @@ function FileReferenceActionsMenu({ target }: { target: string }) {
     [target, folderPath]
   )
 
-  const handleReveal = () => {
+  // 默认应用和资源管理器共用路径解析，避免行号或 ~ 路径指向不同文件。
+  const handleOpen = (openTarget: (path: string) => Promise<void>) => {
     if (!paths) return
     void (async () => {
       try {
         const absolute = isHomeRelativePath(paths.absolute)
           ? await expandHomePath(paths.absolute)
           : paths.absolute
-        await revealItemInDir(absolute)
+        await openTarget(absolute)
       } catch (error) {
         toast.error(t("openFailed"), { description: toErrorMessage(error) })
       }
@@ -172,12 +173,22 @@ function FileReferenceActionsMenu({ target }: { target: string }) {
 
   return (
     <>
-      {/* `revealItemInDir` is a no-op in web mode and for a desktop window
-          bound to a remote workspace, so the row is hidden rather than dead. */}
+      {/* 远程路径不属于本机，系统打开入口仅在本地桌面显示。 */}
       {isLocalDesktop() && (
-        <ContextMenuItem disabled={!paths} onSelect={handleReveal}>
-          {t(systemFileManagerLabelKey())}
-        </ContextMenuItem>
+        <>
+          <ContextMenuItem
+            disabled={!paths}
+            onSelect={() => handleOpen(openPath)}
+          >
+            {t("openWithDefaultApp")}
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!paths}
+            onSelect={() => handleOpen(revealItemInDir)}
+          >
+            {t(systemFileManagerLabelKey())}
+          </ContextMenuItem>
+        </>
       )}
       <ContextMenuItem
         disabled={!paths?.relative}
@@ -207,10 +218,10 @@ function FileReferenceActionsMenu({ target }: { target: string }) {
 /**
  * Wraps an inline file badge in the transcript (user messages via
  * PlainTextWithBadges, assistant markdown via MarkdownLink) so that right-
- * clicking the file name opens its actions: reveal in the OS file manager, copy
- * relative path, copy absolute path, and — where the file lives on another host
- * — download it. A non-file target renders its children untouched, with no menu
- * attached.
+ * clicking the file name opens its actions: open with the default application,
+ * reveal in the OS file manager, copy relative path, copy absolute path, and —
+ * where the file lives on another host — download it. A non-file target renders
+ * its children untouched, with no menu attached.
  *
  * A context menu (not a hover popover, and not a click target of its own) is
  * what leaves the badge's own behaviour intact: a left click still opens the

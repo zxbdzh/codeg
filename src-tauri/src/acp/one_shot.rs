@@ -192,23 +192,31 @@ pub async fn run(
         return Err(OneShotError::Cancelled);
     }
 
-    let connection_id = manager
-        .spawn_agent(
-            agent_type,
-            Some(cwd.to_string_lossy().into_owned()),
-            None,
-            runtime_env,
-            OWNER_LABEL.to_string(),
-            EventEmitter::Noop,
-            mode_id,
-            config_values,
-        )
-        .await
-        .map_err(|e| OneShotError::Unavailable(e.to_string()))?;
-    let _guard = DisconnectOnDrop {
-        manager: manager.clone_ref(),
-        connection_id: connection_id.clone(),
-    };
+    let spawn_manager = manager.clone_ref();
+    let guard = wait_for_spawn(
+        async move {
+            let connection_id = spawn_manager
+                .spawn_agent(
+                    agent_type,
+                    Some(cwd.to_string_lossy().into_owned()),
+                    None,
+                    runtime_env,
+                    OWNER_LABEL.to_string(),
+                    EventEmitter::Noop,
+                    mode_id,
+                    config_values,
+                )
+                .await
+                .map_err(|error| OneShotError::Unavailable(error.to_string()))?;
+            Ok(DisconnectOnDrop {
+                manager: spawn_manager,
+                connection_id,
+            })
+        },
+        cancel,
+    )
+    .await?;
+    let connection_id = guard.connection_id.clone();
     // A stop that came while the agent was starting: never send it the prompt.
     if cancel.is_cancelled() {
         return Err(OneShotError::Cancelled);
@@ -278,6 +286,25 @@ pub async fn run(
                 })));
             }
         }
+    }
+}
+
+async fn wait_for_spawn<T, F>(spawn: F, cancel: &CancellationToken) -> Result<T, OneShotError>
+where
+    T: Send + 'static,
+    F: std::future::Future<Output = Result<T, OneShotError>> + Send + 'static,
+{
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        // 启动必须走完才能拿到连接 ID；若调用方已取消，传递中的清理守卫会自行断开。
+        let _ = sender.send(spawn.await);
+    });
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => Err(OneShotError::Cancelled),
+        result = receiver => result.map_err(|_| {
+            OneShotError::Failed("the agent startup task ended before it connected".to_string())
+        })?,
     }
 }
 
@@ -493,6 +520,79 @@ impl Drop for DisconnectOnDrop {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug)]
+    struct StartupCleanup {
+        dropped: Arc<tokio::sync::Notify>,
+    }
+
+    impl Drop for StartupCleanup {
+        fn drop(&mut self) {
+            self.dropped.notify_one();
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelled_startup_returns_before_spawn_and_cleans_a_late_connection() {
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let dropped = Arc::new(tokio::sync::Notify::new());
+        let cancel = CancellationToken::new();
+        let task = {
+            let started = started.clone();
+            let release = release.clone();
+            let dropped = dropped.clone();
+            let cancel = cancel.clone();
+            tokio::spawn(async move {
+                wait_for_spawn(
+                    async move {
+                        started.notify_one();
+                        release.notified().await;
+                        Ok(StartupCleanup { dropped })
+                    },
+                    &cancel,
+                )
+                .await
+            })
+        };
+        started.notified().await;
+        cancel.cancel();
+        assert!(matches!(task.await.unwrap(), Err(OneShotError::Cancelled)));
+        release.notify_one();
+        tokio::time::timeout(Duration::from_secs(1), dropped.notified())
+            .await
+            .expect("a late connection is cleaned");
+    }
+
+    #[tokio::test]
+    async fn dropped_startup_waiter_cleans_a_late_connection() {
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let dropped = Arc::new(tokio::sync::Notify::new());
+        let task = {
+            let started = started.clone();
+            let release = release.clone();
+            let dropped = dropped.clone();
+            tokio::spawn(async move {
+                wait_for_spawn(
+                    async move {
+                        started.notify_one();
+                        release.notified().await;
+                        Ok(StartupCleanup { dropped })
+                    },
+                    &CancellationToken::new(),
+                )
+                .await
+            })
+        };
+        started.notified().await;
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        release.notify_one();
+        tokio::time::timeout(Duration::from_secs(1), dropped.notified())
+            .await
+            .expect("a disconnected caller cannot orphan its connection");
+    }
 
     #[test]
     fn claude_sessions_get_no_tools_no_history_and_their_own_prompt() {

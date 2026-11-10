@@ -63,6 +63,7 @@ pub mod process;
 #[cfg(all(feature = "tauri-runtime", target_os = "macos"))]
 mod relaunch;
 pub mod runtime_lock;
+pub mod side_question;
 pub mod supervise;
 mod terminal;
 pub mod turn_timings;
@@ -122,6 +123,7 @@ mod tauri_app {
         remote_proxy as remote_proxy_commands,
         remote_workspace as remote_workspace_commands, science as science_commands,
         session_info as session_info_commands,
+        side_question as side_question_commands,
         system_settings, terminal as terminal_commands,
         token_usage as token_usage_commands,
         forge as forge_commands, version_control, windows, work_task as work_task_commands,
@@ -1975,6 +1977,10 @@ mod tauri_app {
                 commit_message_commands::get_commit_message_settings,
                 commit_message_commands::set_commit_message_settings,
                 commit_message_commands::delete_commit_message_settings,
+                side_question_commands::side_question_ask,
+                side_question_commands::side_question_cancel,
+                side_question_commands::get_side_question_settings,
+                side_question_commands::set_side_question_settings,
                 folders::git_rollback_file,
                 folders::git_add_files,
                 folders::git_list_all_branches,

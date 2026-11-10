@@ -710,6 +710,22 @@ pub fn build_router_with_proxy_auth(
             post(handlers::commit_message::git_generate_commit_message_cancel),
         )
         .route(
+            "/side_question_ask",
+            post(handlers::side_question::side_question_ask),
+        )
+        .route(
+            "/side_question_cancel",
+            post(handlers::side_question::side_question_cancel),
+        )
+        .route(
+            "/get_side_question_settings",
+            post(handlers::side_question::get_side_question_settings),
+        )
+        .route(
+            "/set_side_question_settings",
+            post(handlers::side_question::set_side_question_settings),
+        )
+        .route(
             "/get_commit_message_settings",
             post(handlers::commit_message::get_commit_message_settings),
         )

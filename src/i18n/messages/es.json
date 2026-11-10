@@ -2386,6 +2386,40 @@
       },
       "moreActions": "Más acciones"
     },
+    "sideQuestion": {
+      "title": "Pregunta aparte",
+      "engine": "Claude Code · Sin herramientas",
+      "settings": {
+        "title": "Modelo de preguntas paralelas",
+        "description": "Elige el modelo y las opciones de razonamiento. Los cambios guardados se aplican a la siguiente pregunta; sin selección se usan los valores de Claude Code.",
+        "engine": "Agente",
+        "open": "Configurar modelo",
+        "refresh": "Actualizar modelos",
+        "reset": "Usar valores del agente",
+        "save": "Guardar configuración",
+        "saving": "Guardando…",
+        "saved": "Configuración guardada",
+        "notApplied": "Las opciones elegidas no están disponibles. Actualiza los modelos o usa los valores del agente."
+      },
+      "scopeHint": "Cada pregunta es independiente. Las respuestas quedan aquí y no se añaden a la conversación principal.",
+      "source": "Origen",
+      "noActiveSession": "Selecciona una conversación para hacer una pregunta aparte.",
+      "contextHint": "Solo texto reciente y completado: hasta 12 mensajes y 12.000 caracteres, sin herramientas ni razonamiento.",
+      "selectionHint": "Solo se envía el texto seleccionado, hasta 8.000 caracteres. No se hereda toda la conversación.",
+      "selectionStats": "{chars} caracteres seleccionados",
+      "useRecent": "Usar conversación reciente",
+      "question": "Pregunta",
+      "placeholder": "Pregunta sin interrumpir la conversación principal…",
+      "asking": "Respondiendo…",
+      "cancelled": "Cancelado",
+      "answer": "Respuesta",
+      "contextStats": "{messages} mensajes · {chars} caracteres",
+      "empty": "Haz una pregunta breve sobre esta conversación.",
+      "questionTooLong": "La pregunta no debe superar los 4.000 caracteres.",
+      "shortcut": "Ctrl/⌘ + Enter para preguntar",
+      "send": "Preguntar",
+      "cancel": "Cancelar"
+    },
     "sessionDetails": {
       "menuLabel": "Detalles de la sesión",
       "noActiveSession": "No hay ninguna sesión activa",
@@ -3770,6 +3804,7 @@
         "errorUnsupportedLinkProtocol": "Este protocolo de enlace no es compatible."
       },
       "fileActions": {
+        "openWithDefaultApp": "Abrir con la aplicación predeterminada",
         "openInFinder": "Abrir en Finder",
         "openInExplorer": "Abrir en Explorer",
         "openInFileManager": "Abrir en el gestor de archivos",

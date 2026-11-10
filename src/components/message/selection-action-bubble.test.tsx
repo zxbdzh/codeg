@@ -124,9 +124,11 @@ function firePointer(
 function Harness({
   onQuote,
   onAsk,
+  onSideQuestion,
 }: {
   onQuote?: (text: string) => void
   onAsk?: (selection: string, question: string) => void
+  onSideQuestion?: (selection: string) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   return (
@@ -137,6 +139,7 @@ function Harness({
           containerRef={ref}
           onQuote={onQuote}
           onAsk={onAsk}
+          onSideQuestion={onSideQuestion}
         />
       </div>
     </NextIntlClientProvider>
@@ -221,6 +224,22 @@ afterEach(() => {
 })
 
 describe("SelectionActionBubble", () => {
+  it("hands a selected passage to the sidebar without opening the new-conversation ask", () => {
+    const onSideQuestion = vi.fn()
+    const onAsk = vi.fn()
+    const { container } = render(
+      <Harness onAsk={onAsk} onSideQuestion={onSideQuestion} />
+    )
+    mockSelection(
+      container.querySelector("[data-testid=para]"),
+      "selected passage"
+    )
+    selectionChanged()
+    fireEvent.click(screen.getByRole("button", { name: "Side question" }))
+    expect(onSideQuestion).toHaveBeenCalledWith("selected passage")
+    expect(onAsk).not.toHaveBeenCalled()
+    expect(screen.queryByRole("toolbar")).toBeNull()
+  })
   it("renders nothing without a selection", () => {
     mockSelection(null, "")
     render(<Harness onQuote={vi.fn()} />)

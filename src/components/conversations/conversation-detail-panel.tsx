@@ -32,6 +32,10 @@ import { ActivityLiveProvider } from "@/components/message/activity/activity-liv
 import { useAcpAgents } from "@/hooks/use-acp-agents"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import {
+  sideQuestionSourceKey,
+  useSideQuestionStore,
+} from "@/stores/side-question-store"
 import { FolderTabsEmptyState } from "@/components/conversations/folder-tabs-empty-state"
 import { useTabActions, useTabStore } from "@/contexts/tab-context"
 import {
@@ -1770,6 +1774,20 @@ const ConversationTabView = memo(function ConversationTabView({
     setComposerInject({ text: quoted, mode: "append" })
   }, [])
 
+  const { openTab: openAuxTab } = useAuxPanelContext()
+  const handleSideQuestionSelection = useCallback(
+    (selected: string) => {
+      const sourceKey = sideQuestionSourceKey({
+        id: tabId,
+        folderId,
+        agentType: selectedAgent,
+      })
+      useSideQuestionStore.getState().setSelection(sourceKey, selected)
+      openAuxTab("side_question")
+    },
+    [folderId, openAuxTab, selectedAgent, tabId]
+  )
+
   /**
    * "Ask about this selection": start a SEPARATE conversation for the question
    * rather than appending to this one, so a side question doesn't derail (or
@@ -2161,6 +2179,7 @@ const ConversationTabView = memo(function ConversationTabView({
           // rather than a usable composer here — a transcript whose composer is
           // blocked (session/load failure) can still spawn the question elsewhere.
           onAskSelection={canAskSelection ? handleAskSelection : undefined}
+          onSideQuestionSelection={handleSideQuestionSelection}
           // Fork carries no draft, so — unlike a send — a non-empty queue is
           // not at risk of being jumped and needs no guard here. A turn in
           // flight is still rejected, by the backend, which is the only place

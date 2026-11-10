@@ -2386,6 +2386,40 @@
       },
       "moreActions": "Weitere Aktionen"
     },
+    "sideQuestion": {
+      "title": "Nebenfrage",
+      "engine": "Claude Code · Ohne Werkzeuge",
+      "settings": {
+        "title": "Modell für Nebenfragen",
+        "description": "Modell und Denkoptionen für Nebenfragen auswählen. Gespeicherte Änderungen gelten ab der nächsten Frage; ohne Auswahl werden die Claude-Code-Standardwerte verwendet.",
+        "engine": "Agent",
+        "open": "Modelleinstellungen",
+        "refresh": "Modelle aktualisieren",
+        "reset": "Agent-Standardwerte verwenden",
+        "save": "Einstellungen speichern",
+        "saving": "Wird gespeichert…",
+        "saved": "Einstellungen für Nebenfragen gespeichert",
+        "notApplied": "Die gewählten Optionen sind nicht verfügbar. Modelle aktualisieren oder Agent-Standardwerte verwenden."
+      },
+      "scopeHint": "Jede Frage ist unabhängig. Antworten bleiben hier und werden dem Hauptgespräch nicht hinzugefügt.",
+      "source": "Quelle",
+      "noActiveSession": "Wähle ein Gespräch für eine Nebenfrage aus.",
+      "contextHint": "Nur abgeschlossener neuer Text: bis zu 12 Nachrichten und 12.000 Zeichen, ohne Werkzeugausgaben oder Gedanken.",
+      "selectionHint": "Nur der ausgewählte Text wird gesendet, bis zu 8.000 Zeichen. Das gesamte Gespräch wird nicht übernommen.",
+      "selectionStats": "{chars} ausgewählte Zeichen",
+      "useRecent": "Letzte Nachrichten verwenden",
+      "question": "Frage",
+      "placeholder": "Fragen, ohne das Hauptgespräch zu unterbrechen…",
+      "asking": "Antwort wird erstellt…",
+      "cancelled": "Abgebrochen",
+      "answer": "Antwort",
+      "contextStats": "{messages} Nachrichten · {chars} Zeichen",
+      "empty": "Stelle eine kurze Frage zu diesem Gespräch.",
+      "questionTooLong": "Die Frage darf höchstens 4.000 Zeichen enthalten.",
+      "shortcut": "Ctrl/⌘ + Enter zum Fragen",
+      "send": "Fragen",
+      "cancel": "Abbrechen"
+    },
     "sessionDetails": {
       "menuLabel": "Sitzungsdetails",
       "noActiveSession": "Keine aktive Sitzung",
@@ -3770,6 +3804,7 @@
         "errorUnsupportedLinkProtocol": "Dieses Linkprotokoll wird nicht unterstützt."
       },
       "fileActions": {
+        "openWithDefaultApp": "Mit Standardanwendung öffnen",
         "openInFinder": "In Finder öffnen",
         "openInExplorer": "In Explorer öffnen",
         "openInFileManager": "Im Dateimanager öffnen",

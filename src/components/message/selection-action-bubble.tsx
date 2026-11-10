@@ -7,6 +7,7 @@ import {
   ArrowUp,
   CopyIcon,
   MessageCircleQuestionMark,
+  MessagesSquare,
   StickyNote,
   TextQuote,
 } from "lucide-react"
@@ -80,6 +81,7 @@ interface SelectionActionBubbleProps {
    * isn't offered — same rule as `onQuote`.
    */
   onAsk?: (selection: string, question: string) => void
+  onSideQuestion?: (selection: string) => void
   /**
    * Keep the selection as a note beside the transcript. Only the canvas has
    * somewhere to put one, so everywhere else omits it and the action isn't
@@ -104,9 +106,11 @@ export function SelectionActionBubble({
   containerRef,
   onQuote,
   onAsk,
+  onSideQuestion,
   onSaveAsNote,
 }: SelectionActionBubbleProps) {
   const t = useTranslations("Folder.chat.messageList")
+  const tSideQuestion = useTranslations("Folder.sideQuestion")
   const ime = useImeGuard()
   const [state, setState] = useState<SelectionState>(NO_SELECTION)
   const stateRef = useRef<SelectionState>(NO_SELECTION)
@@ -346,6 +350,13 @@ export function SelectionActionBubble({
     dismiss()
   }, [onQuote, dismiss])
 
+  const handleSideQuestion = useCallback(() => {
+    const current = stateRef.current
+    if (current.kind === "none" || !onSideQuestion) return
+    onSideQuestion(current.text)
+    dismiss()
+  }, [onSideQuestion, dismiss])
+
   /**
    * Swap the buttons for the question input. `askingRef` is set synchronously
    * (not just via state) because the frame loop and the document handlers read
@@ -519,6 +530,18 @@ export function SelectionActionBubble({
             >
               <MessageCircleQuestionMark />
               {t("selectionAsk")}
+            </Button>
+          )}
+          {onSideQuestion && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              onClick={handleSideQuestion}
+              aria-label={tSideQuestion("title")}
+            >
+              <MessagesSquare />
+              {tSideQuestion("title")}
             </Button>
           )}
         </>

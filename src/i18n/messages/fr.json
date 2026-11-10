@@ -2386,6 +2386,40 @@
       },
       "moreActions": "Plus d’actions"
     },
+    "sideQuestion": {
+      "title": "Question à part",
+      "engine": "Claude Code · Sans outils",
+      "settings": {
+        "title": "Modèle des questions annexes",
+        "description": "Choisissez le modèle et les options de raisonnement. Les changements enregistrés s’appliquent à la prochaine question ; sans sélection, les valeurs de Claude Code sont utilisées.",
+        "engine": "Agent",
+        "open": "Réglages du modèle",
+        "refresh": "Actualiser les modèles",
+        "reset": "Utiliser les valeurs de l’agent",
+        "save": "Enregistrer les réglages",
+        "saving": "Enregistrement…",
+        "saved": "Réglages des questions annexes enregistrés",
+        "notApplied": "Les options sélectionnées sont indisponibles. Actualisez les modèles ou utilisez les valeurs de l’agent."
+      },
+      "scopeHint": "Chaque question est indépendante. Les réponses restent ici, sans être ajoutées à la conversation principale.",
+      "source": "Source",
+      "noActiveSession": "Sélectionnez une conversation pour poser une question à part.",
+      "contextHint": "Uniquement le texte récent et terminé : 12 messages et 12 000 caractères maximum, sans outils ni raisonnement.",
+      "selectionHint": "Seul le texte sélectionné est envoyé, dans la limite de 8 000 caractères. La conversation complète n’est pas héritée.",
+      "selectionStats": "{chars} caractères sélectionnés",
+      "useRecent": "Utiliser la conversation récente",
+      "question": "Question",
+      "placeholder": "Posez une question sans interrompre la conversation principale…",
+      "asking": "Réponse en cours…",
+      "cancelled": "Annulé",
+      "answer": "Réponse",
+      "contextStats": "{messages} messages · {chars} caractères",
+      "empty": "Posez une courte question sur cette conversation.",
+      "questionTooLong": "La question doit rester dans la limite de 4 000 caractères.",
+      "shortcut": "Ctrl/⌘ + Entrée pour envoyer",
+      "send": "Demander",
+      "cancel": "Annuler"
+    },
     "sessionDetails": {
       "menuLabel": "Détails de la session",
       "noActiveSession": "Aucune session active",
@@ -3770,6 +3804,7 @@
         "errorUnsupportedLinkProtocol": "Ce protocole de lien n’est pas pris en charge."
       },
       "fileActions": {
+        "openWithDefaultApp": "Ouvrir avec l’application par défaut",
         "openInFinder": "Ouvrir dans Finder",
         "openInExplorer": "Ouvrir dans Explorer",
         "openInFileManager": "Ouvrir dans le gestionnaire de fichiers",

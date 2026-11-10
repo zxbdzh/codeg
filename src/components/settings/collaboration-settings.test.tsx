@@ -27,6 +27,11 @@ vi.mock("@/lib/api", () => ({
 }))
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock("@/lib/transport", () => ({
+  getTransport: () => ({
+    call: vi.fn(async () => ({ configValues: {} })),
+  }),
+}))
 // Both panels subscribe to their settings-change broadcasts so a form left
 // open converges instead of reverting a write made elsewhere (the status-bar
 // codeg-mcp popover).
@@ -62,6 +67,7 @@ describe("CollaborationSettings", () => {
 
     for (const heading of [
       "Multi-Agent Collaboration",
+      "Side question model",
       "In-conversation tools",
     ]) {
       expect(

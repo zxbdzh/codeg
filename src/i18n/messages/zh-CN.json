@@ -2448,6 +2448,40 @@
       },
       "moreActions": "更多操作"
     },
+    "sideQuestion": {
+      "title": "旁问",
+      "engine": "Claude Code · 无工具",
+      "settings": {
+        "title": "旁问模型",
+        "description": "单独设置旁问使用的模型和推理选项，保存后从下一次提问生效。未指定时使用 Claude Code 默认配置。",
+        "engine": "执行智能体",
+        "open": "模型设置",
+        "refresh": "刷新模型",
+        "reset": "使用智能体默认配置",
+        "save": "保存旁问设置",
+        "saving": "保存中…",
+        "saved": "旁问设置已保存",
+        "notApplied": "所选配置当前不可用，请刷新模型或使用智能体默认配置。"
+      },
+      "scopeHint": "每次独立提问，回答仅留在此处，不写入主会话。",
+      "source": "来源",
+      "noActiveSession": "请先选择一个会话，再发起旁问。",
+      "contextHint": "仅引用最近已完成的正文：最多 12 条消息、12,000 字符，不含工具输出和思考。",
+      "selectionHint": "仅发送选区文字，最多 8,000 字符，不继承完整会话。",
+      "selectionStats": "选区 {chars} 字符",
+      "useRecent": "改用最近对话",
+      "question": "问题",
+      "placeholder": "不打断主会话，顺便问一句…",
+      "asking": "正在回答…",
+      "cancelled": "已取消",
+      "answer": "回答",
+      "contextStats": "{messages} 条消息 · {chars} 字符",
+      "empty": "围绕当前对话提出一个简短问题。",
+      "questionTooLong": "问题请控制在 4,000 字符以内。",
+      "shortcut": "Ctrl/⌘ + Enter 发送",
+      "send": "提问",
+      "cancel": "取消"
+    },
     "sessionDetails": {
       "menuLabel": "会话详情",
       "noActiveSession": "暂无活动会话",
@@ -3832,6 +3866,7 @@
         "errorUnsupportedLinkProtocol": "不支持该链接协议。"
       },
       "fileActions": {
+        "openWithDefaultApp": "用默认应用打开",
         "openInFinder": "在访达打开",
         "openInExplorer": "在资源管理器打开",
         "openInFileManager": "在文件管理器打开",

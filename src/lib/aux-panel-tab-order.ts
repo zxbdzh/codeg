@@ -29,6 +29,7 @@ const ORDER_KEY = "workspace:right-sidebar-tab-order"
  */
 export const AUX_PANEL_TABS = [
   "session_details",
+  "side_question",
   "file_tree",
   "changes",
   "git_log",

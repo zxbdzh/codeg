@@ -118,8 +118,9 @@ export async function openUrl(url: string): Promise<void> {
 }
 
 /**
- * Open a path in the system file manager (desktop only).
- * No-op in web mode.
+ * Open a path with the system's default application (local desktop only).
+ * No-op in web and remote-workspace mode.
+ * 工作区可能位于任意磁盘，opener 路径权限需覆盖用户目录之外的位置。
  */
 export async function openPath(path: string): Promise<void> {
   if (isDesktop() && getActiveRemoteConnectionId() === null) {

@@ -2386,6 +2386,40 @@
       },
       "moreActions": "추가 작업"
     },
+    "sideQuestion": {
+      "title": "별도 질문",
+      "engine": "Claude Code · 도구 없음",
+      "settings": {
+        "title": "보조 질문 모델",
+        "description": "보조 질문의 모델과 추론 옵션을 설정합니다. 저장 후 다음 질문부터 적용되며, 지정하지 않으면 Claude Code 기본 설정을 사용합니다.",
+        "engine": "에이전트",
+        "open": "모델 설정",
+        "refresh": "모델 새로고침",
+        "reset": "에이전트 기본값 사용",
+        "save": "보조 질문 설정 저장",
+        "saving": "저장 중…",
+        "saved": "보조 질문 설정을 저장했습니다",
+        "notApplied": "선택한 옵션을 사용할 수 없습니다. 모델을 새로고침하거나 기본값을 사용하세요."
+      },
+      "scopeHint": "각 질문은 독립적입니다. 답변은 여기에만 남고 기본 대화에 추가되지 않습니다.",
+      "source": "출처",
+      "noActiveSession": "별도 질문을 할 대화를 선택하세요.",
+      "contextHint": "완료된 최근 본문만 최대 12개 메시지, 12,000자를 참조합니다. 도구 출력과 사고 과정은 제외됩니다.",
+      "selectionHint": "선택한 텍스트만 최대 8,000자를 보냅니다. 전체 대화는 이어받지 않습니다.",
+      "selectionStats": "선택한 텍스트 {chars}자",
+      "useRecent": "최근 대화 사용",
+      "question": "질문",
+      "placeholder": "기본 대화를 중단하지 않고 질문하세요…",
+      "asking": "답변 중…",
+      "cancelled": "취소됨",
+      "answer": "답변",
+      "contextStats": "메시지 {messages}개 · {chars}자",
+      "empty": "이 대화에 관해 짧은 질문을 해보세요.",
+      "questionTooLong": "질문은 4,000자 이내로 입력하세요.",
+      "shortcut": "Ctrl/⌘ + Enter로 질문",
+      "send": "질문",
+      "cancel": "취소"
+    },
     "sessionDetails": {
       "menuLabel": "세션 세부 정보",
       "noActiveSession": "활성 세션이 없습니다",
@@ -3770,6 +3804,7 @@
         "errorUnsupportedLinkProtocol": "이 링크 프로토콜은 지원되지 않습니다."
       },
       "fileActions": {
+        "openWithDefaultApp": "기본 앱으로 열기",
         "openInFinder": "Finder에서 열기",
         "openInExplorer": "Explorer에서 열기",
         "openInFileManager": "파일 관리자에서 열기",

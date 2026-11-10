@@ -2448,6 +2448,40 @@
       },
       "moreActions": "More actions"
     },
+    "sideQuestion": {
+      "title": "Side question",
+      "engine": "Claude Code · No tools",
+      "settings": {
+        "title": "Side question model",
+        "description": "Choose the model and reasoning options for side questions. Saved changes apply to the next question; defaults use Claude Code's own settings.",
+        "engine": "Agent",
+        "open": "Model settings",
+        "refresh": "Refresh models",
+        "reset": "Use agent defaults",
+        "save": "Save side question settings",
+        "saving": "Saving…",
+        "saved": "Side question settings saved",
+        "notApplied": "The selected options are unavailable. Refresh the models or use agent defaults."
+      },
+      "scopeHint": "Each question is independent. Answers stay here and are not added to the main conversation.",
+      "source": "Source",
+      "noActiveSession": "Select a conversation to ask a side question.",
+      "contextHint": "Only recent completed text: up to 12 messages / 12,000 characters. Tools and reasoning are excluded.",
+      "selectionHint": "Only the selected text is sent, up to 8,000 characters. The full conversation is not inherited.",
+      "selectionStats": "{chars} selected characters",
+      "useRecent": "Use recent conversation",
+      "question": "Question",
+      "placeholder": "Ask without interrupting the main conversation…",
+      "asking": "Thinking…",
+      "cancelled": "Cancelled",
+      "answer": "Answer",
+      "contextStats": "{messages} messages · {chars} characters",
+      "empty": "Ask a quick question about this conversation.",
+      "questionTooLong": "Keep questions within 4,000 characters.",
+      "shortcut": "Ctrl/⌘ + Enter to ask",
+      "send": "Ask",
+      "cancel": "Cancel"
+    },
     "sessionDetails": {
       "menuLabel": "Session Details",
       "noActiveSession": "No active session",
@@ -3832,6 +3866,7 @@
         "errorUnsupportedLinkProtocol": "This link protocol is not supported."
       },
       "fileActions": {
+        "openWithDefaultApp": "Open with default app",
         "openInFinder": "Open in Finder",
         "openInExplorer": "Open in Explorer",
         "openInFileManager": "Open in file manager",

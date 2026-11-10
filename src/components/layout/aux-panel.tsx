@@ -8,6 +8,7 @@ import {
   GitCommit,
   GitPullRequestArrow,
   ListTodo,
+  MessageCircleQuestionMark,
   ReceiptText,
   Zap,
   type LucideIcon,
@@ -33,6 +34,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { AuxPanelTabRail } from "./aux-panel-tab-rail"
 import { ChromeReserve } from "./chrome-reserve"
 import { SessionDetailsTab } from "./aux-panel-session-details-tab"
+import { SideQuestionTab } from "./aux-panel-side-question-tab"
 import { FileTreeTab } from "./aux-panel-file-tree-tab"
 import { GitChangesTab } from "./aux-panel-git-changes-tab"
 import { GitLogTab } from "./aux-panel-git-log-tab"
@@ -41,6 +43,7 @@ import { TasksAuxTab } from "./aux-panel-tasks-tab"
 import { ForgeAuxTab } from "./aux-panel-forge-tab"
 
 const LAZY_TABS: AuxPanelTab[] = [
+  "side_question",
   "file_tree",
   "changes",
   "git_log",
@@ -58,6 +61,7 @@ const LAZY_TABS: AuxPanelTab[] = [
 // issue and an open pull request.
 const TAB_ICONS: Record<AuxPanelTab, LucideIcon> = {
   session_details: ReceiptText,
+  side_question: MessageCircleQuestionMark,
   file_tree: Folder,
   changes: FolderPen,
   git_log: GitCommit,
@@ -80,7 +84,7 @@ const FOLDER_TAB_LABEL_KEY: Record<
 }
 
 /** What the tab switchers list while the folder tabs are hidden. */
-const SESSION_DETAILS_ONLY: AuxTabOrder = ["session_details"]
+const SESSION_TABS: AuxTabOrder = ["session_details", "side_question"]
 
 /**
  * Decide which aux-panel tabs are available and which to actually show.
@@ -100,13 +104,17 @@ export function resolveAuxTabView(
   const showFolderTabs = activeFolderId != null && !isChatMode
   return {
     showFolderTabs,
-    effectiveTab: showFolderTabs ? activeTab : "session_details",
+    effectiveTab:
+      showFolderTabs || SESSION_TABS.includes(activeTab)
+        ? activeTab
+        : "session_details",
   }
 }
 
 export function AuxPanel() {
   const t = useTranslations("Folder.auxPanel.tabs")
   const tDetails = useTranslations("Folder.sessionDetails")
+  const tSideQuestion = useTranslations("Folder.sideQuestion")
   const tAutomations = useTranslations("Automations")
   const tTasks = useTranslations("Tasks")
   const tForge = useTranslations("Forge")
@@ -147,7 +155,7 @@ export function AuxPanel() {
   // chat session), so other consumers of `activeTab` stay in sync with what's
   // shown. Done in an effect — never a render-time setState on the provider.
   useEffect(() => {
-    if (!showFolderTabs && activeTab !== "session_details") {
+    if (!showFolderTabs && !SESSION_TABS.includes(activeTab)) {
       setActiveTab("session_details")
     }
   }, [showFolderTabs, activeTab, setActiveTab])
@@ -175,6 +183,8 @@ export function AuxPanel() {
       switch (tab) {
         case "session_details":
           return tDetails("menuLabel")
+        case "side_question":
+          return tSideQuestion("title")
         case "automations":
           return tAutomations("title")
         case "tasks":
@@ -191,10 +201,12 @@ export function AuxPanel() {
           return t(FOLDER_TAB_LABEL_KEY[tab])
       }
     },
-    [t, tDetails, tAutomations, tTasks, tForge, forgeProvider]
+    [t, tDetails, tSideQuestion, tAutomations, tTasks, tForge, forgeProvider]
   )
 
-  const shownTabs = showFolderTabs ? tabOrder : SESSION_DETAILS_ONLY
+  const shownTabs = showFolderTabs
+    ? tabOrder
+    : tabOrder.filter((tab) => SESSION_TABS.includes(tab))
 
   if (!isOpen) return null
 
@@ -206,6 +218,13 @@ export function AuxPanel() {
         className="mt-0 flex-1 min-h-0 overflow-hidden"
       >
         <SessionDetailsTab />
+      </TabsContent>
+      <TabsContent
+        value="side_question"
+        forceMount
+        className="mt-0 flex-1 min-h-0 overflow-hidden"
+      >
+        {mountedTabs.has("side_question") ? <SideQuestionTab /> : null}
       </TabsContent>
       <TabsContent
         value="file_tree"
@@ -337,7 +356,7 @@ export function AuxPanel() {
               <div className="flex min-w-0 flex-1 flex-col">{panels}</div>
               <AuxPanelTabRail
                 tabs={shownTabs}
-                visible={showFolderTabs}
+                visible={shownTabs.length > 1}
                 icons={TAB_ICONS}
                 labelOf={tabLabel}
                 activeTab={effectiveTab}

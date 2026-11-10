@@ -25,6 +25,7 @@ import { useTranslations } from "next-intl"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { DelegationSettingsSection } from "@/components/settings/delegation-settings"
 import { AgentToolsSettingsSection } from "@/components/settings/agent-tools-settings"
+import { SideQuestionSettingsSection } from "@/components/settings/side-question-settings"
 
 export function CollaborationSettings() {
   const t = useTranslations("CollaborationSettings")
@@ -40,6 +41,8 @@ export function CollaborationSettings() {
         </section>
 
         <DelegationSettingsSection />
+
+        <SideQuestionSettingsSection />
 
         <AgentToolsSettingsSection />
       </div>

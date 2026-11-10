@@ -2386,6 +2386,40 @@
       },
       "moreActions": "その他の操作"
     },
+    "sideQuestion": {
+      "title": "サイド質問",
+      "engine": "Claude Code · ツールなし",
+      "settings": {
+        "title": "サイド質問のモデル",
+        "description": "サイド質問のモデルと思考オプションを設定します。保存後の次の質問から適用され、未指定の場合は Claude Code の既定値を使用します。",
+        "engine": "エージェント",
+        "open": "モデル設定",
+        "refresh": "モデルを更新",
+        "reset": "既定の設定を使用",
+        "save": "サイド質問の設定を保存",
+        "saving": "保存中…",
+        "saved": "サイド質問の設定を保存しました",
+        "notApplied": "選択した設定は利用できません。モデルを更新するか、既定の設定を使用してください。"
+      },
+      "scopeHint": "各質問は独立しています。回答はここだけに残り、メインの会話には追加されません。",
+      "source": "参照元",
+      "noActiveSession": "サイド質問をする会話を選択してください。",
+      "contextHint": "完了済みの直近の本文のみ、最大12件・12,000文字を参照します。ツール出力や思考は含みません。",
+      "selectionHint": "選択した本文のみ、最大8,000文字を送信します。会話全体は引き継ぎません。",
+      "selectionStats": "選択範囲 {chars} 文字",
+      "useRecent": "最近の会話を使う",
+      "question": "質問",
+      "placeholder": "メインの会話を中断せずに質問…",
+      "asking": "回答中…",
+      "cancelled": "キャンセルしました",
+      "answer": "回答",
+      "contextStats": "{messages}件 · {chars}文字",
+      "empty": "この会話について短い質問をしてください。",
+      "questionTooLong": "質問は4,000文字以内にしてください。",
+      "shortcut": "Ctrl/⌘ + Enter で送信",
+      "send": "質問",
+      "cancel": "キャンセル"
+    },
     "sessionDetails": {
       "menuLabel": "セッション詳細",
       "noActiveSession": "アクティブなセッションがありません",
@@ -3770,6 +3804,7 @@
         "errorUnsupportedLinkProtocol": "このリンクプロトコルはサポートされていません。"
       },
       "fileActions": {
+        "openWithDefaultApp": "既定のアプリで開く",
         "openInFinder": "Finderで開く",
         "openInExplorer": "エクスプローラーで開く",
         "openInFileManager": "ファイルマネージャーで開く",

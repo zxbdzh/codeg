@@ -15,6 +15,7 @@ pub mod computer_tools;
 pub mod chat_authoring;
 pub mod chat_channel;
 pub mod commit_message;
+pub mod side_question;
 pub mod config_sync;
 pub mod conversation_tags;
 pub mod conversations;

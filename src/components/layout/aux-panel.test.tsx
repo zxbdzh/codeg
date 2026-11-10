@@ -68,6 +68,9 @@ vi.mock("motion/react", async () => {
 vi.mock("./aux-panel-session-details-tab", () => ({
   SessionDetailsTab: () => <div data-testid="body-session_details" />,
 }))
+vi.mock("./aux-panel-side-question-tab", () => ({
+  SideQuestionTab: () => <div data-testid="body-side_question" />,
+}))
 vi.mock("./aux-panel-file-tree-tab", () => ({
   FileTreeTab: () => <div data-testid="body-file_tree" />,
 }))
@@ -149,6 +152,7 @@ const KEY = "workspace:right-sidebar-tab-order"
 /** The rail in the built-in order, by name. */
 const BUILT_IN = [
   "Session Details",
+  "Side question",
   "Files",
   "Changes",
   "Commits",
@@ -167,6 +171,7 @@ const REVERSED: AuxPanelTab[] = [
   "git_log",
   "changes",
   "file_tree",
+  "side_question",
   "session_details",
 ]
 const REVERSED_NAMES = [...BUILT_IN].reverse()
@@ -376,6 +381,7 @@ describe("AuxPanel", () => {
       "To-dos",
       "Files",
       "Session Details",
+      "Side question",
       "Issues",
       "Commits",
       "Changes",
@@ -399,6 +405,7 @@ describe("AuxPanel", () => {
       "Changes",
       "Files",
       "Session Details",
+      "Side question",
     ])
   })
 
@@ -407,6 +414,7 @@ describe("AuxPanel", () => {
     const dragged = [
       "changes",
       "session_details",
+      "side_question",
       "file_tree",
       "git_log",
       "automations",
@@ -417,6 +425,7 @@ describe("AuxPanel", () => {
     const draggedNames = [
       "Changes",
       "Session Details",
+      "Side question",
       "Files",
       "Commits",
       "Automations",
@@ -467,6 +476,7 @@ describe("AuxPanel", () => {
     fireEvent.keyDown(changes, { key: "ArrowUp", altKey: true })
     expect(railTabs()).toEqual([
       "Session Details",
+      "Side question",
       "Changes",
       "Files",
       "Commits",
@@ -477,6 +487,7 @@ describe("AuxPanel", () => {
     ])
     expect(storedOrder()).toEqual([
       "session_details",
+      "side_question",
       "changes",
       "file_tree",
       "git_log",
@@ -487,10 +498,12 @@ describe("AuxPanel", () => {
     ])
     expect(screen.getByRole("tab", { name: "Changes" })).toHaveFocus()
 
-    fireEvent.keyDown(screen.getByRole("tab", { name: "Changes" }), {
-      key: "ArrowUp",
-      altKey: true,
-    })
+    for (let step = 0; step < 2; step += 1) {
+      fireEvent.keyDown(screen.getByRole("tab", { name: "Changes" }), {
+        key: "ArrowUp",
+        altKey: true,
+      })
+    }
     expect(railTabs()[0]).toBe("Changes")
     expect(screen.getByRole("tab", { name: "Changes" })).toHaveFocus()
 
@@ -503,7 +516,7 @@ describe("AuxPanel", () => {
     expect(localStorage.getItem(KEY)).toBe(before)
 
     // Back down to where it started: the stored value goes with it.
-    for (let i = 0; i < 2; i++) {
+    for (let step = 0; step < 3; step += 1) {
       fireEvent.keyDown(screen.getByRole("tab", { name: "Changes" }), {
         key: "ArrowDown",
         altKey: true,
@@ -524,7 +537,7 @@ describe("AuxPanel", () => {
     expect(localStorage.getItem(KEY)).toBeNull()
   })
 
-  it("hides the rail but keeps the title when only Session Details applies", () => {
+  it("keeps side questions available without project-only tabs in chat mode", () => {
     localStorage.setItem(
       KEY,
       JSON.stringify(["git_log", "changes", "file_tree", "session_details"])
@@ -538,8 +551,8 @@ describe("AuxPanel", () => {
     )
     // display:none drops the lone trigger out of the tab order, while it stays
     // in the DOM for the panel's aria-labelledby.
-    expect(rail()).toHaveClass("hidden")
-    expect(railTabs()).toEqual(["Session Details"])
+    expect(rail()).not.toHaveClass("hidden")
+    expect(railTabs()).toEqual(["Session Details", "Side question"])
     expect(
       screen.getByRole("tabpanel", { name: "Session Details" })
     ).toBeInTheDocument()
