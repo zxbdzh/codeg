@@ -249,6 +249,7 @@ export interface TabStoreState {
     direction: SplitDirection,
     opts: { move: boolean }
   ) => void
+  splitExistingConversation: (tabId: string, besideTabId: string) => void
   moveTabToGroup: (
     tabId: string,
     targetGroupId: string,
@@ -1931,6 +1932,37 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       groupLayout: nextLayout,
       groupOf: { ...st.groupOf, [newTab.id]: newGroupId },
       activeTabId: newTab.id,
+    })
+    recomputeTabs()
+    runtime.activateConversationPane()
+  },
+
+  splitExistingConversation: (tabId, besideTabId) => {
+    const state = get()
+    const target = state.rawTabs.find((tab) => tab.id === tabId)
+    const source = state.rawTabs.find((tab) => tab.id === besideTabId)
+    if (
+      !target ||
+      !source ||
+      target.id === source.id ||
+      target.conversationId == null ||
+      target.folderId !== source.folderId
+    )
+      return
+    const sourceGroup = groupOfTab(state.groupOf, state.groupLayout, source.id)
+    const targetGroup = groupOfTab(state.groupOf, state.groupLayout, target.id)
+    if (sourceGroup !== targetGroup) {
+      focusTab(target.id)
+      return
+    }
+    const newGroup = makeGroupId()
+    const layout = splitGroup(state.groupLayout, sourceGroup, "right", newGroup)
+    if (layout === state.groupLayout) return
+    // 新旁支直接使用已有标签，避免先建空白标签造成额外代理连接和草稿。
+    set({
+      groupLayout: layout,
+      groupOf: { ...state.groupOf, [target.id]: newGroup },
+      activeTabId: target.id,
     })
     recomputeTabs()
     runtime.activateConversationPane()

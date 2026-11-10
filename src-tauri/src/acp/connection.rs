@@ -9587,6 +9587,15 @@ async fn run_connection(
                 // "Method not found" are real, so the whole error ladder below
                 // stays exactly as it was.
                 let attempted_load = init_resp.agent_capabilities.load_session;
+                if !attempted_load
+                    && crate::research_branch::is_temporary_owner(
+                        &state.read().await.owner_window_label,
+                    )
+                {
+                    return Err(agent_client_protocol::Error::internal_error().data(
+                        "Research source cannot be restored; refusing session/new fallback",
+                    ));
+                }
                 // Kiro and Hermes report their model catalogs only in the reply's
                 // top-level `models` (see `synthesize_kiro_model_option`), which
                 // the typed response drops — so their loads go out untyped and
@@ -9876,6 +9885,14 @@ async fn run_connection(
                         // so neither the banner (the session is fine) nor the
                         // session/new fallback (it would fail identically, after
                         // announcing a fresh start) is the right answer.
+                        if crate::research_branch::is_temporary_owner(
+                            &state.read().await.owner_window_label,
+                        ) {
+                            return Err(agent_client_protocol::Error::internal_error().data(format!(
+                                "Research source restore failed: {}",
+                                agent_error_text(&e)
+                            )));
+                        }
                         if let Some(tagged) = tag_pi_runtime_outdated(&e, agent_type) {
                             return Err(tagged);
                         }
@@ -13471,6 +13488,15 @@ async fn handle_fork_or_exit(
     let fork_resp = fork_info.fork_response;
     let fork_models_raw = fork_info.fork_models_raw;
     let new_sid = fork_resp.session_id.0.to_string();
+
+    if crate::research_branch::is_temporary_owner(&state.read().await.owner_window_label) {
+        // 研究连接只负责取回原生 S2：不重连、不发布 SessionStarted，更不关闭主会话 S1。
+        let _ = fork_info.reply.send(Ok(crate::acp::types::ForkProtocolResult {
+            forked_session_id: new_sid,
+            original_session_id: fork_info.original_session_id,
+        }));
+        return Ok(());
+    }
 
     // Carry the parent session's selectors across the fork, read BEFORE any
     // emit below replaces them with the new session's.

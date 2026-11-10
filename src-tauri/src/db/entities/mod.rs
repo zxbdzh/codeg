@@ -22,6 +22,7 @@ pub mod opened_tab;
 pub mod prelude;
 pub mod prompt_stash;
 pub mod quick_message;
+pub mod research_branch;
 pub mod remote_workspace_connection;
 pub mod token_usage_sync;
 pub mod token_usage_turn;

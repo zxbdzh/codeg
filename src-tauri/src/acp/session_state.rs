@@ -2698,6 +2698,7 @@ pub(crate) fn owner_composes_prompts(owner_window_label: &str) -> bool {
     owner_window_label != "automation"
         && owner_window_label != crate::cli_run::service::CLI_OWNER_LABEL
         && !crate::acp::one_shot::is_one_shot_owner(owner_window_label)
+        && !crate::research_branch::is_temporary_owner(owner_window_label)
         && !owner_window_label.starts_with("chat_channel:")
 }
 

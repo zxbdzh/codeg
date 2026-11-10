@@ -28,6 +28,7 @@ pub mod codex_catalog;
 /// The ✨ commit message generator (both runtimes).
 pub mod commit_message;
 pub mod side_question;
+pub mod research_branch;
 /// Computer use: sharing windows, the helper, the agent reads — the desktop
 /// app's, and codeg-server's where it is let share the screen it runs on.
 pub mod computer;

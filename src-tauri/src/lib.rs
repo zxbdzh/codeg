@@ -63,6 +63,7 @@ pub mod process;
 #[cfg(all(feature = "tauri-runtime", target_os = "macos"))]
 mod relaunch;
 pub mod runtime_lock;
+pub mod research_branch;
 pub mod side_question;
 pub mod supervise;
 mod terminal;
@@ -123,6 +124,7 @@ mod tauri_app {
         remote_proxy as remote_proxy_commands,
         remote_workspace as remote_workspace_commands, science as science_commands,
         session_info as session_info_commands,
+        research_branch as research_branch_commands,
         side_question as side_question_commands,
         system_settings, terminal as terminal_commands,
         token_usage as token_usage_commands,
@@ -1978,6 +1980,10 @@ mod tauri_app {
                 commit_message_commands::set_commit_message_settings,
                 commit_message_commands::delete_commit_message_settings,
                 side_question_commands::side_question_ask,
+                research_branch_commands::research_branch_create,
+                research_branch_commands::research_branch_list,
+                research_branch_commands::research_branch_save_summary,
+                research_branch_commands::research_branch_generate_summary,
                 side_question_commands::side_question_cancel,
                 side_question_commands::get_side_question_settings,
                 side_question_commands::set_side_question_settings,

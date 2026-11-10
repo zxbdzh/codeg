@@ -66,6 +66,15 @@ import {
 } from "@/components/message/goal-control-context"
 import { useAdvertisedGoalActions } from "@/hooks/use-goal-actions"
 import { ConversationShell } from "@/components/chat/conversation-shell"
+import { ResearchBranchPanel } from "@/components/conversations/research-branch-panel"
+import {
+  openResearchConversation,
+  returnResearchSummary,
+} from "@/lib/research-branch-navigation"
+import {
+  consumeResearchSummaries,
+  RESEARCH_SUMMARY_READY_EVENT,
+} from "@/lib/research-summary-handoff"
 import { SessionConfigStaleBanner } from "@/components/chat/session-config-stale-banner"
 import { PiProjectTrustBanner } from "@/components/chat/pi-project-trust-banner"
 import { FeedbackNotesDisplay } from "@/components/chat/feedback-notes-display"
@@ -1766,6 +1775,49 @@ const ConversationTabView = memo(function ConversationTabView({
     setComposerInject(null)
   }, [])
 
+  useEffect(() => {
+    if (
+      dbConversationId == null ||
+      acpLoadError ||
+      isWelcomeMode ||
+      composerInject !== null
+    )
+      return
+    const drain = () => {
+      const summaries = consumeResearchSummaries(dbConversationId)
+      if (summaries.length === 0) return
+      const text = summaries.join("\n\n")
+      // 仅追加到主线输入草稿，由用户决定何时发送；主线运行中也不自动排队。
+      setComposerInject({ text, mode: "append" })
+    }
+    drain()
+    window.addEventListener(RESEARCH_SUMMARY_READY_EVENT, drain)
+    return () => window.removeEventListener(RESEARCH_SUMMARY_READY_EVENT, drain)
+  }, [acpLoadError, composerInject, dbConversationId, isWelcomeMode])
+
+  const handleOpenResearchConversation = useCallback(
+    (targetConversationId: number, split = false) => {
+      void openResearchConversation(
+        targetConversationId,
+        split ? (dbConvIdRef.current ?? undefined) : undefined
+      ).catch((error: unknown) => toast.error(toErrorMessage(error)))
+    },
+    []
+  )
+
+  const handleReturnResearchSummary = useCallback(
+    (sourceConversationId: number, summary: string) => {
+      void returnResearchSummary(sourceConversationId, summary).catch(
+        (error: unknown) => toast.error(toErrorMessage(error))
+      )
+    },
+    []
+  )
+
+  const handleResearchCreated = useCallback(() => {
+    void refreshConversations()
+  }, [refreshConversations])
+
   // Quote a transcript selection into the composer. A fresh object every time so
   // quoting the same passage twice still re-fires the composer's inject effect.
   const handleQuoteSelection = useCallback((selected: string) => {
@@ -2308,6 +2360,21 @@ const ConversationTabView = memo(function ConversationTabView({
             agentType={selectedAgent}
             workingDir={workingDirForConnection}
           />
+          {isVisible && dbConversationId != null ? (
+            <ResearchBranchPanel
+              conversationId={dbConversationId}
+              connectionId={conn.connectionId}
+              canCreate={
+                conn.supportsFork &&
+                !conn.isViewer &&
+                (connStatus === "connected" || connStatus === "prompting")
+              }
+              busy={connStatus === "prompting"}
+              onOpenConversation={handleOpenResearchConversation}
+              onReturnSummary={handleReturnResearchSummary}
+              onCreated={handleResearchCreated}
+            />
+          ) : null}
         </>
       }
       status={connStatus}

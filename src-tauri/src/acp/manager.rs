@@ -599,6 +599,80 @@ impl ConnectionManager {
         }
     }
 
+    /// 研究 fork 必须创建新进程；普通 spawn 的 resume 去重会误复用主连接。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn spawn_research_connection(
+        &self,
+        connection_id: String,
+        agent_type: AgentType,
+        working_dir: String,
+        session_id: String,
+        mut runtime_env: BTreeMap<String, String>,
+        mode: Option<String>,
+        config: BTreeMap<String, String>,
+    ) -> Result<Arc<std::sync::atomic::AtomicU32>, AcpError> {
+        let _restore_guard = self.external_restore_lock.read().await;
+        runtime_env.insert(crate::cli_run::CLI_CALLER_ENV.into(), connection_id.clone());
+        let research_id = connection_id.clone();
+        let _ready_signal = spawn_agent_connection(
+            connection_id,
+            agent_type,
+            Some(working_dir),
+            Some(session_id),
+            runtime_env,
+            crate::research_branch::TEMPORARY_OWNER.into(),
+            crate::web::event_bridge::EventEmitter::Noop,
+            self.connections.clone(),
+            mode,
+            config,
+            None,
+            self.terminal_shell_config.clone(),
+            None,
+        )
+        .await?;
+        // spawn 只登记后台任务；调用者还必须等 selectors_ready 和 Connected。
+        self.connections
+            .lock()
+            .await
+            .get(&research_id)
+            .map(|connection| connection.child_pid.clone())
+            .ok_or(AcpError::ProcessExited)
+    }
+
+    pub(crate) async fn disconnect_research_connection(&self, id: &str) {
+        let pid = {
+            let connections = self.connections.lock().await;
+            connections
+                .get(id)
+                .filter(|connection| {
+                    crate::research_branch::temporary_cleanup_allowed(
+                        id,
+                        &connection.id,
+                        &connection.owner_window_label,
+                    )
+                })
+                .map(|connection| connection.child_pid.clone())
+        };
+        let Some(pid) = pid else {
+            return;
+        };
+        let _ = self.disconnect(id).await;
+        self.reap_research_process(pid).await;
+    }
+
+    pub(crate) async fn reap_research_process(&self, pid: Arc<std::sync::atomic::AtomicU32>) {
+        if pid.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            return;
+        }
+        // Fork RPC 期间循环不读 Disconnect；仅对自己创建的临时进程执行回收兜底。
+        let _ = tokio::task::spawn_blocking(move || {
+            if !wait_for_reap(&pid, Duration::from_millis(500)) {
+                kill_tree_and_wait(&pid);
+            }
+        })
+        .await;
+    }
+
     /// Set the delegation injection context exactly once during bootstrap.
     /// Calling twice is a no-op — protects against accidental re-init in
     /// the unlikely event a second `build_delegation_stack` runs.
@@ -1190,7 +1264,9 @@ impl ConnectionManager {
         let session_id = session_id?;
         let connections = self.connections.lock().await;
         for (id, conn) in connections.iter() {
-            if conn.agent_type != agent_type {
+            if conn.agent_type != agent_type
+                || crate::research_branch::is_temporary_owner(&conn.owner_window_label)
+            {
                 continue;
             }
             let state = conn.state.read().await;
@@ -4334,7 +4410,9 @@ impl ConnectionManager {
     ) -> Option<String> {
         let connections = self.connections.lock().await;
         for (id, conn) in connections.iter() {
-            if conn.agent_type != agent_type {
+            if conn.agent_type != agent_type
+                || crate::research_branch::is_temporary_owner(&conn.owner_window_label)
+            {
                 continue;
             }
             let state = conn.state.read().await;

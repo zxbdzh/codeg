@@ -714,6 +714,22 @@ pub fn build_router_with_proxy_auth(
             post(handlers::side_question::side_question_ask),
         )
         .route(
+            "/research_branch_create",
+            post(handlers::research_branch::research_branch_create),
+        )
+        .route(
+            "/research_branch_list",
+            post(handlers::research_branch::research_branch_list),
+        )
+        .route(
+            "/research_branch_save_summary",
+            post(handlers::research_branch::research_branch_save_summary),
+        )
+        .route(
+            "/research_branch_generate_summary",
+            post(handlers::research_branch::research_branch_generate_summary),
+        )
+        .route(
             "/side_question_cancel",
             post(handlers::side_question::side_question_cancel),
         )
