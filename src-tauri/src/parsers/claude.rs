@@ -717,6 +717,23 @@ fn rebuild_diff_from_structured_patch(
 }
 
 pub(crate) fn is_meta_message(value: &serde_json::Value) -> bool {
+    if value.get("type").and_then(|kind| kind.as_str()) == Some("user") {
+        let content = value.pointer("/message/content");
+        let text = content.and_then(|content| {
+            content.as_str().or_else(|| {
+                let [block] = content.as_array()?.as_slice() else {
+                    return None;
+                };
+                (block.get("type")?.as_str()? == "text")
+                    .then(|| block.get("text")?.as_str())
+                    .flatten()
+            })
+        });
+        // 内部续接不是用户发言，刷新后也不能产生额外用户消息或历史分叉边界。
+        if text == Some(crate::acp::context_pruning::CONTINUATION_PROMPT) {
+            return true;
+        }
+    }
     value
         .get("isMeta")
         .and_then(|v| v.as_bool())
@@ -2407,6 +2424,45 @@ impl ClaudeRecordAccumulator {
                 }
 
                 let content = extract_assistant_content(&value);
+                let pruning_receipt = match content.as_slice() {
+                    [ContentBlock::Text { text }] => {
+                        crate::acp::context_pruning::PruningReceipt::parse(text)
+                    }
+                    _ => None,
+                };
+                let content = if let Some(receipt) = pruning_receipt {
+                    let message_id = value
+                        .pointer("/message/id")
+                        .and_then(|id| id.as_str())
+                        .unwrap_or(&uuid);
+                    vec![
+                        ContentBlock::ToolUse {
+                            tool_use_id: Some(format!("bili-pruning-{message_id}")),
+                            tool_name: "context_compaction".to_string(),
+                            input_preview: None,
+                            status: Some("completed".to_string()),
+                            meta: Some(serde_json::json!({
+                                "contextCompaction": {
+                                    "version": 1,
+                                    "trigger": "automatic",
+                                    "provider": "billion-context",
+                                    "savedTokens": receipt.saved_tokens,
+                                    "blocks": receipt.blocks
+                                }
+                            })),
+                        },
+                        ContentBlock::ToolResult {
+                            tool_use_id: Some(format!("bili-pruning-{message_id}")),
+                            output_preview: Some(receipt.detail),
+                            is_error: false,
+                            agent_stats: None,
+                            images: Vec::new(),
+                            exit_code: None,
+                        },
+                    ]
+                } else {
+                    content
+                };
                 let message_id = value
                     .get("message")
                     .and_then(|m| m.get("id"))
@@ -10218,5 +10274,60 @@ mod tests {
             ClaudeParser::for_env(&env).base_dir,
             PathBuf::from("/relocated/claude").join("projects")
         );
+    }
+
+    #[test]
+    fn billion_context_pruning_receipt_reloads_as_a_card_without_a_fake_user_turn() {
+        let records = [
+            serde_json::json!({
+                "type": "user", "uuid": "user-1", "sessionId": "s1",
+                "timestamp": "2026-11-11T03:54:00Z",
+                "message": {"role": "user", "content": "Continue research"}
+            }),
+            serde_json::json!({
+                "type": "assistant", "uuid": "receipt", "sessionId": "s1",
+                "timestamp": "2026-11-11T03:55:00Z",
+                "message": {"id": "message-receipt", "role": "assistant", "content": [
+                    {"type": "text", "text": crate::acp::context_pruning::TEST_RECEIPT}
+                ]}
+            }),
+            serde_json::json!({
+                "type": "user", "uuid": "continuation", "sessionId": "s1",
+                "timestamp": "2026-11-11T03:55:01Z",
+                "message": {"role": "user", "content": [
+                    {"type": "text", "text": crate::acp::context_pruning::CONTINUATION_PROMPT}
+                ]}
+            }),
+            serde_json::json!({
+                "type": "assistant", "uuid": "answer", "sessionId": "s1",
+                "timestamp": "2026-11-11T03:56:00Z",
+                "message": {"id": "message-answer", "role": "assistant", "content": [
+                    {"type": "text", "text": "Research continued"}
+                ]}
+            }),
+        ];
+        let detail = parse_lines("bili-pruning", &record_lines(&records));
+        let texts = turn_texts(&detail.turns);
+        assert_eq!(texts.iter().filter(|(role, _)| *role == "user").count(), 1);
+        assert!(texts.iter().any(|(_, text)| text.contains("context_compaction")));
+        assert!(texts.iter().any(|(_, text)| text == "Research continued"));
+        assert!(!texts.iter().any(|(_, text)| text.contains("[Compressed")));
+        assert!(!texts.iter().any(|(_, text)| text.contains("codeg-context-pruning-continuation")));
+    }
+
+    #[test]
+    fn billion_context_pruning_internal_prompt_filter_is_exact() {
+        let marker = crate::acp::context_pruning::CONTINUATION_PROMPT;
+        assert!(is_meta_message(&serde_json::json!({
+            "type": "user", "message": {"content": marker}
+        })));
+        assert!(!is_meta_message(&serde_json::json!({
+            "type": "user", "message": {"content": format!("Explain this:\n{marker}")}
+        })));
+        assert!(!is_meta_message(&serde_json::json!({
+            "type": "user", "message": {"content": [
+                {"type": "tool_result", "content": marker}
+            ]}
+        })));
     }
 }

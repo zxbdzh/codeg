@@ -18,6 +18,7 @@ pub mod codex_model_catalog;
 pub mod codex_runtime;
 pub mod command_code;
 pub mod computer_tools;
+pub(crate) mod context_pruning;
 pub mod connection;
 pub mod cursor_acp_retry_compat;
 pub mod cursor_ext;

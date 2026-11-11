@@ -43,6 +43,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::acp::agent_mentions::{append_agent_routes, append_assistant_routes};
 use crate::acp::background_watch;
+use crate::acp::context_pruning::{
+    PruningContinuation, PruningReceipt, ReceiptStream, CONTINUATION_PROMPT,
+};
 use crate::acp::cursor_ext::{
     CursorAskQuestionRequest, CursorCreatePlanRequest, CursorGenerateImageRequest,
     CursorTaskRequest, CursorUpdateTodosRequest,
@@ -14480,13 +14483,56 @@ async fn handle_turn_notification(
     let should_poll_now =
         track_terminal_tool_calls(agent_type, &notif.update, tracked_terminal_tool_calls);
     probe.note_update(agent_type, &notif.update);
+    let mut update = notif.update;
+    if agent_type == AgentType::ClaudeCode {
+        if let SessionUpdate::AgentMessageChunk(chunk) = &mut update {
+            if claude_chunk_parent_tool_use_id(agent_type, chunk.meta.as_ref()).is_none() {
+                let message_id = chunk.message_id.as_ref().map(|id| id.0.to_string());
+                if probe.pruning_message.as_ref().is_some_and(|previous| {
+                    previous.message_id.as_ref().map(|id| id.0.to_string()) != message_id
+                }) {
+                    flush_pruning_message(state, emitter, agent_type, cwd, raw_output_cache, cb_state, probe).await;
+                }
+                if matches!(chunk.content, ContentBlock::Text(_))
+                    && probe.pruning_message.is_none()
+                {
+                    let mut template = chunk.clone();
+                    template.content = ContentBlock::Text(TextContent::new(""));
+                    probe.pruning_message.get_or_insert(template);
+                }
+                if let ContentBlock::Text(text) = &mut chunk.content {
+                    match probe.pruning_stream.push(&text.text) {
+                        Some(prose) => {
+                            text.text = prose;
+                            probe.pruning_receipt = None;
+                        }
+                        None => return,
+                    }
+                } else {
+                    flush_pruning_message(
+                        state, emitter, agent_type, cwd, raw_output_cache, cb_state, probe,
+                    )
+                    .await;
+                    probe.pruning_receipt = None;
+                }
+            }
+        } else if matches!(
+            update,
+            SessionUpdate::AgentThoughtChunk(_)
+                | SessionUpdate::ToolCall(_)
+                | SessionUpdate::ToolCallUpdate(_)
+        ) {
+            flush_pruning_message(state, emitter, agent_type, cwd, raw_output_cache, cb_state, probe).await;
+            probe.pruning_receipt = None;
+        }
+    }
     // Custom agents have no store of their own to parse later.
-    record_transcript_update(agent_type, &session_id.0, &notif.update);
+    record_transcript_update(agent_type, &session_id.0, &update);
     emit_conversation_update(
         state,
         emitter,
         agent_type,
-        notif.update,
+        update,
         cwd,
         raw_output_cache,
         cb_state,
@@ -14501,6 +14547,68 @@ async fn handle_turn_notification(
             tracked_terminal_tool_calls,
         )
         .await;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn flush_pruning_message(
+    state: &Arc<RwLock<SessionState>>,
+    emitter: &EventEmitter,
+    agent_type: AgentType,
+    cwd: Option<&str>,
+    raw_output_cache: &mut ToolCallOutputCache,
+    cb_state: &mut CodeBuddyLiveState,
+    probe: &mut TurnOutputProbe,
+) {
+    let Some(mut message) = probe.pruning_message.take() else {
+        return;
+    };
+    let (receipt, prose) = probe.pruning_stream.finish();
+    if let Some(receipt) = receipt {
+        let message_id = message
+            .message_id
+            .as_ref()
+            .map(|id| id.0.to_string())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        emit_with_state(
+            state,
+            emitter,
+            AcpEvent::ToolCallUpdate {
+                tool_call_id: format!("bili-pruning-{message_id}"),
+                title: Some(CONTEXT_COMPACTION_TITLE.to_string()),
+                status: Some("completed".to_string()),
+                content: None,
+                raw_input: None,
+                raw_output: Some(receipt.detail.clone()),
+                raw_output_append: None,
+                locations: None,
+                meta: Some(serde_json::json!({
+                    "contextCompaction": {
+                        "version": 1,
+                        "trigger": "automatic",
+                        "provider": "billion-context",
+                        "savedTokens": receipt.saved_tokens,
+                        "blocks": receipt.blocks
+                    }
+                })),
+                images: None,
+            },
+        )
+        .await;
+        probe.pruning_receipt = Some(receipt);
+    } else if !prose.is_empty() {
+        message.content = ContentBlock::Text(TextContent::new(prose));
+        emit_conversation_update(
+            state,
+            emitter,
+            agent_type,
+            SessionUpdate::AgentMessageChunk(message),
+            cwd,
+            raw_output_cache,
+            cb_state,
+        )
+        .await;
+        probe.pruning_receipt = None;
     }
 }
 
@@ -14576,6 +14684,9 @@ struct TurnOutputProbe {
     /// `StderrTail` write position at turn start, so the diagnosis can scope
     /// stderr to this turn.
     stderr_mark: u64,
+    pruning_stream: ReceiptStream,
+    pruning_message: Option<ContentChunk>,
+    pruning_receipt: Option<PruningReceipt>,
 }
 
 impl TurnOutputProbe {
@@ -15066,6 +15177,14 @@ async fn run_conversation_loop(
                 // Keep the user's blocks pristine through ledgering, previews,
                 // and cross-client broadcast. Only the final agent-bound prompt
                 // receives the machine routing block derived from agent badges.
+                let prompt_text: String = blocks
+                    .iter()
+                    .filter_map(|block| match block {
+                        PromptInputBlock::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                let mut pruning_continuation = PruningContinuation::for_prompt(&prompt_text);
                 let delegation_enabled = state.read().await.delegation_enabled;
                 let prompt_blocks = prepare_agent_bound_prompt(
                     agent_type,
@@ -15466,6 +15585,10 @@ async fn run_conversation_loop(
                             }
                         }
                         prompt_result = &mut prompt_response => {
+                            flush_pruning_message(
+                                state, emitter, agent_type, Some(cwd),
+                                &mut raw_output_cache, &mut cb_state, &mut probe,
+                            ).await;
                             // A rejected prompt is a TURN failure, not a dead
                             // connection: the agent answered, so it is still
                             // there, and the session it answered about is still
@@ -15646,6 +15769,58 @@ async fn run_conversation_loop(
                                 response.stop_reason,
                                 response.meta.as_ref(),
                             );
+                            if let Some(receipt) = probe.pruning_receipt.take() {
+                                let waiting_for_user = {
+                                    let snapshot = state.read().await;
+                                    snapshot.pending_permission.is_some()
+                                        || snapshot.pending_question.is_some()
+                                        || snapshot.pending_plan_approval.is_some()
+                                };
+                                let clean_end = reason == StopReason::EndTurn
+                                    && terminal_failure.is_none()
+                                    && probe.dropped == 0
+                                    && !waiting_for_user
+                                    && cmd_rx.is_empty();
+                                if pruning_continuation.should_continue(&receipt, clean_end) {
+                                    // Bili 把内部 compress 回执转换为 end_turn；保持原轮和取消入口，
+                                    // 仅补一次内部续接，不再次发送用户原话或提前触发任务完成事件。
+                                    let blocks = vec![ContentBlock::Text(TextContent::new(
+                                        CONTINUATION_PROMPT,
+                                    ))];
+                                    prompt_ledger.record_prompt_blocks(&[
+                                        PromptInputBlock::Text {
+                                            text: CONTINUATION_PROMPT.to_string(),
+                                        },
+                                    ]);
+                                    tracing::info!(
+                                        "[ACP] continuing after billion-context pruning; session={}",
+                                        sid.0
+                                    );
+                                    probe = TurnOutputProbe::new(stderr_tail.mark());
+                                    prompt_response = Box::pin(
+                                        cx.clone()
+                                            .send_request_to(
+                                                Agent,
+                                                PromptRequest::new(sid.clone(), blocks),
+                                            )
+                                            .block_task(),
+                                    );
+                                    continue;
+                                }
+                                if clean_end && pruning_continuation.has_continued() {
+                                    emit_with_state(
+                                        state,
+                                        emitter,
+                                        AcpEvent::SessionNotice {
+                                            notice: SessionNotice {
+                                                severity: "warning".to_string(),
+                                                title: "Context pruning did not resume the task".to_string(),
+                                                description: Some("Repeated compression receipts were stopped. You can send a new message to continue.".to_string()),
+                                            },
+                                        },
+                                    ).await;
+                                }
+                            }
                             if !tracked_terminal_tool_calls.is_empty() {
                                 poll_tracked_terminal_tool_calls(
                                     terminal_runtime.as_ref(),
@@ -16002,6 +16177,10 @@ async fn run_conversation_loop(
                                     );
                                 }
                                 Some(ConnectionCommand::Cancel) => {
+                                    flush_pruning_message(
+                                        state, emitter, agent_type, Some(cwd),
+                                        &mut raw_output_cache, &mut cb_state, &mut probe,
+                                    ).await;
                                     // Send CancelNotification to agent to stop the current turn
                                     let _ = cx.send_notification_to(
                                         Agent,
@@ -36160,6 +36339,8 @@ mod tests {
         load_error: Option<serde_json::Value>,
         /// Advertise `session/resume` and answer it with this ACP error body.
         resume_error: Option<serde_json::Value>,
+        prompt_replies: Vec<Vec<String>>,
+        hold_continuation: bool,
     }
 
     /// An in-process agent for `run_connection`'s handshake. It reports each
@@ -36184,7 +36365,12 @@ mod tests {
                 fail_session_new,
                 load_error,
                 resume_error,
+                prompt_replies,
+                hold_continuation,
             } = script;
+            let prompt_replies = Arc::new(std::sync::Mutex::new(
+                VecDeque::from(prompt_replies),
+            ));
             let advertises_load = load_error.is_some();
             let advertises_resume = resume_error.is_some();
             let (seen_tx, seen) = mpsc::unbounded_channel();
@@ -36197,6 +36383,7 @@ mod tests {
             );
             let open_session = Arc::new(tokio::sync::Notify::new());
             let release = Arc::clone(&open_session);
+            let release_prompt = Arc::clone(&open_session);
             let (closed_tx, closed) = oneshot::channel();
             let task = tokio::spawn(async move {
                 let _ = Agent
@@ -36294,7 +36481,7 @@ mod tests {
                     .on_receive_request(
                         async move |req: PromptRequest,
                                     responder: Responder<PromptResponse>,
-                                    _cx: ConnectionTo<Client>| {
+                                    cx: ConnectionTo<Client>| {
                             let text: String = req
                                 .prompt
                                 .iter()
@@ -36304,6 +36491,32 @@ mod tests {
                                 })
                                 .collect();
                             let _ = prompt_seen.send(format!("session/prompt: {text}"));
+                            let chunks = prompt_replies
+                                .lock()
+                                .expect("fixture replies")
+                                .pop_front()
+                                .unwrap_or_default();
+                            for chunk in chunks {
+                                cx.send_notification_to(
+                                    Client,
+                                    SessionNotification::new(
+                                        req.session_id.clone(),
+                                        SessionUpdate::AgentMessageChunk(
+                                            ContentChunk::new(ContentBlock::Text(
+                                                TextContent::new(chunk),
+                                            )),
+                                        ),
+                                    ),
+                                )?;
+                            }
+                            if hold_continuation && text == CONTINUATION_PROMPT {
+                                let release = Arc::clone(&release_prompt);
+                                tokio::spawn(async move {
+                                    release.notified().await;
+                                    responder.respond(PromptResponse::new(StopReason::Cancelled))
+                                });
+                                return Ok(());
+                            }
                             responder.respond(PromptResponse::new(StopReason::EndTurn))
                         },
                         on_receive_request!(),
@@ -36369,12 +36582,19 @@ mod tests {
             client_end: agent_client_protocol::Channel,
             session_id: Option<&str>,
         ) -> Self {
+            Self::start_for_agent(client_end, session_id, AgentType::OpenClaw).await
+        }
+
+        async fn start_for_agent(
+            client_end: agent_client_protocol::Channel,
+            session_id: Option<&str>,
+            agent_type: AgentType,
+        ) -> Self {
             let session_id = session_id.map(str::to_string);
             let dir = tempfile::tempdir().expect("tempdir");
             let cwd = dir.path().to_path_buf();
             // An agent codeg forwards no MCP servers to, so the handshake reads
             // no MCP config from the machine running the test.
-            let agent_type = AgentType::OpenClaw;
             let state = Arc::new(RwLock::new(SessionState::new(
                 "conn-handshake".to_string(),
                 agent_type,
@@ -36441,14 +36661,20 @@ mod tests {
 
         /// Wait for the turn in flight to end.
         async fn turn_completed(&mut self) {
+            self.events_until_turn_complete().await;
+        }
+
+        async fn events_until_turn_complete(&mut self) -> Vec<AcpEvent> {
+            let mut events = Vec::new();
             loop {
                 let envelope =
                     tokio::time::timeout(std::time::Duration::from_secs(10), self.events.recv())
                         .await
                         .expect("the turn ends")
                         .expect("event stream");
+                events.push(envelope.payload.clone());
                 if matches!(envelope.payload, AcpEvent::TurnComplete { .. }) {
-                    return;
+                    return events;
                 }
             }
         }
@@ -36546,6 +36772,104 @@ mod tests {
             .send(ConnectionCommand::Disconnect)
             .await
             .expect("the connection is running");
+        let (ended, _) = run.ended().await;
+        assert!(ended.is_ok(), "{ended:?}");
+        agent.closed().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn billion_context_pruning_continues_before_the_only_turn_complete() {
+        let (client_end, agent_end) = agent_client_protocol::Channel::duplex();
+        let receipt = crate::acp::context_pruning::TEST_RECEIPT;
+        let mut agent = HandshakeAgent::start(
+            agent_end,
+            HandshakeScript {
+                prompt_replies: vec![
+                    vec!["[Comp".to_string(), receipt[5..].to_string()],
+                    vec!["Research continued successfully".to_string()],
+                ],
+                ..Default::default()
+            },
+        );
+        let run = HandshakeRun::start_for_agent(client_end, None, AgentType::ClaudeCode).await;
+        assert_eq!(agent.next_request().await, "initialize");
+        assert_eq!(agent.next_request().await, "session/new");
+        run.prompt("Continue the existing research").await;
+        agent.open_session.notify_one();
+        assert_eq!(agent.next_request().await, "session/prompt: Continue the existing research");
+        assert_eq!(agent.next_request().await, format!("session/prompt: {CONTINUATION_PROMPT}"));
+        let mut run = run;
+        let mut events = run.events_until_turn_complete().await;
+        assert!(!run.state.read().await.turn_in_flight);
+        run.cmd_tx.send(ConnectionCommand::Disconnect).await.unwrap();
+        let (ended, emitted) = run.ended().await;
+        assert!(ended.is_ok(), "{ended:?}");
+        events.extend(emitted);
+        assert!(!events.iter().any(|event| matches!(
+            event, AcpEvent::ContentDelta { text, .. } if text.contains("[Compressed")
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event, AcpEvent::ContentDelta { text, .. } if text == "Research continued successfully"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event, AcpEvent::ToolCallUpdate { meta: Some(meta), .. }
+                if meta.pointer("/contextCompaction/provider").and_then(|value| value.as_str()) == Some("billion-context")
+        )));
+        assert_eq!(events.iter().filter(|event| matches!(event, AcpEvent::TurnComplete { .. })).count(), 1);
+        agent.closed().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn billion_context_pruning_keeps_the_original_cancellation_gate() {
+        let (client_end, agent_end) = agent_client_protocol::Channel::duplex();
+        let mut agent = HandshakeAgent::start(
+            agent_end,
+            HandshakeScript {
+                prompt_replies: vec![vec![crate::acp::context_pruning::TEST_RECEIPT.to_string()]],
+                hold_continuation: true,
+                ..Default::default()
+            },
+        );
+        let mut run = HandshakeRun::start_for_agent(client_end, None, AgentType::ClaudeCode).await;
+        assert_eq!(agent.next_request().await, "initialize");
+        assert_eq!(agent.next_request().await, "session/new");
+        run.prompt("Continue research").await;
+        agent.open_session.notify_one();
+        assert_eq!(agent.next_request().await, "session/prompt: Continue research");
+        assert_eq!(agent.next_request().await, format!("session/prompt: {CONTINUATION_PROMPT}"));
+        assert!(run.state.read().await.turn_in_flight);
+        run.cmd_tx.send(ConnectionCommand::Cancel).await.unwrap();
+        let events = run.events_until_turn_complete().await;
+        assert_eq!(events.iter().filter(|event| matches!(
+            event, AcpEvent::TurnComplete { stop_reason, .. } if stop_reason == "cancelled"
+        )).count(), 1);
+        assert!(!run.state.read().await.turn_in_flight);
+        agent.open_session.notify_one();
+        run.cmd_tx.send(ConnectionCommand::Disconnect).await.unwrap();
+        let (ended, _) = run.ended().await;
+        assert!(ended.is_ok(), "{ended:?}");
+        agent.closed().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn billion_context_pruning_does_not_restart_manual_compaction() {
+        let (client_end, agent_end) = agent_client_protocol::Channel::duplex();
+        let mut agent = HandshakeAgent::start(
+            agent_end,
+            HandshakeScript {
+                prompt_replies: vec![vec![crate::acp::context_pruning::TEST_RECEIPT.to_string()]],
+                ..Default::default()
+            },
+        );
+        let mut run = HandshakeRun::start_for_agent(client_end, None, AgentType::ClaudeCode).await;
+        assert_eq!(agent.next_request().await, "initialize");
+        assert_eq!(agent.next_request().await, "session/new");
+        run.prompt("/compact").await;
+        agent.open_session.notify_one();
+        assert_eq!(agent.next_request().await, "session/prompt: /compact");
+        run.turn_completed().await;
+        assert!(agent.seen.try_recv().is_err());
+        run.cmd_tx.send(ConnectionCommand::Disconnect).await.unwrap();
         let (ended, _) = run.ended().await;
         assert!(ended.is_ok(), "{ended:?}");
         agent.closed().await;
