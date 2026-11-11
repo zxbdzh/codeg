@@ -270,7 +270,11 @@ describe("SideQuestionTab", () => {
     expect(
       screen.getByText("Follow current conversation · Current Codex model")
     ).toBeInTheDocument()
-    expect(screen.getByText(/Answers stay here/)).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Continue asking here. Answers stay here, outside the main conversation."
+      )
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Attach images or text files" })
     ).toBeNull()
@@ -297,6 +301,40 @@ describe("SideQuestionTab", () => {
       sourceAgentType: "codex",
     })
     expect(scene.getTimelineTurns).toHaveBeenCalledWith(12)
+  })
+
+  it("keeps earlier exchanges visible while continuing the side conversation", async () => {
+    scene.call
+      .mockResolvedValueOnce(answer)
+      .mockResolvedValueOnce({ ...answer, answer: "Follow-up answer" })
+    renderTab()
+    enterQuestion("First question")
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
+    await screen.findByText("Independent answer")
+    expect(screen.getByRole("textbox", { name: "Question" })).toHaveValue("")
+
+    enterQuestion("What about the alternative?")
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
+    await screen.findByText("Follow-up answer")
+
+    expect(screen.getByText("First question")).toBeInTheDocument()
+    expect(screen.getByText("Independent answer")).toBeInTheDocument()
+    expect(screen.getByText("What about the alternative?")).toBeInTheDocument()
+    expect(
+      screen.getAllByText(
+        "Main conversation context: 0 messages · 0 characters"
+      )
+    ).toHaveLength(2)
+    expect(scene.call).toHaveBeenLastCalledWith(
+      "side_question_ask",
+      expect.objectContaining({
+        history: [
+          { role: "user", text: "First question" },
+          { role: "assistant", text: "Independent answer" },
+        ],
+      }),
+      expect.anything()
+    )
   })
 
   it("uploads an image, allows an image-only question, and sends bytes without paths", async () => {
@@ -685,7 +723,7 @@ describe("SideQuestionTab", () => {
     expect(scene.call).not.toHaveBeenCalled()
   })
 
-  it("cancels on close and ignores the response that arrives afterwards", async () => {
+  it("keeps a hidden question running and restores its answer when reopened", async () => {
     const waiting = deferred<SideQuestionAnswer>()
     scene.call.mockImplementation((command: string) =>
       command === "side_question_ask" ? waiting.promise : Promise.resolve()
@@ -700,11 +738,17 @@ describe("SideQuestionTab", () => {
         <SideQuestionTab />
       </NextIntlClientProvider>
     )
-    expect(scene.call).toHaveBeenCalledWith("side_question_cancel", {
-      requestId: expect.any(String),
-    })
     await act(async () => waiting.resolve(answer))
-    expect(screen.queryByText("Independent answer")).toBeNull()
+    scene.isOpen = true
+    view.rerender(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <SideQuestionTab />
+      </NextIntlClientProvider>
+    )
+    expect(screen.getByText("Independent answer")).toBeInTheDocument()
+    expect(scene.call.mock.calls.map(([command]) => command)).not.toContain(
+      "side_question_cancel"
+    )
   })
 
   it("cancels once without submitting the replacement Ask button", async () => {
@@ -738,7 +782,25 @@ describe("SideQuestionTab", () => {
     expect(screen.getByText("Cancelled")).toBeInTheDocument()
   })
 
-  it("separates source drafts and cancels a request when the main tab changes", async () => {
+  it("can start over after explicitly stopping the first answer", async () => {
+    const waiting = deferred<SideQuestionAnswer>()
+    scene.call.mockImplementation((command: string) =>
+      command === "side_question_ask" ? waiting.promise : Promise.resolve()
+    )
+    renderTab()
+    enterQuestion("Stopped question")
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    const clear = screen.getByRole("button", { name: "Clear side question" })
+    expect(clear).toBeEnabled()
+    fireEvent.click(clear)
+    expect(screen.queryByText("Stopped question")).toBeNull()
+    expect(screen.queryByText("Cancelled")).toBeNull()
+    await act(async () => waiting.resolve(answer))
+    expect(screen.queryByText("Independent answer")).toBeNull()
+  })
+
+  it("separates source drafts and restores a completed question after switching back", async () => {
     const waiting = deferred<SideQuestionAnswer>()
     scene.call.mockImplementation((command: string) =>
       command === "side_question_ask" ? waiting.promise : Promise.resolve()
@@ -753,11 +815,23 @@ describe("SideQuestionTab", () => {
       </NextIntlClientProvider>
     )
     expect(screen.getByRole("textbox", { name: "Question" })).toHaveValue("")
-    expect(scene.call).toHaveBeenCalledWith("side_question_cancel", {
-      requestId: expect.any(String),
-    })
+    enterQuestion("Second source draft")
     await act(async () => waiting.resolve(answer))
     expect(screen.queryByText("Independent answer")).toBeNull()
+    scene.activeTabId = "tab-1"
+    view.rerender(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <SideQuestionTab />
+      </NextIntlClientProvider>
+    )
+    expect(screen.getByText("Independent answer")).toBeInTheDocument()
+    expect(screen.getByText("First source question")).toBeInTheDocument()
+    expect(scene.call.mock.calls.map(([command]) => command)).not.toContain(
+      "side_question_cancel"
+    )
+    expect(
+      useSideQuestionStore.getState().bySource["tab-2:1:pi"].question
+    ).toBe("Second source draft")
   })
 
   it("uses a captured selection without appending recent conversation text", async () => {

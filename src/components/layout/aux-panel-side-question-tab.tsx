@@ -230,11 +230,7 @@ export function SideQuestionTab() {
     !loading &&
     !readingAttachments
 
-  useEffect(() => {
-    if (!sourceKey) return
-    if (!active) useSideQuestionStore.getState().cancel(sourceKey)
-    return () => useSideQuestionStore.getState().cancel(sourceKey)
-  }, [active, sourceKey])
+  // 隐藏、切页和卸载只影响展示；请求由 Store 持有，显式停止、重置话题或切换后端才取消。
 
   useEffect(() => {
     setCopiedAnswer(null)
@@ -374,6 +370,7 @@ export function SideQuestionTab() {
             disabled={
               !sourceKey ||
               (!entry.question &&
+                entry.turns.length === 0 &&
                 entry.attachments.length === 0 &&
                 !entry.selection &&
                 !entry.result &&
@@ -455,103 +452,107 @@ export function SideQuestionTab() {
                   </div>
                 </div>
               )}
-              {entry.askedQuestion && (
-                <Message from="user">
-                  <MessageContent className="whitespace-pre-wrap break-words">
-                    {entry.askedQuestion}
-                  </MessageContent>
-                </Message>
-              )}
-              {entry.askedAttachments.length > 0 && (
-                <AttachmentList
-                  attachments={entry.askedAttachments}
-                  removeLabel={t("removeAttachment")}
-                />
-              )}
-              {loading && (
-                <div
-                  role="status"
-                  className="flex items-center gap-2 text-muted-foreground"
-                >
-                  <Loader2
-                    className="size-4 animate-spin motion-reduce:animate-none"
-                    strokeWidth={1.5}
-                    aria-hidden
-                  />
-                  {t("asking")}
-                </div>
-              )}
-              {entry.status === "cancelled" && (
-                <p role="status" className="text-muted-foreground">
-                  {t("cancelled")}
-                </p>
-              )}
-              {entry.error && (
-                <p
-                  role="alert"
-                  className="whitespace-pre-wrap break-words text-destructive"
-                >
-                  {entry.error}
-                </p>
-              )}
-              {entry.result && (
-                <Message from="assistant" aria-label={t("answer")}>
-                  <MessageContent>
-                    <MessageResponse>{entry.result.answer}</MessageResponse>
-                  </MessageContent>
-                  <div className="flex min-w-0 items-center justify-between gap-2 border-t border-border/60 pt-2">
-                    <p className="text-[11px] tabular-nums text-muted-foreground">
-                      {entry.result.selectionChars > 0
-                        ? t("selectionStats", {
-                            chars: entry.result.selectionChars,
-                          })
-                        : t("contextStats", {
-                            messages: entry.result.contextMessages,
-                            chars: entry.result.contextChars,
-                          })}
-                    </p>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="size-7 shrink-0 rounded-md text-muted-foreground"
-                      aria-label={
-                        copiedAnswer === entry.result.answer
-                          ? t("copied")
-                          : t("copyAnswer")
-                      }
-                      title={t("copyAnswer")}
-                      onClick={async () => {
-                        const answer = entry.result?.answer
-                        if (!answer) return
-                        try {
-                          if (!(await copyTextToClipboard(answer))) {
-                            toast.error(t("copyFailed"))
-                            return
-                          }
-                          setCopiedAnswer(answer)
-                        } catch {
-                          toast.error(t("copyFailed"))
-                        }
-                      }}
+              {entry.turns.map((turn) => (
+                <div key={turn.id} className="space-y-4">
+                  {turn.question && (
+                    <Message from="user">
+                      <MessageContent className="whitespace-pre-wrap break-words">
+                        {turn.question}
+                      </MessageContent>
+                    </Message>
+                  )}
+                  {turn.attachments.length > 0 && (
+                    <AttachmentList
+                      attachments={turn.attachments}
+                      removeLabel={t("removeAttachment")}
+                    />
+                  )}
+                  {turn.status === "loading" && (
+                    <div
+                      role="status"
+                      className="flex items-center gap-2 text-muted-foreground"
                     >
-                      {copiedAnswer === entry.result.answer ? (
-                        <Check
-                          className="size-4"
-                          strokeWidth={1.5}
-                          aria-hidden="true"
-                        />
-                      ) : (
-                        <Copy
-                          className="size-4"
-                          strokeWidth={1.5}
-                          aria-hidden="true"
-                        />
-                      )}
-                    </Button>
-                  </div>
-                </Message>
-              )}
+                      <Loader2
+                        className="size-4 animate-spin motion-reduce:animate-none"
+                        strokeWidth={1.5}
+                        aria-hidden
+                      />
+                      {t("asking")}
+                    </div>
+                  )}
+                  {turn.status === "cancelled" && (
+                    <p role="status" className="text-muted-foreground">
+                      {t("cancelled")}
+                    </p>
+                  )}
+                  {turn.error && (
+                    <p
+                      role="alert"
+                      className="whitespace-pre-wrap break-words text-destructive"
+                    >
+                      {turn.error}
+                    </p>
+                  )}
+                  {turn.result && (
+                    <Message from="assistant" aria-label={t("answer")}>
+                      <MessageContent>
+                        <MessageResponse>{turn.result.answer}</MessageResponse>
+                      </MessageContent>
+                      <div className="flex min-w-0 items-center justify-between gap-2 border-t border-border/60 pt-2">
+                        <p className="text-[11px] tabular-nums text-muted-foreground">
+                          {turn.result.selectionChars > 0
+                            ? t("selectionStats", {
+                                chars: turn.result.selectionChars,
+                              })
+                            : t("contextStats", {
+                                messages: turn.result.contextMessages,
+                                chars: turn.result.contextChars,
+                              })}
+                        </p>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="size-7 shrink-0 rounded-md text-muted-foreground"
+                          aria-label={
+                            copiedAnswer === turn.result.answer
+                              ? t("copied")
+                              : t("copyAnswer")
+                          }
+                          title={t("copyAnswer")}
+                          onClick={async () => {
+                            const answer = turn.result?.answer
+                            if (!answer) return
+                            try {
+                              if (!(await copyTextToClipboard(answer))) {
+                                toast.error(t("copyFailed"))
+                                return
+                              }
+                              setCopiedAnswer(answer)
+                            } catch {
+                              toast.error(t("copyFailed"))
+                            }
+                          }}
+                        >
+                          {copiedAnswer === turn.result.answer ? (
+                            <Check
+                              className="size-4"
+                              strokeWidth={1.5}
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <Copy
+                              className="size-4"
+                              strokeWidth={1.5}
+                              aria-hidden="true"
+                            />
+                          )}
+                        </Button>
+                      </div>
+                    </Message>
+                  )}
+                </div>
+              ))}
               {entry.status === "idle" && (
                 <div className="space-y-2 py-3 leading-relaxed text-muted-foreground">
                   <p className="font-medium text-foreground/85">{t("empty")}</p>

@@ -6,6 +6,8 @@ import { toErrorMessage } from "@/lib/app-error"
 import {
   askSideQuestion,
   cancelSideQuestionRequest,
+  SIDE_QUESTION_MAX_CONTEXT_CHARS,
+  SIDE_QUESTION_MAX_MESSAGES,
   truncateSideQuestionSelection,
   type SideQuestionAnswer,
   type SideQuestionContextEntry,
@@ -20,7 +22,18 @@ import {
 } from "@/lib/side-question-attachments"
 import { registerBackendScopedStoreReset } from "./backend-scoped-store-reset"
 
+export interface SideQuestionTurn {
+  id: string
+  question: string
+  attachments: SideQuestionDraftAttachment[]
+  status: "loading" | "done" | "cancelled" | "error"
+  result: SideQuestionAnswer | null
+  error: string | null
+}
+
 export interface SideQuestionEntry {
+  turns: SideQuestionTurn[]
+  contextSnapshot: SideQuestionContextEntry[] | null
   question: string
   selection: string
   status: "idle" | "loading" | "done" | "cancelled" | "error"
@@ -32,6 +45,8 @@ export interface SideQuestionEntry {
 }
 
 export const EMPTY_SIDE_QUESTION: SideQuestionEntry = {
+  turns: [],
+  contextSnapshot: null,
   question: "",
   selection: "",
   status: "idle",
@@ -95,7 +110,15 @@ export const useSideQuestionStore = create<SideQuestionStore>((set, get) => {
     if (!job) return
     // 先撤销本地所有权，取消请求或旧回答稍后到达也不能覆盖下一次旁问。
     pending.delete(sourceKey)
-    update(sourceKey, { status: "cancelled", error: null })
+    update(sourceKey, {
+      status: "cancelled",
+      error: null,
+      turns: get().bySource[sourceKey].turns.map((turn) =>
+        turn.id === job.requestId
+          ? { ...turn, status: "cancelled", error: null }
+          : turn
+      ),
+    })
     void cancelSideQuestionRequest(job.transport, job.requestId).catch(() => {})
   }
 
@@ -125,6 +148,9 @@ export const useSideQuestionStore = create<SideQuestionStore>((set, get) => {
     useRecentContext: (sourceKey) => {
       cancel(sourceKey)
       update(sourceKey, {
+        // 显式刷新引用范围即开启新话题，不能把旧旁问历史混入新的主线快照。
+        turns: [],
+        contextSnapshot: null,
         selection: "",
         status: "idle",
         result: null,
@@ -144,30 +170,94 @@ export const useSideQuestionStore = create<SideQuestionStore>((set, get) => {
       const question = entry.question.trim()
       if (!question && entry.attachments.length === 0) return
       const job = { requestId: randomUUID(), transport: getTransport() }
+      // 追问沿用首次引用的主线快照，避免主线继续输出时悄悄改变讨论依据。
+      const contextSnapshot =
+        entry.contextSnapshot ??
+        (entry.selection ? [] : context.map((item) => ({ ...item })))
+      const completed = entry.turns.flatMap(
+        (turn): SideQuestionContextEntry[] =>
+          turn.status === "done" && turn.result
+            ? [
+                { role: "user", text: turn.question },
+                { role: "assistant", text: turn.result.answer },
+              ]
+            : []
+      )
+      const history: SideQuestionContextEntry[] = []
+      let remaining = SIDE_QUESTION_MAX_CONTEXT_CHARS
+      // 只裁剪发给模型的近期历史；界面保留原文，按 Unicode 字符避免拆开表情。
+      for (
+        let index = completed.length - 1;
+        index >= 0 &&
+        history.length < SIDE_QUESTION_MAX_MESSAGES &&
+        remaining > 0;
+        index -= 1
+      ) {
+        const item = completed[index]
+        const chars = Array.from(item.text.trim())
+        if (chars.length === 0) continue
+        const kept = chars.slice(-remaining)
+        history.push({ role: item.role, text: kept.join("") })
+        remaining -= kept.length
+      }
+      history.reverse()
+      const turn: SideQuestionTurn = {
+        id: job.requestId,
+        question,
+        attachments: [...entry.attachments],
+        status: "loading",
+        result: null,
+        error: null,
+      }
       pending.set(sourceKey, job)
       update(sourceKey, {
+        turns: [...entry.turns, turn],
+        contextSnapshot,
+        question: "",
+        attachments: [],
         status: "loading",
         askedQuestion: question,
-        askedAttachments: [...entry.attachments],
+        askedAttachments: turn.attachments,
         result: null,
         error: null,
       })
+      const finishTurn = (patch: Partial<SideQuestionTurn>) =>
+        get().bySource[sourceKey].turns.map((item) =>
+          item.id === job.requestId ? { ...item, ...patch } : item
+        )
       try {
         const result = await askSideQuestion(job.transport, {
           requestId: job.requestId,
           question,
           selection: entry.selection || null,
-          context: entry.selection ? [] : context,
-          attachments: entry.attachments.map(sideAttachmentPayload),
+          context: contextSnapshot,
+          history,
+          attachments: turn.attachments.map(sideAttachmentPayload),
           sourceConnectionId: source.sourceConnectionId,
           sourceConversationId: source.sourceConversationId,
           sourceAgentType: source.sourceAgentType,
         })
         if (pending.get(sourceKey) !== job) return
-        update(sourceKey, { status: "done", result })
+        update(sourceKey, {
+          status: "done",
+          result,
+          turns: finishTurn({ status: "done", result }),
+        })
       } catch (error) {
         if (pending.get(sourceKey) !== job) return
-        update(sourceKey, { status: "error", error: toErrorMessage(error) })
+        const message = toErrorMessage(error)
+        const current = get().bySource[sourceKey]
+        // 发送失败时恢复可编辑输入，但不能覆盖等待期间用户新写的草稿。
+        const retryDraft =
+          !current.question && current.attachments.length === 0
+            ? { question, attachments: turn.attachments }
+            : {}
+        update(sourceKey, {
+          ...retryDraft,
+          status: "error",
+          error: message,
+          turns: finishTurn({ status: "error", error: message }),
+        })
       } finally {
         if (pending.get(sourceKey) === job) pending.delete(sourceKey)
       }

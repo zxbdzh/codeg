@@ -24,6 +24,7 @@ export interface SideQuestionRequest extends SideQuestionSource {
   question: string
   selection: string | null
   context: SideQuestionContextEntry[]
+  history?: SideQuestionContextEntry[]
   attachments?: SideQuestionAttachment[]
 }
 
@@ -85,6 +86,7 @@ export function askSideQuestion(
       question: request.question,
       selection: request.selection,
       context: request.context,
+      ...(request.history?.length ? { history: request.history } : {}),
       ...(request.attachments?.length
         ? { attachments: request.attachments }
         : {}),

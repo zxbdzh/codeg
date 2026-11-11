@@ -140,6 +140,107 @@ describe("side question isolation", () => {
     )
   })
 
+  it("keeps the conversation and supplies completed exchanges to a follow up", async () => {
+    mocks.call
+      .mockResolvedValueOnce(answer("Use a dedicated task"))
+      .mockResolvedValueOnce(answer("It survives panel changes"))
+    const actions = useSideQuestionStore.getState()
+    actions.setQuestion("first", "How should it run?")
+    await actions.ask(
+      "first",
+      [{ role: "user", text: "Original context" }],
+      source
+    )
+    actions.setQuestion("first", "Why that approach?")
+    await actions.ask(
+      "first",
+      [{ role: "user", text: "New mainline content" }],
+      source
+    )
+
+    expect(mocks.call).toHaveBeenLastCalledWith(
+      "side_question_ask",
+      expect.objectContaining({
+        question: "Why that approach?",
+        context: [{ role: "user", text: "Original context" }],
+        history: [
+          { role: "user", text: "How should it run?" },
+          { role: "assistant", text: "Use a dedicated task" },
+        ],
+      }),
+      expect.anything()
+    )
+    expect(useSideQuestionStore.getState().bySource.first.turns).toMatchObject([
+      {
+        question: "How should it run?",
+        result: { answer: "Use a dedicated task" },
+      },
+      {
+        question: "Why that approach?",
+        result: { answer: "It survives panel changes" },
+      },
+    ])
+    expect(useSideQuestionStore.getState().bySource.first.question).toBe("")
+  })
+
+  it("starts a fresh conversation when recent context is explicitly requested", async () => {
+    mocks.call.mockResolvedValue(answer("Previous answer"))
+    const actions = useSideQuestionStore.getState()
+    actions.setQuestion("first", "Previous question")
+    await actions.ask("first", [{ role: "user", text: "Old mainline" }], source)
+    actions.setQuestion("first", "Fresh question")
+    actions.useRecentContext("first")
+    await actions.ask(
+      "first",
+      [{ role: "user", text: "Updated mainline" }],
+      source
+    )
+
+    const request = mocks.call.mock.calls[mocks.call.mock.calls.length - 1][1]
+    expect(request.context).toEqual([
+      { role: "user", text: "Updated mainline" },
+    ])
+    expect(request.history).toBeUndefined()
+    expect(useSideQuestionStore.getState().bySource.first.turns).toMatchObject([
+      { question: "Fresh question", result: { answer: "Previous answer" } },
+    ])
+  })
+
+  it("keeps older exchanges visible but sends only the latest twelve history messages", async () => {
+    mocks.call.mockResolvedValue(answer("Completed answer"))
+    const actions = useSideQuestionStore.getState()
+    for (let index = 1; index <= 8; index += 1) {
+      actions.setQuestion("first", `Question ${index}`)
+      await actions.ask("first", [], source)
+    }
+
+    const request = mocks.call.mock.calls[7][1]
+    expect(request.history).toHaveLength(12)
+    expect(request.history[0]).toEqual({ role: "user", text: "Question 2" })
+    expect(request.history[10]).toEqual({ role: "user", text: "Question 7" })
+    expect(useSideQuestionStore.getState().bySource.first.turns).toHaveLength(8)
+  })
+
+  it("bounds Unicode history without truncating the visible answer", async () => {
+    const original = "🙂".repeat(12_001)
+    mocks.call
+      .mockResolvedValueOnce(answer(original))
+      .mockResolvedValueOnce(answer("Follow-up"))
+    const actions = useSideQuestionStore.getState()
+    actions.setQuestion("first", "Original question")
+    await actions.ask("first", [], source)
+    actions.setQuestion("first", "Continue")
+    await actions.ask("first", [], source)
+
+    expect(mocks.call.mock.calls[1][1].history).toHaveLength(1)
+    expect(mocks.call.mock.calls[1][1].history).toEqual([
+      { role: "assistant", text: "🙂".repeat(12_000) },
+    ])
+    expect(
+      useSideQuestionStore.getState().bySource.first.turns[0].result?.answer
+    ).toBe(original)
+  })
+
   it("sends only the selection when one is present", async () => {
     mocks.call.mockResolvedValue(answer("selection answer"))
     const actions = useSideQuestionStore.getState()
@@ -267,6 +368,36 @@ describe("side question isolation", () => {
       "provider unavailable"
     )
     expect(useSideQuestionStore.getState().bySource.first.status).toBe("error")
+  })
+
+  it("restores failed question inputs so they can be edited and retried", async () => {
+    mocks.call.mockRejectedValueOnce(new Error("provider unavailable"))
+    const actions = useSideQuestionStore.getState()
+    const attachment = {
+      id: "retry-image",
+      bytes: 3,
+      type: "image" as const,
+      name: "retry.png",
+      mimeType: "image/png",
+      data: "bytes",
+    }
+    actions.setQuestion("first", "Can you explain this?")
+    actions.addAttachments("first", [attachment])
+    await actions.ask("first", [], source)
+
+    expect(useSideQuestionStore.getState().bySource.first).toMatchObject({
+      question: "Can you explain this?",
+      attachments: [attachment],
+      turns: [{ status: "error", error: "provider unavailable" }],
+    })
+    mocks.call.mockResolvedValueOnce(answer("Retry succeeded"))
+    await actions.ask("first", [], source)
+    expect(useSideQuestionStore.getState().bySource.first).toMatchObject({
+      question: "",
+      attachments: [],
+      result: { answer: "Retry succeeded" },
+    })
+    expect(mocks.call.mock.calls[1][1].history).toBeUndefined()
   })
 
   it("ignores a cancelled late failure instead of erasing the next answer", async () => {
