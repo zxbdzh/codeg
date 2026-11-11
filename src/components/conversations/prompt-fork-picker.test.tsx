@@ -16,7 +16,6 @@ import { PromptForkPicker } from "./prompt-fork-picker"
 const api = vi.hoisted(() => ({ detail: vi.fn() }))
 vi.mock("@/lib/api", () => ({ getFolderConversation: api.detail }))
 const onSelect = vi.fn()
-const onTail = vi.fn()
 const turns = [
   {
     id: "turn-0",
@@ -50,14 +49,14 @@ const turns = [
   },
 ]
 
-function view() {
+function view(unavailableReason?: string | null) {
   return (
     <NextIntlClientProvider locale="en" messages={enMessages}>
       <Dialog open>
         <PromptForkPicker
           conversationId={10}
           onSelect={onSelect}
-          onTail={onTail}
+          unavailableReason={unavailableReason}
         />
       </Dialog>
     </NextIntlClientProvider>
@@ -70,7 +69,6 @@ beforeEach(() => {
     summary: { agent_type: "claude_code" },
   })
   onSelect.mockReset().mockResolvedValue(true)
-  onTail.mockReset()
 })
 afterEach(cleanup)
 
@@ -108,7 +106,47 @@ describe("prompt fork picker", () => {
         agentMessageId: null,
       }
     )
-    expect(onTail).not.toHaveBeenCalled()
+  })
+
+  it("explains unavailable forks while keeping the first prompt usable as a new draft", async () => {
+    render(view("Reconnect the conversation before forking"))
+    expect(
+      await screen.findByRole("button", { name: "Original question" })
+    ).toBeEnabled()
+    expect(
+      screen.getByRole("button", { name: "Try another approach" })
+    ).toBeDisabled()
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Reconnect the conversation before forking"
+    )
+  })
+
+  it("disables a Codex boundary whose preceding assistant has only tool content", async () => {
+    api.detail.mockResolvedValue({
+      summary: { agent_type: "codex" },
+      turns: [
+        turns[0],
+        { ...turns[1], blocks: [{ type: "thinking", text: "not an answer" }] },
+        turns[2],
+      ],
+    })
+    render(view())
+    expect(
+      await screen.findByRole("button", { name: "Try another approach" })
+    ).toBeDisabled()
+  })
+
+  it("shows a fork failure inside the picker instead of closing it silently", async () => {
+    onSelect.mockRejectedValue(new Error("Fork adapter exited"))
+    render(view())
+    await screen.findByRole("button", { name: "Original question" })
+    await userEvent.click(
+      screen.getByRole("button", { name: "Try another approach" })
+    )
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Fork adapter exited"
+    )
+    expect(screen.getByRole("dialog")).toBeInTheDocument()
   })
 
   it("chooses the first prompt as a fresh draft and supports search", async () => {
@@ -145,9 +183,6 @@ describe("prompt fork picker", () => {
     await userEvent.click(button)
     expect(onSelect).toHaveBeenCalledTimes(1)
     expect(screen.getByRole("button", { name: "Close" })).toBeDisabled()
-    expect(
-      screen.getByRole("button", { name: enMessages.ResearchBranch.fromLatest })
-    ).toBeDisabled()
     await act(async () => complete(false))
     expect(button).toBeEnabled()
   })

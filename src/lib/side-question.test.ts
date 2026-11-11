@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
+import type { Transport } from "@/lib/transport/types"
 import type { ConversationTimelineTurn } from "@/stores/conversation-runtime-store"
 import {
   buildSideQuestionContext,
+  askSideQuestion,
   truncateSideQuestionSelection,
   unicodeLength,
 } from "./side-question"
@@ -94,6 +96,50 @@ describe("side question context", () => {
   it("clips selections without splitting surrogate pairs", () => {
     expect(truncateSideQuestionSelection("😀".repeat(8_001))).toBe(
       "😀".repeat(8_000)
+    )
+  })
+})
+
+describe("side question transport", () => {
+  it("sends only source identity and text, never client model overrides", async () => {
+    const call = vi.fn().mockResolvedValue({
+      answer: "done",
+      agentType: "codex",
+      model: "actual-model",
+      modelName: "Actual model",
+      contextMessages: 0,
+      contextChars: 0,
+      selectionChars: 0,
+    })
+    const transport = { call } as Pick<Transport, "call"> as Transport
+    const request = {
+      requestId: "request-1",
+      question: "why?",
+      selection: null,
+      context: [],
+      sourceConnectionId: "codex-connection",
+      sourceConversationId: null,
+      sourceAgentType: "codex" as const,
+      model: "forged-model",
+      configValues: { model: "another-provider", effort: "high" },
+    }
+
+    await expect(askSideQuestion(transport, request)).resolves.toMatchObject({
+      model: "actual-model",
+      modelName: "Actual model",
+    })
+    expect(call).toHaveBeenCalledWith(
+      "side_question_ask",
+      {
+        requestId: "request-1",
+        question: "why?",
+        selection: null,
+        context: [],
+        sourceConnectionId: "codex-connection",
+        sourceConversationId: null,
+        sourceAgentType: "codex",
+      },
+      { timeoutMs: 30 * 60_000 }
     )
   })
 })

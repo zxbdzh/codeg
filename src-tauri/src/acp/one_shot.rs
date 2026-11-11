@@ -33,7 +33,9 @@ use tokio_util::sync::CancellationToken;
 use crate::acp::manager::ConnectionManager;
 use crate::acp::plan_approval::{PlanApprovalAnswer, PlanApprovalDecision};
 use crate::acp::question::QuestionAnswer;
-use crate::acp::types::{AcpEvent, ConnectionStatus, PermissionOptionInfo, PromptInputBlock};
+use crate::acp::types::{
+    AcpEvent, ConnectionStatus, PermissionOptionInfo, PromptInputBlock, SessionConfigKindInfo,
+};
 use crate::acp::SessionState;
 use crate::cli_run::policy::{decide_permission, PermissionDecision, PermissionPolicy};
 use crate::db::AppDatabase;
@@ -171,12 +173,36 @@ pub async fn run(
     request: OneShotRequest,
     cancel: &CancellationToken,
 ) -> Result<String, OneShotError> {
+    run_inner(manager, db, data_dir, request, Vec::new(), cancel, false).await
+}
+
+pub(crate) async fn run_with_verified_blocks(
+    manager: &ConnectionManager,
+    db: &AppDatabase,
+    data_dir: &Path,
+    request: OneShotRequest,
+    images: Vec<PromptInputBlock>,
+    cancel: &CancellationToken,
+) -> Result<String, OneShotError> {
+    run_inner(manager, db, data_dir, request, images, cancel, true).await
+}
+
+async fn run_inner(
+    manager: &ConnectionManager,
+    db: &AppDatabase,
+    data_dir: &Path,
+    request: OneShotRequest,
+    images: Vec<PromptInputBlock>,
+    cancel: &CancellationToken,
+    verify_options: bool,
+) -> Result<String, OneShotError> {
     let OneShotRequest {
         agent_type,
         mode_id,
         config_values,
         prompt,
     } = request;
+    let expected = verify_options.then(|| config_values.clone());
     let runtime_env =
         crate::commands::acp::build_session_runtime_env(db, agent_type, None, data_dir)
             .await
@@ -226,17 +252,55 @@ pub async fn run(
             "the agent process ended while it was starting".to_string(),
         ));
     };
+    if let Some(expected) = expected {
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(OneShotError::Cancelled),
+            result = tokio::time::timeout(Duration::from_secs(75), async {
+                loop {
+                    let guard = state.read().await;
+                    if matches!(guard.status, ConnectionStatus::Disconnected | ConnectionStatus::Error) {
+                        return Err(OneShotError::Failed("The side-question agent could not start".into()));
+                    }
+                    if guard.selectors_ready && guard.status == ConnectionStatus::Connected {
+                        // 适配器可能忽略不可用的选项；此时不把默认模型冒充当前模型。
+                        if expected.iter().all(|(id, value)| {
+                            guard.config_options.as_deref().unwrap_or_default().iter().any(|option|
+                                option.id == *id && matches!(&option.kind, SessionConfigKindInfo::Select(select) if select.current_value == *value)
+                            )
+                        }) {
+                            return Ok(());
+                        }
+                        return Err(OneShotError::Failed("The side-question agent did not apply the conversation's model settings".into()));
+                    }
+                    drop(guard);
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }) => result.map_err(|_| OneShotError::Failed("Timed out applying the conversation's model settings".into()))??,
+        }
+    }
     // Subscribed under the read lock, so no event can slip between reading the
     // turn count and registering (see `ConnectionEventStream::subscribe`).
     let (mut rx, turns_before) = {
         let s = state.read().await;
         (s.event_stream().subscribe(), s.turns_completed)
     };
+    if !images.is_empty()
+        && !state
+            .read()
+            .await
+            .prompt_capabilities
+            .as_ref()
+            .is_some_and(|caps| caps.image)
+    {
+        return Err(OneShotError::Failed(
+            "The current agent does not accept image attachments".into(),
+        ));
+    }
+    let mut blocks = vec![PromptInputBlock::Text { text: prompt }];
+    blocks.extend(images);
     manager
-        .send_prompt(
-            &connection_id,
-            vec![PromptInputBlock::Text { text: prompt }],
-        )
+        .send_prompt(&connection_id, blocks)
         .await
         .map_err(|e| OneShotError::Failed(e.to_string()))?;
 

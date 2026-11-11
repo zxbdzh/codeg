@@ -1,21 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { getFolderConversation } from "@/lib/api"
-import { leafIds } from "@/lib/tab-group-layout"
 import type { DbConversationSummary, FolderDetail } from "@/lib/types"
 import {
   resetAppWorkspaceStore,
   useAppWorkspaceStore,
 } from "@/stores/app-workspace-store"
 import { resetTabStore, useTabStore } from "@/stores/tab-store"
-import {
-  openResearchConversation,
-  returnResearchSummary,
-} from "./research-branch-navigation"
-import {
-  clearResearchSummaryHandoffs,
-  consumeResearchSummaries,
-} from "./research-summary-handoff"
+import { openForkConversation } from "./research-branch-navigation"
 
 vi.mock("@/lib/api", () => ({
   listOpenedTabs: vi.fn(),
@@ -50,7 +42,6 @@ function summary(id: number): DbConversationSummary {
 beforeEach(() => {
   resetTabStore()
   resetAppWorkspaceStore()
-  clearResearchSummaryHandoffs()
   vi.mocked(getFolderConversation).mockReset()
   const folder = { id: 1, name: "repo", path: "/repo" } as FolderDetail
   useAppWorkspaceStore.setState({
@@ -61,24 +52,11 @@ beforeEach(() => {
   useTabStore.getState().openTab(1, 1, "claude_code", true)
 })
 
-describe("research navigation", () => {
-  it("keeps both conversations open and splits beside the source", async () => {
-    await openResearchConversation(2, 1)
+describe("fork navigation", () => {
+  it("keeps the source conversation open and opens the fork as a normal tab", async () => {
+    await openForkConversation(2)
     const state = useTabStore.getState()
     expect(state.rawTabs.map((tab) => tab.conversationId)).toEqual([1, 2])
-    expect(leafIds(state.groupLayout)).toHaveLength(2)
-    expect(getFolderConversation).not.toHaveBeenCalled()
-  })
-
-  it("hands the chosen summary back as a draft without sending it", async () => {
-    await openResearchConversation(2, 1)
-    await returnResearchSummary(1, "chosen conclusion")
-    const state = useTabStore.getState()
-    expect(
-      state.rawTabs.find((tab) => tab.id === state.activeTabId)?.conversationId
-    ).toBe(1)
-    expect(consumeResearchSummaries(1)).toEqual(["chosen conclusion"])
-    expect(consumeResearchSummaries(2)).toEqual([])
     expect(getFolderConversation).not.toHaveBeenCalled()
   })
 })

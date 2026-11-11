@@ -1,8 +1,7 @@
 pub mod acp;
+pub mod ai_assistant;
 #[cfg(feature = "tauri-runtime")]
 pub mod app_update;
-pub mod ai_assistant;
-pub mod tag_suggestions;
 pub mod assistants;
 pub mod automation;
 pub mod background;
@@ -27,9 +26,6 @@ pub mod clipboard;
 pub mod codex_catalog;
 /// The ✨ commit message generator (both runtimes).
 pub mod commit_message;
-pub mod side_question;
-pub mod research_branch;
-pub mod file_checkpoint;
 /// Computer use: sharing windows, the helper, the agent reads — the desktop
 /// app's, and codeg-server's where it is let share the screen it runs on.
 pub mod computer;
@@ -63,13 +59,13 @@ pub mod logging;
 pub mod mcp;
 pub mod mcp_service;
 pub mod model_provider;
+#[cfg(feature = "tauri-runtime")]
+pub mod notification;
 pub mod office_tools;
+pub mod open_in;
 /// OpenCode 2's provider credentials, through OpenCode's own API (both
 /// runtimes).
 pub mod opencode_credentials;
-pub mod open_in;
-#[cfg(feature = "tauri-runtime")]
-pub mod notification;
 pub mod pet;
 pub mod project_boot;
 pub mod prompt_stash;
@@ -79,9 +75,12 @@ pub mod quick_messages;
 pub mod remote_proxy;
 #[cfg(feature = "tauri-runtime")]
 pub mod remote_workspace;
+pub mod research_branch;
 pub mod science;
 pub mod session_info;
+pub mod side_question;
 pub mod system_settings;
+pub mod tag_suggestions;
 pub mod terminal;
 pub mod token_usage;
 pub mod turn_window;

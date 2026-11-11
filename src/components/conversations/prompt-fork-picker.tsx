@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input"
 import { getFolderConversation } from "@/lib/api"
 import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 import { unescapeComposerText } from "@/lib/composer-copy-text"
-import type { MessageTurn } from "@/lib/types"
+import type { AgentType, MessageTurn } from "@/lib/types"
 import {
   snapshotForkPrompt,
   type ForkPromptSnapshot,
@@ -24,7 +24,9 @@ import {
 export function PromptForkPicker({
   conversationId,
   onSelect,
-  onTail,
+  unavailableReason,
+  operationError,
+  embedded = false,
 }: {
   conversationId: number
   onSelect: (
@@ -33,17 +35,24 @@ export function PromptForkPicker({
     fromStart?: boolean,
     sourcePrompt?: ForkPromptSnapshot
   ) => Promise<boolean>
-  onTail: () => void
+  unavailableReason?: string | null
+  operationError?: string
+  embedded?: boolean
 }) {
   const t = useTranslations("ResearchBranch")
   const [turns, setTurns] = useState<MessageTurn[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [pending, setPending] = useState(false)
   const [attempt, setAttempt] = useState(0)
-  const [granularity, setGranularity] = useState<"message" | "turn" | null>(
-    null
-  )
+  const [agentType, setAgentType] = useState<AgentType | null>(null)
+  const granularity =
+    agentType === "claude_code"
+      ? "message"
+      : agentType === "codex" || agentType === "deepseek"
+        ? "turn"
+        : null
 
   useEffect(() => {
     let current = true
@@ -51,14 +60,7 @@ export function PromptForkPicker({
       (detail) => {
         if (current) {
           setTurns(detail.turns)
-          const agent = detail.summary?.agent_type
-          setGranularity(
-            agent === "claude_code"
-              ? "message"
-              : agent === "codex" || agent === "deepseek"
-                ? "turn"
-                : null
-          )
+          setAgentType(detail.summary?.agent_type ?? null)
         }
       },
       (reason: unknown) => {
@@ -84,7 +86,12 @@ export function PromptForkPicker({
     for (let previous = index - 1; previous >= 0; previous -= 1) {
       if (turns?.[previous].role === "user") break
       if (turns?.[previous].role === "assistant") {
-        hasAnchor = true
+        const anchor = turns[previous]
+        hasAnchor =
+          (agentType !== "codex" && Boolean(anchor.agent_message_id)) ||
+          anchor.blocks.some(
+            (block) => block.type === "text" && block.text.trim().length > 0
+          )
         break
       }
     }
@@ -104,7 +111,7 @@ export function PromptForkPicker({
           (turns ?? []).slice(0, index).filter((item) => item.role === "user")
             .length + 1,
         fromStart,
-        supported: (hasAnchor || fromStart) && textOnly,
+        supported: (fromStart || (hasAnchor && !unavailableReason)) && textOnly,
       },
     ]
   })
@@ -112,41 +119,53 @@ export function PromptForkPicker({
     prompt.text.toLocaleLowerCase().includes(search.toLocaleLowerCase().trim())
   )
 
-  return (
-    <DialogContent
-      showCloseButton={false}
-      className="max-w-xl gap-3 rounded-lg p-4"
-      onEscapeKeyDown={(event) => {
-        if (pending) event.preventDefault()
-      }}
-      onPointerDownOutside={(event) => {
-        if (pending) event.preventDefault()
-      }}
-    >
-      <DialogHeader>
-        <DialogTitle className="text-[15px]">{t("choosePrompt")}</DialogTitle>
-        <DialogDescription className="text-[13px]">
-          {t("choosePromptHelp")}
-        </DialogDescription>
-      </DialogHeader>
+  const content = (
+    <>
+      {embedded ? (
+        <div className="space-y-2">
+          <h3 className="text-[13px] font-medium">{t("choosePrompt")}</h3>
+          <p className="text-[13px] leading-relaxed text-muted-foreground">
+            {t("choosePromptHelp")}
+          </p>
+        </div>
+      ) : (
+        <DialogHeader>
+          <DialogTitle className="text-[15px]">{t("choosePrompt")}</DialogTitle>
+          <DialogDescription className="text-[13px]">
+            {t("choosePromptHelp")}
+          </DialogDescription>
+        </DialogHeader>
+      )}
       {granularity && (
         <p className="text-[11px] text-muted-foreground">
           {t(granularity === "message" ? "messageBoundary" : "turnBoundary")}{" "}
           {t("sharedDirectory")}
         </p>
       )}
-      <DialogClose asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="absolute top-3 right-3 rounded-md"
-          disabled={pending}
-          aria-label={t("close")}
-        >
-          <X className="size-4" strokeWidth={1.5} aria-hidden="true" />
-        </Button>
-      </DialogClose>
+      {unavailableReason && (
+        <p role="status" className="text-[13px] text-muted-foreground">
+          {unavailableReason}
+        </p>
+      )}
+      {(actionError || operationError) && (
+        <p role="alert" className="text-[13px] text-destructive">
+          {actionError || operationError}
+        </p>
+      )}
+      {!embedded && (
+        <DialogClose asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="absolute top-3 right-3 rounded-md"
+            disabled={pending}
+            aria-label={t("close")}
+          >
+            <X className="size-4" strokeWidth={1.5} aria-hidden="true" />
+          </Button>
+        </DialogClose>
+      )}
       <Input
         className="h-8 rounded-md text-[13px]"
         aria-label={t("searchPrompts")}
@@ -178,7 +197,13 @@ export function PromptForkPicker({
           {t("loading")}
         </p>
       ) : (
-        <div className="max-h-[min(50vh,28rem)] overflow-y-auto">
+        <div
+          className={
+            embedded
+              ? "min-h-0 flex-1 overflow-y-auto"
+              : "max-h-[min(50vh,28rem)] overflow-y-auto"
+          }
+        >
           <ul aria-label={t("yourPrompts")} className="divide-y divide-border">
             {filtered.map((prompt) => (
               <li key={prompt.id}>
@@ -193,12 +218,18 @@ export function PromptForkPicker({
                   onClick={async () => {
                     if (pending) return
                     setPending(true)
+                    setActionError(null)
                     try {
                       await onSelect(
                         prompt.id,
                         prompt.text,
                         prompt.fromStart,
                         prompt.snapshot
+                      )
+                    } catch (reason: unknown) {
+                      setActionError(
+                        extractAppCommandError(reason)?.message ??
+                          toErrorMessage(reason)
                       )
                     } finally {
                       setPending(false)
@@ -225,23 +256,33 @@ export function PromptForkPicker({
           )}
         </div>
       )}
-      <div className="border-t border-border pt-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 rounded-md text-[13px]"
-          disabled={pending}
-          onClick={onTail}
-        >
-          {t("fromLatest")}
-        </Button>
-      </div>
       {pending && (
         <p role="status" className="text-[11px] text-muted-foreground">
           {t("creating")}
         </p>
       )}
+    </>
+  )
+
+  if (embedded)
+    return (
+      <section className="flex h-full min-h-0 flex-col gap-3 p-3">
+        {content}
+      </section>
+    )
+
+  return (
+    <DialogContent
+      showCloseButton={false}
+      className="max-w-xl gap-3 rounded-lg p-4"
+      onEscapeKeyDown={(event) => {
+        if (pending) event.preventDefault()
+      }}
+      onPointerDownOutside={(event) => {
+        if (pending) event.preventDefault()
+      }}
+    >
+      {content}
     </DialogContent>
   )
 }

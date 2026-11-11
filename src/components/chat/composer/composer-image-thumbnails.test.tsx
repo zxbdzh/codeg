@@ -74,6 +74,15 @@ beforeEach(() => {
 })
 
 describe("ComposerImageThumbnails", () => {
+  it("keeps sent images previewable without a remove action", () => {
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <ComposerImageThumbnails attachments={[ATTACHMENT]} />
+      </NextIntlClientProvider>
+    )
+    expect(screen.getByAltText("shot.png")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Remove shot.png" })).toBeNull()
+  })
   it("offers Copy image on right-click instead of the composer text menu", async () => {
     renderStrip()
 

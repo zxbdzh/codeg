@@ -43,7 +43,7 @@ export function ComposerImageThumbnails({
   onRemove,
 }: {
   attachments: ImageInputAttachment[]
-  onRemove: (id: string) => void
+  onRemove?: (id: string) => void
 }) {
   const t = useTranslations("Folder.chat.messageInput")
   // The shared image actions live in the transcript's namespace; reusing the
@@ -85,14 +85,16 @@ export function ComposerImageThumbnails({
               <Loader2 className="h-4 w-4 animate-spin text-foreground/80" />
             </div>
           ) : null}
-          <button
-            type="button"
-            onClick={() => onRemove(attachment.id)}
-            className="absolute right-1 top-1 rounded-sm bg-background/70 p-0.5 hover:bg-background"
-            aria-label={t("removeAttachmentAria", { name: attachment.name })}
-          >
-            <X className="h-3 w-3" />
-          </button>
+          {onRemove && (
+            <button
+              type="button"
+              onClick={() => onRemove(attachment.id)}
+              className="absolute right-1 top-1 rounded-sm bg-background/70 p-0.5 hover:bg-background"
+              aria-label={t("removeAttachmentAria", { name: attachment.name })}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
         </ImageActions>
       ))}
       <ImagePreviewDialog

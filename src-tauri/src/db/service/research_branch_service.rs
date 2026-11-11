@@ -1,15 +1,15 @@
 use chrono::Utc;
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, Condition, ConnectionTrait,
-    DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
+    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection,
+    EntityTrait, QueryFilter, Set, TransactionTrait,
 };
+#[cfg(test)]
+use sea_orm::{Condition, QueryOrder};
 use serde::Serialize;
 
 use crate::db::entities::{conversation, research_branch};
 use crate::db::error::DbError;
-
-pub const MAX_SUMMARY_CHARS: usize = 12_000;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,7 +23,6 @@ pub struct ResearchBranchInfo {
     pub boundary: String,
     pub title: String,
     pub source_title: String,
-    pub summary: String,
     pub created_at: String,
 }
 
@@ -54,7 +53,6 @@ async fn info<C: ConnectionTrait>(
         boundary: row.boundary,
         title: branch.title.unwrap_or_default(),
         source_title: source.title.unwrap_or_default(),
-        summary: row.summary,
         created_at: row.created_at.to_rfc3339(),
     })
 }
@@ -85,6 +83,7 @@ async fn by_request_conn<C: ConnectionTrait>(
     }
 }
 
+#[cfg(test)]
 pub async fn by_branch(
     conn: &DatabaseConnection,
     branch_id: i32,
@@ -97,6 +96,7 @@ pub async fn by_branch(
     info(conn, row).await
 }
 
+#[cfg(test)]
 pub async fn list(conn: &DatabaseConnection, id: i32) -> Result<Vec<ResearchBranchInfo>, DbError> {
     live_conversation(conn, id).await?;
     let rows = research_branch::Entity::find()
@@ -119,36 +119,7 @@ pub async fn list(conn: &DatabaseConnection, id: i32) -> Result<Vec<ResearchBran
     Ok(results)
 }
 
-pub fn validate_summary(summary: &str) -> Result<(), DbError> {
-    if summary.chars().take(MAX_SUMMARY_CHARS + 1).count() > MAX_SUMMARY_CHARS {
-        return Err(DbError::Validation(
-            "Research summary exceeds 12000 Unicode characters".into(),
-        ));
-    }
-    Ok(())
-}
-
-pub async fn save_summary(
-    conn: &DatabaseConnection,
-    branch_id: i32,
-    summary: String,
-) -> Result<ResearchBranchInfo, DbError> {
-    validate_summary(&summary)?;
-    let tx = conn.begin().await?;
-    claim_writer(&tx).await?;
-    let row = research_branch::Entity::find()
-        .filter(research_branch::Column::BranchConversationId.eq(branch_id))
-        .one(&tx)
-        .await?
-        .ok_or_else(|| DbError::NotFound(format!("Research branch {branch_id}")))?;
-    info(&tx, row.clone()).await?;
-    let mut active: research_branch::ActiveModel = row.into();
-    active.summary = Set(summary);
-    let result = info(&tx, active.update(&tx).await?).await?;
-    tx.commit().await?;
-    Ok(result)
-}
-
+#[cfg(test)]
 pub async fn create(
     conn: &DatabaseConnection,
     request_id: &str,
@@ -157,8 +128,16 @@ pub async fn create(
     branch_session_id: &str,
     source_turn_id: Option<String>,
 ) -> Result<ResearchBranchInfo, DbError> {
-    create_with_boundary(conn, request_id, source_id, source_session_id,
-        branch_session_id, source_turn_id, "session_tail").await
+    create_with_boundary(
+        conn,
+        request_id,
+        source_id,
+        source_session_id,
+        branch_session_id,
+        source_turn_id,
+        "session_tail",
+    )
+    .await
 }
 
 pub async fn create_with_boundary(
@@ -174,7 +153,9 @@ pub async fn create_with_boundary(
         return Err(DbError::Validation("Unknown research boundary".into()));
     }
     if boundary == "before_prompt" && source_turn_id.as_deref().is_none_or(str::is_empty) {
-        return Err(DbError::Validation("A historical fork must name its prompt".into()));
+        return Err(DbError::Validation(
+            "A historical fork must name its prompt".into(),
+        ));
     }
     if let Some(existing) = by_request(conn, request_id, source_id).await? {
         return Ok(existing);
@@ -219,9 +200,8 @@ pub async fn create_with_boundary(
     }
     let now = Utc::now();
     let title = format!(
-        "[{}] {}",
-        if boundary == "before_prompt" { "Fork" } else { "Research" },
-        source.title.as_deref().unwrap_or("Research")
+        "[Fork] {}",
+        source.title.as_deref().unwrap_or("Conversation")
     );
     let mut branch: conversation::ActiveModel = source.into();
     branch.id = NotSet;
@@ -237,7 +217,7 @@ pub async fn create_with_boundary(
     branch.pinned_at = Set(None);
     branch.created_at = Set(now);
     branch.updated_at = Set(now);
-    branch.source = Set(Some("research".into()));
+    branch.source = Set(Some("fork".into()));
     let branch = branch.insert(&tx).await?;
     // 新会话和来源关系同事务提交，任何失败都不能留下侧栏可见的半行。
     let row = research_branch::ActiveModel {
@@ -303,14 +283,27 @@ mod tests {
         let source_id = source(&db).await;
         let before = live_conversation(&db.conn, source_id).await.unwrap();
         let branch = create_with_boundary(
-            &db.conn, "historical", source_id, "S1", "S2",
-            Some("turn-4".into()), "before_prompt",
-        ).await.unwrap();
+            &db.conn,
+            "historical",
+            source_id,
+            "S1",
+            "S2",
+            Some("turn-4".into()),
+            "before_prompt",
+        )
+        .await
+        .unwrap();
         assert_eq!(branch.boundary, "before_prompt");
         assert_eq!(branch.source_turn_id.as_deref(), Some("turn-4"));
         assert!(branch.title.starts_with("[Fork]"));
-        assert_eq!(before, live_conversation(&db.conn, source_id).await.unwrap());
-        let loaded = by_request(&db.conn, "historical", source_id).await.unwrap().unwrap();
+        assert_eq!(
+            before,
+            live_conversation(&db.conn, source_id).await.unwrap()
+        );
+        let loaded = by_request(&db.conn, "historical", source_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(loaded.branch_session_id, "S2");
         assert_eq!(loaded.source_turn_id, branch.source_turn_id);
     }
@@ -348,7 +341,7 @@ mod tests {
         assert_eq!(row.parent_tool_use_id, None);
         assert_eq!(row.delegation_call_id, None);
         assert_eq!(row.kind, conversation::ConversationKind::Regular);
-        assert_eq!(row.source.as_deref(), Some("research"));
+        assert_eq!(row.source.as_deref(), Some("fork"));
         assert!(row.title_locked);
         assert_eq!(branch.source_turn_id.as_deref(), Some("turn-2"));
         assert_eq!(branch.boundary, "session_tail");
@@ -375,18 +368,6 @@ mod tests {
             conversation::Entity::find().count(&db.conn).await.unwrap(),
             2
         );
-        let draft = "结论😀".repeat(4_000);
-        save_summary(&db.conn, first.branch_conversation_id, draft.clone())
-            .await
-            .unwrap();
-        assert_eq!(
-            by_branch(&db.conn, first.branch_conversation_id)
-                .await
-                .unwrap()
-                .summary,
-            draft
-        );
-        assert!(validate_summary(&"😀".repeat(12_001)).is_err());
         assert!(by_request(&db.conn, "same", source_id + 1).await.is_err());
         conversation_service::soft_delete(&db.conn, first.branch_conversation_id)
             .await
@@ -398,10 +379,6 @@ mod tests {
         ));
         assert!(matches!(
             by_request(&db.conn, "same", source_id).await,
-            Err(DbError::NotFound(_))
-        ));
-        assert!(matches!(
-            save_summary(&db.conn, first.branch_conversation_id, "new".into()).await,
             Err(DbError::NotFound(_))
         ));
     }
@@ -485,9 +462,6 @@ mod tests {
         let branch = create(&db.conn, "restart", source_id, "S1", "S2", None)
             .await
             .unwrap();
-        save_summary(&db.conn, branch.branch_conversation_id, "持久草稿😀".into())
-            .await
-            .unwrap();
         db.conn.close().await.unwrap();
         let url = format!(
             "sqlite:{}?mode=rwc",
@@ -499,7 +473,6 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(restored.id, branch.id);
-        assert_eq!(restored.summary, "持久草稿😀");
         assert_eq!(
             list(&conn, branch.branch_conversation_id)
                 .await

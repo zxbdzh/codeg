@@ -1,6 +1,6 @@
-//! 持久研究旁支：主连接只读，原生 fork 只发往可清理的独立连接。
+//! 历史会话分叉：复制对话上下文，保持源会话与工作区文件不变。
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
@@ -22,7 +22,6 @@ use crate::db::service::{
 };
 use crate::db::AppDatabase;
 use crate::models::{ContentBlock, MessageTurn, TurnRole};
-use crate::side_question::{AskRequest, ContextEntry, ContextRole};
 use crate::web::event_bridge::{
     emit_event, ConversationChange, EventEmitter, CONVERSATION_CHANGED_EVENT,
 };
@@ -152,11 +151,6 @@ fn select_prompt_boundary(
             fingerprints: history_fingerprints(&turns[..index])?,
         },
     ))
-}
-
-#[derive(Serialize)]
-pub struct SummaryAnswer {
-    pub summary: String,
 }
 
 pub fn db_error(error: DbError) -> AppCommandError {
@@ -443,6 +437,11 @@ pub async fn create(
             }
             persist(&db, &record).await?
         } else {
+            if request.source_turn_id.is_none() || request.source_prompt.is_none() {
+                return Err(AppCommandError::invalid_input(
+                    "Choose one of your saved messages to fork the conversation",
+                ));
+            }
             create_inner(&db, &manager, &data_dir, &path, request).await?
         };
         // 已有关系是最终幂等凭据；日志清理失败不把成功操作伪装为失败。
@@ -638,7 +637,12 @@ async fn create_inner(
     // 先落 pending：崩溃在协议响应和本地记录之间时，宁可明确未知，也不能重试制造第二个 S2。
     append_recovery(recovery_file, &record, true).await?;
     if cmd_tx
-        .send(ConnectionCommand::Fork { fork_point, reply })
+        .send(ConnectionCommand::Fork {
+            fork_point,
+            source_session_id: (agent == crate::models::AgentType::Codex)
+                .then(|| session_id.clone()),
+            reply,
+        })
         .await
         .is_err()
     {
@@ -704,9 +708,17 @@ async fn wait_ready(
             }
             if state.selectors_ready && state.status == ConnectionStatus::Connected {
                 idle_gate(&state).map_err(acp_error)?;
-                if state.external_id.as_deref() != Some(source_session_id) {
+                let correct_session = if state.agent_type == crate::models::AgentType::Codex {
+                    state
+                        .external_id
+                        .as_deref()
+                        .is_some_and(|id| !id.is_empty() && id != source_session_id)
+                } else {
+                    state.external_id.as_deref() == Some(source_session_id)
+                };
+                if !correct_session {
                     return Err(AppCommandError::task_execution_failed(
-                        "Agent did not resume the source session; refusing a fresh-session fork",
+                        "The temporary fork connection has an unexpected session identity",
                     ));
                 }
                 return Ok(());
@@ -719,149 +731,6 @@ async fn wait_ready(
     .map_err(|_| {
         AppCommandError::task_execution_failed("Research connection readiness timed out")
     })?
-}
-
-fn snapshot(turns: &[MessageTurn]) -> Vec<ContextEntry> {
-    let mut remaining = 12_000;
-    let mut entries = Vec::new();
-    let Some(completed_tail) = turns
-        .iter()
-        .rposition(|turn| matches!(turn.role, TurnRole::Assistant) && turn.completed_at.is_some())
-    else {
-        return entries;
-    };
-    let turns = &turns[..=completed_tail];
-    for turn in turns.iter().rev() {
-        if entries.len() == 12 || remaining == 0 {
-            break;
-        }
-        let role = match turn.role {
-            TurnRole::User => ContextRole::User,
-            TurnRole::Assistant if turn.completed_at.is_some() => ContextRole::Assistant,
-            _ => continue,
-        };
-        let text: String = turn
-            .blocks
-            .iter()
-            .filter_map(|block| match block {
-                ContentBlock::Text { text } => Some(text.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        let text: String = text
-            .chars()
-            .rev()
-            .take(remaining)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-        if text.trim().is_empty() {
-            continue;
-        }
-        remaining -= text.chars().count();
-        entries.push(ContextEntry { role, text });
-    }
-    entries.reverse();
-    entries
-}
-
-pub async fn generate_summary(
-    db: &AppDatabase,
-    manager: &ConnectionManager,
-    data_dir: &Path,
-    branch_id: i32,
-    request_id: String,
-) -> Result<SummaryAnswer, AppCommandError> {
-    let branch = service::by_branch(&db.conn, branch_id)
-        .await
-        .map_err(db_error)?;
-    let states = {
-        let connections = manager.connections.lock().await;
-        let mut connections = connections
-            .values()
-            .map(|connection| {
-                (
-                    connection.id.clone(),
-                    connection.state.clone(),
-                    connection.prompt_lock.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
-        connections.sort_by(|left, right| left.0.cmp(&right.0));
-        connections
-    };
-    let mut guards = Vec::new();
-    for (_, state, prompt_lock) in &states {
-        let state = state.read().await;
-        if state.conversation_id == Some(branch_id)
-            || state.external_id.as_deref() == Some(branch.branch_session_id.as_str())
-        {
-            drop(state);
-            guards.push(
-                prompt_lock
-                    .clone()
-                    .try_lock_owned()
-                    .map_err(|_| acp_error(AcpError::TurnInProgress))?,
-            );
-        }
-    }
-    for (_, state, _) in &states {
-        let state = state.read().await;
-        if (state.conversation_id == Some(branch_id)
-            || state.external_id.as_deref() == Some(branch.branch_session_id.as_str()))
-            && (state.turn_in_flight
-                || state.live_message.is_some()
-                || state.agent_initiated_turn
-                || state.status == ConnectionStatus::Prompting
-                || state.background_outstanding > 0
-                || !state.active_delegations.is_empty()
-                || state
-                    .async_tasks
-                    .values()
-                    .any(|task| !crate::acp::types::async_task_state_is_terminal(&task.state)))
-        {
-            return Err(acp_error(AcpError::TurnInProgress));
-        }
-    }
-    let row = service::live_conversation(&db.conn, branch_id)
-        .await
-        .map_err(db_error)?;
-    if row.status == crate::db::entities::conversation::ConversationStatus::InProgress {
-        return Err(acp_error(AcpError::TurnInProgress));
-    }
-    if row.external_id.as_deref() != Some(branch.branch_session_id.as_str()) {
-        return Err(AppCommandError::invalid_input(
-            "Research branch session changed; refusing to summarize a different history",
-        ));
-    }
-    let agent =
-        serde_json::from_value(serde_json::Value::String(row.agent_type)).map_err(|error| {
-            AppCommandError::invalid_input(format!("Invalid branch agent: {error}"))
-        })?;
-    let turns = read_turns(db, agent, branch.branch_session_id).await?;
-    let context = snapshot(&turns);
-    drop(guards);
-    if context.is_empty() {
-        return Err(AppCommandError::invalid_input(
-            "Research branch has no completed body text",
-        ));
-    }
-    let answer = crate::side_question::ask(db, manager, data_dir, AskRequest {
-        request_id, question: "仅根据提供的已完成研究旁支正文，整理可供主会话参考的摘要草稿，包括结论、证据、未决问题和建议。不要执行任何操作，不要声称已更改主会话。保持原对话语言，最多 12000 个 Unicode 字符。".into(),
-        selection: None, context, mode_id: None, config_values: BTreeMap::new(),
-    }).await?;
-    service::by_branch(&db.conn, branch_id)
-        .await
-        .map_err(db_error)?;
-    Ok(SummaryAnswer {
-        summary: answer
-            .answer
-            .chars()
-            .take(service::MAX_SUMMARY_CHARS)
-            .collect(),
-    })
 }
 
 #[cfg(test)]
@@ -1084,36 +953,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn research_branch_summary_snapshot_is_bounded_unicode_body_only() {
-        let turns = vec![
-            turn(TurnRole::System, "private system text".into()),
-            turn(TurnRole::User, "question".into()),
-            turn(TurnRole::Assistant, "研究😀".repeat(5_000)),
-        ];
-        let context = snapshot(&turns);
-        assert_eq!(context.len(), 1);
-        assert_eq!(context[0].role, ContextRole::Assistant);
-        assert_eq!(context[0].text.chars().count(), 12_000);
-        let turns = (0..20)
-            .map(|index| turn(TurnRole::Assistant, index.to_string()))
-            .collect::<Vec<_>>();
-        let context = snapshot(&turns);
-        assert_eq!(context.len(), 12);
-        assert_eq!(context.first().unwrap().text, "8");
-        assert_eq!(context.last().unwrap().text, "19");
-        let mut unfinished = turn(TurnRole::Assistant, "incomplete".into());
-        unfinished.completed_at = None;
-        let context = snapshot(&[
-            turn(TurnRole::Assistant, "completed".into()),
-            turn(TurnRole::User, "dangling prompt".into()),
-            unfinished.clone(),
-        ]);
-        assert_eq!(context.len(), 1);
-        assert_eq!(context[0].text, "completed");
-        assert!(snapshot(&[unfinished]).is_empty());
-    }
-
     #[tokio::test]
     async fn research_branch_request_lock_serializes_only_matching_requests() {
         let first = request_lock("test-duplicate".into());
@@ -1230,6 +1069,13 @@ mod tests {
         state.write().await.fork_supported = true;
         state.write().await.external_id = Some("fresh-fallback".into());
         assert!(wait_ready(&manager, "temp", "S1").await.is_err());
+        state.write().await.agent_type = AgentType::Codex;
+        assert!(wait_ready(&manager, "temp", "S1").await.is_ok());
+        state.write().await.external_id = Some("S1".into());
+        assert!(wait_ready(&manager, "temp", "S1").await.is_err());
+        state.write().await.external_id = None;
+        assert!(wait_ready(&manager, "temp", "S1").await.is_err());
+        state.write().await.agent_type = AgentType::ClaudeCode;
         state.write().await.external_id = Some("S1".into());
         manager
             .connections

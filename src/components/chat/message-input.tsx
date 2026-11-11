@@ -109,10 +109,11 @@ import {
   restampSkillPrefixes,
 } from "@/components/chat/composer/composer-commands"
 import { useComposerChromeFocus } from "@/components/chat/composer/use-composer-chrome-focus"
+import { composerEditableMinHeight } from "@/components/chat/composer/composer-sizing"
 import {
-  composerBoxMinHeight,
-  composerEditableMinHeight,
-} from "@/components/chat/composer/composer-sizing"
+  ComposerSurface,
+  ComposerToolbar,
+} from "@/components/chat/composer/composer-surface"
 import {
   buildKnownInvocations,
   commandToReference,
@@ -1914,7 +1915,6 @@ export function MessageInput({
   // The box's floor and the editable area's are two halves of one number — see
   // composer-sizing.ts for the arithmetic and for why stating both is what
   // keeps the layout off free-space distribution (#746).
-  const boxMinHeight = composerBoxMinHeight(tall)
   const editableMinHeight = composerEditableMinHeight(tall, hasImageAttachments)
 
   // The agent's settings — its config options, or the legacy mode list for an
@@ -2164,46 +2164,14 @@ export function MessageInput({
               context menu — whose Paste still works over the editor text — is
               not suppressed. Desktop/secure-web get the full custom menu. */}
           <ContextMenuTrigger asChild disabled={!clipboardReadSupported}>
-            <div
+            <ComposerSurface
               {...chromeFocus}
               onContextMenuCapture={handleComposerContextMenu}
-              className={cn(
-                // `codeg-composer-chrome` paints the text I-beam across the box's
-                // blank areas (padding, the dead space below a short message, the
-                // action-bar gaps) so the whole input reads as clickable-to-type;
-                // interactive controls re-assert their own cursor (see globals.css).
-                // Resting border uses `border-foreground/20` (a touch darker than
-                // the default `border-input`, which is near-invisible at rest and
-                // vanishes over a workspace background image); it adapts per theme
-                // (dark ink in light mode, light ink in dark) and stays legible.
-                // Focus still swaps to `border-ring` below.
-                "codeg-composer-chrome @container relative flex flex-col rounded-xl border border-foreground/20 bg-transparent transition-colors",
-                boxMinHeight,
-                // Standard focus ring — always shown when the composer is
-                // focused (the plain default input style). `bg-background
-                // ws-transparent-bg`: opaque surface normally, but with a
-                // workspace-bg image the composer goes transparent to reveal the
-                // real image like the rest of the canvas (no frosted treatment) —
-                // the border stays. Off (no image) it's the plain background,
-                // unchanged. When the folder/branch row is attached below, the
-                // solid surface + an INSET focus ring live here so the shared
-                // rounded box (clipped by the wrapper) reads as one control and
-                // the ring isn't clipped away.
-                folderBranchPickerAttached
-                  ? "bg-background ws-transparent-bg focus-within:border-ring focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-ring/50"
-                  : "focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
-                // Active session, tiled across multiple sessions: a gradient
-                // flows around the border to mark which tile is active — but ONLY
-                // while the composer itself is not focused. Focusing it hides the
-                // flow (globals.css) so the default focus ring above takes over.
-                // A lone/non-tiled session (showActiveFlow=false) and inactive
-                // tiles show the plain default border.
-                showActiveFlow && "codeg-composer-flow",
-                !folderBranchPickerAttached &&
-                  showDragActive &&
-                  "ring-1 ring-primary/40",
-                className
-              )}
+              attached={folderBranchPickerAttached}
+              activeFlow={showActiveFlow}
+              dragActive={showDragActive}
+              tall={tall}
+              className={className}
             >
               <ConversationContextBar
                 hasExtraContent={hasImageAttachments}
@@ -2249,7 +2217,7 @@ export function MessageInput({
                 // (see above); RichComposer explains the basis.
                 className={cn("grow", editableMinHeight)}
               />
-              <div className="flex shrink-0 items-end justify-between gap-1 px-2 pb-2">
+              <ComposerToolbar>
                 <div className="flex min-w-0 items-end gap-1">
                   <ComposerAddMenu
                     disabled={disabled}
@@ -2300,13 +2268,13 @@ export function MessageInput({
                   )}
                 </div>
                 <div className="shrink-0">{actionButtons}</div>
-              </div>
+              </ComposerToolbar>
               {showDragActive && (
                 <div className="pointer-events-none absolute inset-1 z-20 flex items-center justify-center rounded-md border border-dashed border-primary/50 bg-background/80 text-xs text-muted-foreground">
                   {t("dropFilesToAttach")}
                 </div>
               )}
-            </div>
+            </ComposerSurface>
           </ContextMenuTrigger>
           <ContextMenuContent>
             {contextToken && composerTokenOpenTarget(contextToken) !== null && (

@@ -69,18 +69,18 @@ import {
 } from "@/components/message/goal-control-context"
 import { useAdvertisedGoalActions } from "@/hooks/use-goal-actions"
 import { ConversationShell } from "@/components/chat/conversation-shell"
-import { ResearchBranchPanel } from "@/components/conversations/research-branch-panel"
+import {
+  useConversationForkStore,
+  type ConversationForkTarget,
+} from "@/stores/conversation-fork-store"
 import { ConversationForkProgress } from "@/components/conversations/conversation-fork-progress"
+import { openForkConversation } from "@/lib/research-branch-navigation"
 import {
-  openResearchConversation,
-  returnResearchSummary,
-} from "@/lib/research-branch-navigation"
-import {
-  consumeResearchSummaries,
+  consumeForkConversationPrompt,
   consumeForkPromptDraft,
   parkForkPromptDraft,
-  parkResearchSummary,
-  RESEARCH_SUMMARY_READY_EVENT,
+  parkForkConversationPrompt,
+  FORK_PROMPT_READY_EVENT,
 } from "@/lib/research-summary-handoff"
 import {
   createResearchBranch,
@@ -1425,19 +1425,28 @@ const ConversationTabView = memo(function ConversationTabView({
       }
       const connectionId = conn.connectionId
       const sourceConversationId = dbConvIdRef.current
+      const unavailable =
+        !connectionId ||
+        connStatusRef.current === "disconnected" ||
+        connStatusRef.current === "error"
+          ? "connectionRequired"
+          : conn.isViewer
+            ? "viewer"
+            : connStatusRef.current === "prompting"
+              ? "waitForCompletion"
+              : !connectionReadyRef.current || !conn.selectorsReady
+                ? "connectionPending"
+                : !conn.supportsFork
+                  ? "unsupported"
+                  : null
       if (
+        unavailable ||
         !connectionId ||
         sourceConversationId == null ||
         connStatusRef.current !== "connected" ||
         promptForkRequestRef.current
       ) {
-        toast.info(
-          tResearch(
-            connStatusRef.current === "prompting"
-              ? "waitForCompletion"
-              : "connectionRequired"
-          )
-        )
+        toast.info(tResearch(unavailable ?? "connectionRequired"))
         return false
       }
       const requestId =
@@ -1463,8 +1472,8 @@ const ConversationTabView = memo(function ConversationTabView({
         if (!mountedRef.current || dbConvIdRef.current !== sourceConversationId)
           return true
         void refreshConversations()
-        parkResearchSummary(branch.branchConversationId, promptText)
-        await openResearchConversation(branch.branchConversationId)
+        parkForkConversationPrompt(branch.branchConversationId, promptText)
+        await openForkConversation(branch.branchConversationId)
         return true
       } catch (error: unknown) {
         const commandError = extractAppCommandError(error)
@@ -1484,6 +1493,9 @@ const ConversationTabView = memo(function ConversationTabView({
     },
     [
       conn.connectionId,
+      conn.isViewer,
+      conn.selectorsReady,
+      conn.supportsFork,
       folderId,
       refreshConversations,
       selectedAgent,
@@ -1491,6 +1503,36 @@ const ConversationTabView = memo(function ConversationTabView({
       workingDirForConnection,
     ]
   )
+
+  const forkUnavailable: ConversationForkTarget["unavailable"] = conn.isViewer
+    ? "viewer"
+    : !conn.connectionId ||
+        connStatus === "disconnected" ||
+        connStatus === "error"
+      ? "connectionRequired"
+      : connStatus === "prompting" || promptForking
+        ? "waitForCompletion"
+        : !connectionReady || !conn.selectorsReady
+          ? "connectionPending"
+          : !conn.supportsFork
+            ? "unsupported"
+            : null
+
+  useEffect(() => {
+    if (dbConversationId == null || !supportsPromptFork(selectedAgent)) return
+    // 侧栏按活动标签读取动作，分叉的连接与等待锁仍由对应会话持有。
+    return useConversationForkStore.getState().register(tabId, {
+      conversationId: dbConversationId,
+      unavailable: forkUnavailable,
+      onSelect: handleForkFromPrompt,
+    })
+  }, [
+    tabId,
+    dbConversationId,
+    selectedAgent,
+    forkUnavailable,
+    handleForkFromPrompt,
+  ])
 
   /** Stop one AIR async task. Returns the adapter's verdict so the strip can
    *  release its button; `false` (the adapter declined) is reported, because
@@ -1785,8 +1827,8 @@ const ConversationTabView = memo(function ConversationTabView({
       if (prompt !== null) setComposerInject({ text: prompt, mode: "append" })
     }
     drain()
-    window.addEventListener(RESEARCH_SUMMARY_READY_EVENT, drain)
-    return () => window.removeEventListener(RESEARCH_SUMMARY_READY_EVENT, drain)
+    window.addEventListener(FORK_PROMPT_READY_EVENT, drain)
+    return () => window.removeEventListener(FORK_PROMPT_READY_EVENT, drain)
   }, [composerInject, tabId])
 
   useEffect(() => {
@@ -1798,41 +1840,13 @@ const ConversationTabView = memo(function ConversationTabView({
     )
       return
     const drain = () => {
-      const summaries = consumeResearchSummaries(dbConversationId)
-      if (summaries.length === 0) return
-      const text = summaries.join("\n\n")
-      // 仅追加到主线输入草稿，由用户决定何时发送；主线运行中也不自动排队。
-      setComposerInject({ text, mode: "append" })
+      const prompt = consumeForkConversationPrompt(dbConversationId)
+      if (prompt !== null) setComposerInject({ text: prompt, mode: "append" })
     }
     drain()
-    window.addEventListener(RESEARCH_SUMMARY_READY_EVENT, drain)
-    return () => window.removeEventListener(RESEARCH_SUMMARY_READY_EVENT, drain)
+    window.addEventListener(FORK_PROMPT_READY_EVENT, drain)
+    return () => window.removeEventListener(FORK_PROMPT_READY_EVENT, drain)
   }, [acpLoadError, composerInject, dbConversationId, isWelcomeMode])
-
-  const handleOpenResearchConversation = useCallback(
-    (targetConversationId: number, split = false) => {
-      return openResearchConversation(
-        targetConversationId,
-        split ? (dbConvIdRef.current ?? undefined) : undefined
-      ).catch((error: unknown) => {
-        toast.error(toErrorMessage(error))
-      })
-    },
-    []
-  )
-
-  const handleReturnResearchSummary = useCallback(
-    (sourceConversationId: number, summary: string) => {
-      void returnResearchSummary(sourceConversationId, summary).catch(
-        (error: unknown) => toast.error(toErrorMessage(error))
-      )
-    },
-    []
-  )
-
-  const handleResearchCreated = useCallback(() => {
-    void refreshConversations()
-  }, [refreshConversations])
 
   // Quote a transcript selection into the composer. A fresh object every time so
   // quoting the same passage twice still re-fires the composer's inject effect.
@@ -2369,24 +2383,6 @@ const ConversationTabView = memo(function ConversationTabView({
             agentType={selectedAgent}
             workingDir={workingDirForConnection}
           />
-          {isVisible && dbConversationId != null ? (
-            <ResearchBranchPanel
-              conversationId={dbConversationId}
-              connectionId={conn.connectionId}
-              supportsFork={conn.supportsFork}
-              connectionReady={connectionReady}
-              isViewer={conn.isViewer}
-              busy={connStatus === "prompting" || promptForking}
-              onForkFromPrompt={
-                supportsPromptFork(selectedAgent)
-                  ? handleForkFromPrompt
-                  : undefined
-              }
-              onOpenConversation={handleOpenResearchConversation}
-              onReturnSummary={handleReturnResearchSummary}
-              onCreated={handleResearchCreated}
-            />
-          ) : null}
         </>
       }
       status={connStatus}

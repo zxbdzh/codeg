@@ -1,6 +1,7 @@
 import type { ConversationTimelineTurn } from "@/stores/conversation-runtime-store"
 import type { AgentType } from "@/lib/types"
 import type { Transport } from "@/lib/transport/types"
+import type { SideQuestionAttachment } from "./side-question-attachments"
 
 export const SIDE_QUESTION_MAX_MESSAGES = 12
 export const SIDE_QUESTION_MAX_CONTEXT_CHARS = 12_000
@@ -12,36 +13,28 @@ export interface SideQuestionContextEntry {
   text: string
 }
 
-export interface SideQuestionRequest {
+export interface SideQuestionSource {
+  sourceConnectionId: string
+  sourceConversationId: number | null
+  sourceAgentType: AgentType
+}
+
+export interface SideQuestionRequest extends SideQuestionSource {
   requestId: string
   question: string
   selection: string | null
   context: SideQuestionContextEntry[]
+  attachments?: SideQuestionAttachment[]
 }
 
 export interface SideQuestionAnswer {
   answer: string
   agentType: AgentType
+  model?: string
+  modelName?: string
   contextMessages: number
   contextChars: number
   selectionChars: number
-}
-
-export interface SideQuestionSettings {
-  configValues: Record<string, string>
-}
-
-export function getSideQuestionSettings(
-  transport: Transport
-): Promise<SideQuestionSettings> {
-  return transport.call("get_side_question_settings")
-}
-
-export function setSideQuestionSettings(
-  transport: Transport,
-  settings: SideQuestionSettings
-): Promise<SideQuestionSettings> {
-  return transport.call("set_side_question_settings", { settings })
 }
 
 export function unicodeLength(text: string): number {
@@ -87,7 +80,19 @@ export function askSideQuestion(
 ): Promise<SideQuestionAnswer> {
   return transport.call(
     "side_question_ask",
-    { ...request },
+    {
+      requestId: request.requestId,
+      question: request.question,
+      selection: request.selection,
+      context: request.context,
+      ...(request.attachments?.length
+        ? { attachments: request.attachments }
+        : {}),
+      // 仅传来源身份，模型和推理配置由后端从真实连接读取。
+      sourceConnectionId: request.sourceConnectionId,
+      sourceConversationId: request.sourceConversationId,
+      sourceAgentType: request.sourceAgentType,
+    },
     { timeoutMs: 30 * 60_000 }
   )
 }

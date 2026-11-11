@@ -6,6 +6,7 @@ import {
   Folder,
   FolderPen,
   GitCommit,
+  GitFork,
   GitPullRequestArrow,
   ListTodo,
   MessageCircleQuestionMark,
@@ -35,6 +36,7 @@ import { AuxPanelTabRail } from "./aux-panel-tab-rail"
 import { ChromeReserve } from "./chrome-reserve"
 import { SessionDetailsTab } from "./aux-panel-session-details-tab"
 import { SideQuestionTab } from "./aux-panel-side-question-tab"
+import { ConversationForkTab } from "./aux-panel-conversation-fork-tab"
 import { FileTreeTab } from "./aux-panel-file-tree-tab"
 import { GitChangesTab } from "./aux-panel-git-changes-tab"
 import { GitLogTab } from "./aux-panel-git-log-tab"
@@ -44,6 +46,7 @@ import { ForgeAuxTab } from "./aux-panel-forge-tab"
 
 const LAZY_TABS: AuxPanelTab[] = [
   "side_question",
+  "conversation_fork",
   "file_tree",
   "changes",
   "git_log",
@@ -62,6 +65,7 @@ const LAZY_TABS: AuxPanelTab[] = [
 const TAB_ICONS: Record<AuxPanelTab, LucideIcon> = {
   session_details: ReceiptText,
   side_question: MessageCircleQuestionMark,
+  conversation_fork: GitFork,
   file_tree: Folder,
   changes: FolderPen,
   git_log: GitCommit,
@@ -84,7 +88,11 @@ const FOLDER_TAB_LABEL_KEY: Record<
 }
 
 /** What the tab switchers list while the folder tabs are hidden. */
-const SESSION_TABS: AuxTabOrder = ["session_details", "side_question"]
+const SESSION_TABS: AuxTabOrder = [
+  "session_details",
+  "side_question",
+  "conversation_fork",
+]
 
 /**
  * Decide which aux-panel tabs are available and which to actually show.
@@ -115,6 +123,7 @@ export function AuxPanel() {
   const t = useTranslations("Folder.auxPanel.tabs")
   const tDetails = useTranslations("Folder.sessionDetails")
   const tSideQuestion = useTranslations("Folder.sideQuestion")
+  const tFork = useTranslations("ResearchBranch")
   const tAutomations = useTranslations("Automations")
   const tTasks = useTranslations("Tasks")
   const tForge = useTranslations("Forge")
@@ -185,6 +194,8 @@ export function AuxPanel() {
           return tDetails("menuLabel")
         case "side_question":
           return tSideQuestion("title")
+        case "conversation_fork":
+          return tFork("forkConversation")
         case "automations":
           return tAutomations("title")
         case "tasks":
@@ -201,7 +212,16 @@ export function AuxPanel() {
           return t(FOLDER_TAB_LABEL_KEY[tab])
       }
     },
-    [t, tDetails, tSideQuestion, tAutomations, tTasks, tForge, forgeProvider]
+    [
+      t,
+      tDetails,
+      tSideQuestion,
+      tFork,
+      tAutomations,
+      tTasks,
+      tForge,
+      forgeProvider,
+    ]
   )
 
   const shownTabs = showFolderTabs
@@ -225,6 +245,13 @@ export function AuxPanel() {
         className="mt-0 flex-1 min-h-0 overflow-hidden"
       >
         {mountedTabs.has("side_question") ? <SideQuestionTab /> : null}
+      </TabsContent>
+      <TabsContent
+        value="conversation_fork"
+        forceMount
+        className="mt-0 flex-1 min-h-0 overflow-hidden"
+      >
+        {effectiveTab === "conversation_fork" ? <ConversationForkTab /> : null}
       </TabsContent>
       <TabsContent
         value="file_tree"

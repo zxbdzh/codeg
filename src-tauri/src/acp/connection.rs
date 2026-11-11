@@ -1377,6 +1377,8 @@ pub enum ConnectionCommand {
         /// tail-fork the fork-send composer has always done; see
         /// [`crate::acp::fork::ForkPoint`] for how each agent resolves it.
         fork_point: Option<crate::acp::fork::ForkPoint>,
+        /// 临时 Codex 连接可直接按源线程 ID 分叉，避免 resume 与主连接争用写入锁。
+        source_session_id: Option<String>,
         reply:
             tokio::sync::oneshot::Sender<Result<crate::acp::types::ForkProtocolResult, AcpError>>,
     },
@@ -16343,7 +16345,11 @@ async fn run_conversation_loop(
                     cancel_grok_agent_turn_asks(delegation_injection, conn_id).await;
                 }
             }
-            Some(ConnectionCommand::Fork { fork_point, reply }) => {
+            Some(ConnectionCommand::Fork {
+                fork_point,
+                source_session_id,
+                reply,
+            }) => {
                 if !supports_fork {
                     let _ = reply.send(Err(AcpError::protocol(
                         "This agent does not support session/fork".to_string(),
@@ -16358,7 +16364,23 @@ async fn run_conversation_loop(
                     continue;
                 }
                 let cx = session.connection();
-                let sid = session.session_id().clone();
+                let sid = match source_session_id {
+                    Some(source)
+                        if agent_type == AgentType::Codex
+                            && crate::research_branch::is_temporary_owner(
+                                &state.read().await.owner_window_label,
+                            ) =>
+                    {
+                        SessionId::new(source)
+                    }
+                    Some(_) => {
+                        let _ = reply.send(Err(AcpError::protocol(
+                            "Only a temporary Codex connection may fork a different source session",
+                        )));
+                        continue;
+                    }
+                    None => session.session_id().clone(),
+                };
                 let inherited_mode_id =
                     live_mode_for_fork(&*state.read().await, session.modes().as_ref());
                 tracing::info!(
@@ -47087,6 +47109,7 @@ mod tests {
         let (reply, answer) = oneshot::channel();
         grok.send(ConnectionCommand::Fork {
             fork_point: None,
+            source_session_id: None,
             reply,
         })
         .await;
@@ -47538,6 +47561,7 @@ mod tests {
         let (reply, answer) = oneshot::channel();
         grok.send(ConnectionCommand::Fork {
             fork_point: None,
+            source_session_id: None,
             reply,
         })
         .await;
@@ -48395,6 +48419,7 @@ mod tests {
             self.cmd_tx
                 .send(ConnectionCommand::Fork {
                     fork_point: None,
+                    source_session_id: None,
                     reply,
                 })
                 .await

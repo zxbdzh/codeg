@@ -5,31 +5,8 @@ use serde::Deserialize;
 
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
-use crate::commands::side_question::{
-    get_side_question_settings_core, set_side_question_settings_core, side_question_ask_core,
-    side_question_cancel_core,
-};
-use crate::side_question::{AskRequest, SideQuestionAnswer, SideQuestionSettings};
-
-pub async fn get_side_question_settings(
-    Extension(state): Extension<Arc<AppState>>,
-) -> Result<Json<SideQuestionSettings>, AppCommandError> {
-    Ok(Json(get_side_question_settings_core(&state.db).await?))
-}
-
-#[derive(Deserialize)]
-pub struct SettingsRequest {
-    settings: SideQuestionSettings,
-}
-
-pub async fn set_side_question_settings(
-    Extension(state): Extension<Arc<AppState>>,
-    Json(request): Json<SettingsRequest>,
-) -> Result<Json<SideQuestionSettings>, AppCommandError> {
-    Ok(Json(
-        set_side_question_settings_core(&state.db, request.settings).await?,
-    ))
-}
+use crate::commands::side_question::{side_question_ask_core, side_question_cancel_core};
+use crate::side_question::{AskRequest, SideQuestionAnswer};
 
 pub async fn side_question_ask(
     Extension(state): Extension<Arc<AppState>>,

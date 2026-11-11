@@ -71,6 +71,9 @@ vi.mock("./aux-panel-session-details-tab", () => ({
 vi.mock("./aux-panel-side-question-tab", () => ({
   SideQuestionTab: () => <div data-testid="body-side_question" />,
 }))
+vi.mock("./aux-panel-conversation-fork-tab", () => ({
+  ConversationForkTab: () => <div data-testid="body-conversation_fork" />,
+}))
 vi.mock("./aux-panel-file-tree-tab", () => ({
   FileTreeTab: () => <div data-testid="body-file_tree" />,
 }))
@@ -153,6 +156,7 @@ const KEY = "workspace:right-sidebar-tab-order"
 const BUILT_IN = [
   "Session Details",
   "Side question",
+  "Fork conversation",
   "Files",
   "Changes",
   "Commits",
@@ -171,6 +175,7 @@ const REVERSED: AuxPanelTab[] = [
   "git_log",
   "changes",
   "file_tree",
+  "conversation_fork",
   "side_question",
   "session_details",
 ]
@@ -285,6 +290,18 @@ describe("AuxPanel", () => {
     expect(screen.getAllByRole("tablist")).toHaveLength(1)
   })
 
+  it("reloads the fork message list whenever its sidebar tab is reopened", async () => {
+    renderPanel()
+    const user = userEvent.setup()
+    expect(screen.queryByTestId("body-conversation_fork")).toBeNull()
+    await user.click(screen.getByRole("tab", { name: "Fork conversation" }))
+    expect(screen.getByTestId("body-conversation_fork")).toBeVisible()
+    await user.click(screen.getByRole("tab", { name: "Side question" }))
+    expect(screen.queryByTestId("body-conversation_fork")).toBeNull()
+    await user.click(screen.getByRole("tab", { name: "Fork conversation" }))
+    expect(screen.getByTestId("body-conversation_fork")).toBeVisible()
+  })
+
   it("keeps the title clear of the window-chrome overlay", () => {
     renderPanel()
     const strip = screen.getByRole("heading", { level: 2 }).parentElement
@@ -382,6 +399,7 @@ describe("AuxPanel", () => {
       "Files",
       "Session Details",
       "Side question",
+      "Fork conversation",
       "Issues",
       "Commits",
       "Changes",
@@ -406,6 +424,7 @@ describe("AuxPanel", () => {
       "Files",
       "Session Details",
       "Side question",
+      "Fork conversation",
     ])
   })
 
@@ -415,6 +434,7 @@ describe("AuxPanel", () => {
       "changes",
       "session_details",
       "side_question",
+      "conversation_fork",
       "file_tree",
       "git_log",
       "automations",
@@ -426,6 +446,7 @@ describe("AuxPanel", () => {
       "Changes",
       "Session Details",
       "Side question",
+      "Fork conversation",
       "Files",
       "Commits",
       "Automations",
@@ -477,6 +498,7 @@ describe("AuxPanel", () => {
     expect(railTabs()).toEqual([
       "Session Details",
       "Side question",
+      "Fork conversation",
       "Changes",
       "Files",
       "Commits",
@@ -488,6 +510,7 @@ describe("AuxPanel", () => {
     expect(storedOrder()).toEqual([
       "session_details",
       "side_question",
+      "conversation_fork",
       "changes",
       "file_tree",
       "git_log",
@@ -498,7 +521,7 @@ describe("AuxPanel", () => {
     ])
     expect(screen.getByRole("tab", { name: "Changes" })).toHaveFocus()
 
-    for (let step = 0; step < 2; step += 1) {
+    for (let step = 0; step < 3; step += 1) {
       fireEvent.keyDown(screen.getByRole("tab", { name: "Changes" }), {
         key: "ArrowUp",
         altKey: true,
@@ -516,7 +539,7 @@ describe("AuxPanel", () => {
     expect(localStorage.getItem(KEY)).toBe(before)
 
     // Back down to where it started: the stored value goes with it.
-    for (let step = 0; step < 3; step += 1) {
+    for (let step = 0; step < 4; step += 1) {
       fireEvent.keyDown(screen.getByRole("tab", { name: "Changes" }), {
         key: "ArrowDown",
         altKey: true,
@@ -552,7 +575,11 @@ describe("AuxPanel", () => {
     // display:none drops the lone trigger out of the tab order, while it stays
     // in the DOM for the panel's aria-labelledby.
     expect(rail()).not.toHaveClass("hidden")
-    expect(railTabs()).toEqual(["Session Details", "Side question"])
+    expect(railTabs()).toEqual([
+      "Session Details",
+      "Side question",
+      "Fork conversation",
+    ])
     expect(
       screen.getByRole("tabpanel", { name: "Session Details" })
     ).toBeInTheDocument()

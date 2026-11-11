@@ -9,10 +9,15 @@ import {
   truncateSideQuestionSelection,
   type SideQuestionAnswer,
   type SideQuestionContextEntry,
+  type SideQuestionSource,
 } from "@/lib/side-question"
 import { getTransport } from "@/lib/transport"
 import type { Transport } from "@/lib/transport/types"
 import { randomUUID } from "@/lib/utils"
+import {
+  sideAttachmentPayload,
+  type SideQuestionDraftAttachment,
+} from "@/lib/side-question-attachments"
 import { registerBackendScopedStoreReset } from "./backend-scoped-store-reset"
 
 export interface SideQuestionEntry {
@@ -20,6 +25,8 @@ export interface SideQuestionEntry {
   selection: string
   status: "idle" | "loading" | "done" | "cancelled" | "error"
   askedQuestion: string | null
+  attachments: SideQuestionDraftAttachment[]
+  askedAttachments: SideQuestionDraftAttachment[]
   result: SideQuestionAnswer | null
   error: string | null
 }
@@ -29,6 +36,8 @@ export const EMPTY_SIDE_QUESTION: SideQuestionEntry = {
   selection: "",
   status: "idle",
   askedQuestion: null,
+  attachments: [],
+  askedAttachments: [],
   result: null,
   error: null,
 }
@@ -41,10 +50,20 @@ interface PendingQuestion {
 interface SideQuestionStore {
   bySource: Record<string, SideQuestionEntry>
   setQuestion(sourceKey: string, question: string): void
+  addAttachments(
+    sourceKey: string,
+    attachments: SideQuestionDraftAttachment[]
+  ): void
+  removeAttachment(sourceKey: string, id: string): void
   setSelection(sourceKey: string, selection: string): void
   useRecentContext(sourceKey: string): void
-  ask(sourceKey: string, context: SideQuestionContextEntry[]): Promise<void>
+  ask(
+    sourceKey: string,
+    context: SideQuestionContextEntry[],
+    source: SideQuestionSource
+  ): Promise<void>
   cancel(sourceKey: string): void
+  clear(sourceKey: string): void
 }
 
 const pending = new Map<string, PendingQuestion>()
@@ -83,6 +102,19 @@ export const useSideQuestionStore = create<SideQuestionStore>((set, get) => {
   return {
     bySource: {},
     setQuestion: (sourceKey, question) => update(sourceKey, { question }),
+    addAttachments: (sourceKey, attachments) =>
+      update(sourceKey, {
+        attachments: [
+          ...(get().bySource[sourceKey]?.attachments ?? []),
+          ...attachments,
+        ],
+      }),
+    removeAttachment: (sourceKey, id) =>
+      update(sourceKey, {
+        attachments: (get().bySource[sourceKey]?.attachments ?? []).filter(
+          (item) => item.id !== id
+        ),
+      }),
     setSelection: (sourceKey, selection) => {
       cancel(sourceKey)
       update(sourceKey, {
@@ -98,19 +130,25 @@ export const useSideQuestionStore = create<SideQuestionStore>((set, get) => {
         result: null,
         error: null,
         askedQuestion: null,
+        askedAttachments: [],
       })
     },
     cancel,
-    ask: async (sourceKey, context) => {
+    clear: (sourceKey) => {
+      cancel(sourceKey)
+      update(sourceKey, { ...EMPTY_SIDE_QUESTION })
+    },
+    ask: async (sourceKey, context, source) => {
       if (pending.has(sourceKey)) return
       const entry = get().bySource[sourceKey] ?? EMPTY_SIDE_QUESTION
       const question = entry.question.trim()
-      if (!question) return
+      if (!question && entry.attachments.length === 0) return
       const job = { requestId: randomUUID(), transport: getTransport() }
       pending.set(sourceKey, job)
       update(sourceKey, {
         status: "loading",
         askedQuestion: question,
+        askedAttachments: [...entry.attachments],
         result: null,
         error: null,
       })
@@ -120,6 +158,10 @@ export const useSideQuestionStore = create<SideQuestionStore>((set, get) => {
           question,
           selection: entry.selection || null,
           context: entry.selection ? [] : context,
+          attachments: entry.attachments.map(sideAttachmentPayload),
+          sourceConnectionId: source.sourceConnectionId,
+          sourceConversationId: source.sourceConversationId,
+          sourceAgentType: source.sourceAgentType,
         })
         if (pending.get(sourceKey) !== job) return
         update(sourceKey, { status: "done", result })

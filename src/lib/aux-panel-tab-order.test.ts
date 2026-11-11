@@ -22,6 +22,7 @@ const custom: AuxTabOrder = [
   "file_tree",
   "session_details",
   "side_question",
+  "conversation_fork",
   "changes",
   "pull_requests",
   "issues",
@@ -55,6 +56,7 @@ describe("aux panel tab order", () => {
     expect(loadAuxTabOrder()).toEqual([
       "session_details",
       "side_question",
+      "conversation_fork",
       "file_tree",
       "changes",
       "git_log",
@@ -90,6 +92,7 @@ describe("aux panel tab order", () => {
       // there — first when none is.
       "session_details",
       "side_question",
+      "conversation_fork",
       "file_tree",
       "changes",
       "git_log",
@@ -106,6 +109,7 @@ describe("aux panel tab order", () => {
       "pull_requests",
       "session_details",
       "side_question",
+      "conversation_fork",
       "file_tree",
       "changes",
     ])
@@ -128,6 +132,7 @@ describe("aux panel tab order", () => {
       "file_tree",
       "session_details",
       "side_question",
+      "conversation_fork",
     ])
 
     localStorage.setItem(
@@ -138,6 +143,7 @@ describe("aux panel tab order", () => {
       "file_tree",
       "session_details",
       "side_question",
+      "conversation_fork",
       "changes",
       "git_log",
       "automations",
@@ -164,6 +170,7 @@ describe("aux panel tab order", () => {
     expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toEqual([
       "session_details",
       "side_question",
+      "conversation_fork",
       "file_tree",
       "git_log",
       "automations",
@@ -192,6 +199,7 @@ describe("aux panel tab order", () => {
       expect(moveAuxTab(DEFAULT_AUX_TAB_ORDER, "changes", -1)).toEqual([
         "session_details",
         "side_question",
+        "conversation_fork",
         "changes",
         "file_tree",
         "git_log",
@@ -202,9 +210,10 @@ describe("aux panel tab order", () => {
       ])
       expect(moveAuxTab(DEFAULT_AUX_TAB_ORDER, "session_details", 3)).toEqual([
         "side_question",
+        "conversation_fork",
         "file_tree",
-        "changes",
         "session_details",
+        "changes",
         "git_log",
         "automations",
         "tasks",

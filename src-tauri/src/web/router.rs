@@ -396,14 +396,38 @@ pub fn build_router_with_proxy_auth(
             "/suggest_conversation_tags",
             post(handlers::ai_assistant::suggest_conversation_tags),
         )
-        .route("/get_tag_suggestion_status", post(handlers::tag_suggestions::get_tag_suggestion_status))
-        .route("/generate_tag_suggestion_batch", post(handlers::tag_suggestions::generate_tag_suggestion_batch))
-        .route("/open_tag_suggestion_batch", post(handlers::tag_suggestions::open_tag_suggestion_batch))
-        .route("/close_tag_suggestion_batch", post(handlers::tag_suggestions::close_tag_suggestion_batch))
-        .route("/confirm_tag_suggestion_batch", post(handlers::tag_suggestions::confirm_tag_suggestion_batch))
-        .route("/skip_tag_suggestion_batch", post(handlers::tag_suggestions::skip_tag_suggestion_batch))
-        .route("/ignore_tag_suggestion", post(handlers::tag_suggestions::ignore_tag_suggestion))
-        .route("/restore_ignored_tag", post(handlers::tag_suggestions::restore_ignored_tag))
+        .route(
+            "/get_tag_suggestion_status",
+            post(handlers::tag_suggestions::get_tag_suggestion_status),
+        )
+        .route(
+            "/generate_tag_suggestion_batch",
+            post(handlers::tag_suggestions::generate_tag_suggestion_batch),
+        )
+        .route(
+            "/open_tag_suggestion_batch",
+            post(handlers::tag_suggestions::open_tag_suggestion_batch),
+        )
+        .route(
+            "/close_tag_suggestion_batch",
+            post(handlers::tag_suggestions::close_tag_suggestion_batch),
+        )
+        .route(
+            "/confirm_tag_suggestion_batch",
+            post(handlers::tag_suggestions::confirm_tag_suggestion_batch),
+        )
+        .route(
+            "/skip_tag_suggestion_batch",
+            post(handlers::tag_suggestions::skip_tag_suggestion_batch),
+        )
+        .route(
+            "/ignore_tag_suggestion",
+            post(handlers::tag_suggestions::ignore_tag_suggestion),
+        )
+        .route(
+            "/restore_ignored_tag",
+            post(handlers::tag_suggestions::restore_ignored_tag),
+        )
         .route(
             "/apply_suggested_tags",
             post(handlers::ai_assistant::apply_suggested_tags),
@@ -417,10 +441,26 @@ pub fn build_router_with_proxy_auth(
             post(handlers::ai_assistant::test_ai_assistant_connection),
         )
         // 收藏请求可含 10MB 附件的 base64；仅此端点放宽默认 2MB 限制。
-        .route("/save_prompt_stash", post(handlers::ai_assistant::save_prompt_stash).layer(axum::extract::DefaultBodyLimit::max(crate::commands::prompt_stash::STASH_BODY_LIMIT_BYTES)))
-        .route("/list_prompt_stash", post(handlers::ai_assistant::list_prompt_stash))
-        .route("/restore_prompt_stash", post(handlers::ai_assistant::restore_prompt_stash))
-        .route("/remove_prompt_stash", post(handlers::ai_assistant::remove_prompt_stash))
+        .route(
+            "/save_prompt_stash",
+            post(handlers::ai_assistant::save_prompt_stash).layer(
+                axum::extract::DefaultBodyLimit::max(
+                    crate::commands::prompt_stash::STASH_BODY_LIMIT_BYTES,
+                ),
+            ),
+        )
+        .route(
+            "/list_prompt_stash",
+            post(handlers::ai_assistant::list_prompt_stash),
+        )
+        .route(
+            "/restore_prompt_stash",
+            post(handlers::ai_assistant::restore_prompt_stash),
+        )
+        .route(
+            "/remove_prompt_stash",
+            post(handlers::ai_assistant::remove_prompt_stash),
+        )
         .route(
             "/list_conversation_tags",
             post(handlers::conversation_tags::list_conversation_tags),
@@ -696,10 +736,7 @@ pub fn build_router_with_proxy_auth(
         .route("/git_pull", post(handlers::git::git_pull))
         .route("/git_push", post(handlers::git::git_push))
         .route("/git_fetch", post(handlers::git::git_fetch))
-        .route(
-            "/git_update_branch",
-            post(handlers::git::git_update_branch),
-        )
+        .route("/git_update_branch", post(handlers::git::git_update_branch))
         .route("/git_commit", post(handlers::git::git_commit))
         .route(
             "/git_generate_commit_message",
@@ -711,39 +748,17 @@ pub fn build_router_with_proxy_auth(
         )
         .route(
             "/side_question_ask",
-            post(handlers::side_question::side_question_ask),
+            post(handlers::side_question::side_question_ask).layer(
+                axum::extract::DefaultBodyLimit::max(12 * 1024 * 1024),
+            ),
         )
         .route(
-            "/research_branch_create",
-            post(handlers::research_branch::research_branch_create),
-        )
-        .route(
-            "/file_checkpoint",
-            post(handlers::file_checkpoint::file_checkpoint),
-        )
-        .route(
-            "/research_branch_list",
-            post(handlers::research_branch::research_branch_list),
-        )
-        .route(
-            "/research_branch_save_summary",
-            post(handlers::research_branch::research_branch_save_summary),
-        )
-        .route(
-            "/research_branch_generate_summary",
-            post(handlers::research_branch::research_branch_generate_summary),
+            "/conversation_fork",
+            post(handlers::research_branch::conversation_fork),
         )
         .route(
             "/side_question_cancel",
             post(handlers::side_question::side_question_cancel),
-        )
-        .route(
-            "/get_side_question_settings",
-            post(handlers::side_question::get_side_question_settings),
-        )
-        .route(
-            "/set_side_question_settings",
-            post(handlers::side_question::set_side_question_settings),
         )
         .route(
             "/get_commit_message_settings",
@@ -1107,10 +1122,7 @@ pub fn build_router_with_proxy_auth(
             "/acp_set_config_option",
             post(handlers::acp::acp_set_config_option),
         )
-        .route(
-            "/acp_goal_control",
-            post(handlers::acp::acp_goal_control),
-        )
+        .route("/acp_goal_control", post(handlers::acp::acp_goal_control))
         .route(
             "/acp_describe_agent_options",
             post(handlers::acp::acp_describe_agent_options),
@@ -1802,7 +1814,10 @@ pub fn build_router_with_proxy_auth(
             "/automation_list",
             post(handlers::automation::automation_list),
         )
-        .route("/automation_get", post(handlers::automation::automation_get))
+        .route(
+            "/automation_get",
+            post(handlers::automation::automation_get),
+        )
         .route(
             "/automation_runs",
             post(handlers::automation::automation_runs),
@@ -1919,10 +1934,7 @@ pub fn build_router_with_proxy_auth(
             "/forge_issue_detail",
             post(handlers::forge::forge_issue_detail),
         )
-        .route(
-            "/forge_tab_count",
-            post(handlers::forge::forge_tab_count),
-        )
+        .route("/forge_tab_count", post(handlers::forge::forge_tab_count))
         .route(
             "/forge_list_labels",
             post(handlers::forge::forge_list_labels),
@@ -2192,9 +2204,8 @@ pub fn build_router_with_proxy_auth(
         // happens. See `handlers::forge::forge_webhook`.
         .route(
             "/forge_webhook",
-            post(handlers::forge::forge_webhook).layer(DefaultBodyLimit::max(
-                handlers::forge::WEBHOOK_BODY_LIMIT,
-            )),
+            post(handlers::forge::forge_webhook)
+                .layer(DefaultBodyLimit::max(handlers::forge::WEBHOOK_BODY_LIMIT)),
         )
         .route(
             "/workspace_download/{ticket}",
@@ -2325,10 +2336,7 @@ pub fn build_router_with_proxy_auth(
 /// of the file's age) and could open the previous release for hours after the
 /// server was upgraded. `no-cache` still lets it keep its copy, revalidated on
 /// every use.
-async fn static_cache_control(
-    req: axum::extract::Request,
-    next: Next,
-) -> axum::response::Response {
+async fn static_cache_control(req: axum::extract::Request, next: Next) -> axum::response::Response {
     let fingerprinted = req.uri().path().starts_with("/_next/static/");
     let mut response = next.run(req).await;
     // An asset that is not there is answered with index.html, which must not

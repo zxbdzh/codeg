@@ -3,38 +3,7 @@ use std::path::Path;
 use crate::acp::manager::ConnectionManager;
 use crate::app_error::AppCommandError;
 use crate::db::AppDatabase;
-use crate::side_question::{self, AskRequest, SideQuestionAnswer, SideQuestionSettings};
-
-pub async fn get_side_question_settings_core(
-    db: &AppDatabase,
-) -> Result<SideQuestionSettings, AppCommandError> {
-    side_question::load_settings(&db.conn).await
-}
-
-pub async fn set_side_question_settings_core(
-    db: &AppDatabase,
-    settings: SideQuestionSettings,
-) -> Result<SideQuestionSettings, AppCommandError> {
-    side_question::save_settings(&db.conn, &settings).await?;
-    Ok(settings)
-}
-
-#[cfg(feature = "tauri-runtime")]
-#[tauri::command]
-pub async fn get_side_question_settings(
-    db: tauri::State<'_, AppDatabase>,
-) -> Result<SideQuestionSettings, AppCommandError> {
-    get_side_question_settings_core(&db).await
-}
-
-#[cfg(feature = "tauri-runtime")]
-#[tauri::command]
-pub async fn set_side_question_settings(
-    db: tauri::State<'_, AppDatabase>,
-    settings: SideQuestionSettings,
-) -> Result<SideQuestionSettings, AppCommandError> {
-    set_side_question_settings_core(&db, settings).await
-}
+use crate::side_question::{self, AskRequest, SideQuestionAnswer};
 
 pub async fn side_question_ask_core(
     db: &AppDatabase,
@@ -61,8 +30,10 @@ pub async fn side_question_ask(
     question: String,
     selection: Option<String>,
     context: Option<Vec<crate::side_question::ContextEntry>>,
-    mode_id: Option<String>,
-    config_values: Option<std::collections::BTreeMap<String, String>>,
+    attachments: Option<Vec<crate::side_question::Attachment>>,
+    source_connection_id: Option<String>,
+    source_conversation_id: Option<i32>,
+    source_agent_type: Option<crate::models::AgentType>,
 ) -> Result<SideQuestionAnswer, AppCommandError> {
     use tauri::Manager;
     let data_dir = app
@@ -91,8 +62,10 @@ pub async fn side_question_ask(
             question,
             selection,
             context: context.unwrap_or_default(),
-            mode_id,
-            config_values: config_values.unwrap_or_default(),
+            attachments: attachments.unwrap_or_default(),
+            source_connection_id,
+            source_conversation_id,
+            source_agent_type,
         },
     )
     .await;

@@ -17,10 +17,10 @@ pub mod acp;
 pub mod acp_transcript;
 pub mod agent_turn_files;
 pub mod ai;
+pub use acp::scratch_dir::scratch_sweep_task;
 pub use acp::{
     idle_sweep_task, idle_timeout_from_env, lifecycle_subscriber_task, SWEEP_INTERVAL_SECS,
 };
-pub use acp::scratch_dir::scratch_sweep_task;
 pub use network::proxy::init_proxy_from_db;
 mod app_error;
 #[cfg(all(feature = "tauri-runtime", target_os = "macos"))]
@@ -43,7 +43,6 @@ pub mod computer;
 pub mod db;
 pub mod deep_link;
 pub mod folder_links;
-pub mod file_checkpoint;
 pub mod forge;
 pub mod git_credential;
 pub mod git_repo;
@@ -63,8 +62,8 @@ pub mod preferences;
 pub mod process;
 #[cfg(all(feature = "tauri-runtime", target_os = "macos"))]
 mod relaunch;
-pub mod runtime_lock;
 pub mod research_branch;
+pub mod runtime_lock;
 pub mod side_question;
 pub mod supervise;
 mod terminal;
@@ -106,30 +105,22 @@ mod tauri_app {
     use crate::commands::{
         acp as acp_commands, ai_assistant, app_update as app_update_commands,
         assistants as assistant_commands, automation as automation_commands,
-        background as background_commands, backup,
-        browser as browser_commands,
-        canvas as canvas_commands,
-        chat_authoring as chat_authoring_commands, chat_channel as chat_channel_commands,
-        clipboard as clipboard_commands,
-        commit_message as commit_message_commands,
-        config_sync,
-        conversation_tags,
-        conversations,
-        custom_skills as custom_skills_commands,
-        deepseek_settings as deepseek_settings_commands, delegation as delegation_commands,
-        experts as experts_commands, feedback as feedback_commands, file_io, folder_commands,
-        folder_links, local_command, office_tools as office_tools_commands, open_in,
-        folders, logging as logging_commands, mcp as mcp_commands,
-        model_provider as model_provider_commands, notification, pet as pet_commands, project_boot,
+        background as background_commands, backup, browser as browser_commands,
+        canvas as canvas_commands, chat_authoring as chat_authoring_commands,
+        chat_channel as chat_channel_commands, clipboard as clipboard_commands,
+        commit_message as commit_message_commands, config_sync, conversation_tags, conversations,
+        custom_skills as custom_skills_commands, deepseek_settings as deepseek_settings_commands,
+        delegation as delegation_commands, experts as experts_commands,
+        feedback as feedback_commands, file_io, folder_commands, folder_links, folders,
+        forge as forge_commands, local_command, logging as logging_commands, mcp as mcp_commands,
+        model_provider as model_provider_commands, notification,
+        office_tools as office_tools_commands, open_in, pet as pet_commands, project_boot,
         question as question_commands, quick_messages as quick_messages_commands,
-        remote_proxy as remote_proxy_commands,
-        remote_workspace as remote_workspace_commands, science as science_commands,
-        session_info as session_info_commands,
-        research_branch as research_branch_commands,
-        side_question as side_question_commands,
-        system_settings, terminal as terminal_commands,
-        token_usage as token_usage_commands,
-        forge as forge_commands, version_control, windows, work_task as work_task_commands,
+        remote_proxy as remote_proxy_commands, remote_workspace as remote_workspace_commands,
+        research_branch as research_branch_commands, science as science_commands,
+        session_info as session_info_commands, side_question as side_question_commands,
+        system_settings, terminal as terminal_commands, token_usage as token_usage_commands,
+        version_control, windows, work_task as work_task_commands,
         workspace_state as workspace_state_commands, workspace_windows,
     };
     use crate::terminal::manager::TerminalManager;
@@ -616,7 +607,8 @@ mod tauri_app {
         // After the PATH fixes above, which rewrite PATH.
         if let (Some(data_dir), Ok(exe)) = (&desktop_data_dir, std::env::current_exe()) {
             let local = dirs::data_local_dir().map(|d| d.join(&context.config().identifier));
-            if let Some(layout) = crate::cli_run::shim::plan_desktop(data_dir, local.as_deref(), &exe)
+            if let Some(layout) =
+                crate::cli_run::shim::plan_desktop(data_dir, local.as_deref(), &exe)
             {
                 layout.export();
                 layout.remember();
@@ -1981,14 +1973,8 @@ mod tauri_app {
                 commit_message_commands::set_commit_message_settings,
                 commit_message_commands::delete_commit_message_settings,
                 side_question_commands::side_question_ask,
-                research_branch_commands::research_branch_create,
-                research_branch_commands::research_branch_list,
-                research_branch_commands::research_branch_save_summary,
-                research_branch_commands::research_branch_generate_summary,
-                crate::commands::file_checkpoint::file_checkpoint,
+                research_branch_commands::conversation_fork,
                 side_question_commands::side_question_cancel,
-                side_question_commands::get_side_question_settings,
-                side_question_commands::set_side_question_settings,
                 folders::git_rollback_file,
                 folders::git_add_files,
                 folders::git_list_all_branches,

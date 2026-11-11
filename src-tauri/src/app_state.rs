@@ -161,7 +161,6 @@ pub fn build_delegation_stack(
     use crate::acp::delegation::spawner::ConnectionSpawner;
     use crate::acp::manager::ConnectionManagerSpawner;
 
-    connection_manager.install_checkpoint_directory(data_dir.clone());
     let cm_arc = Arc::new(connection_manager.clone_ref());
     let db_arc = Arc::new(AppDatabase {
         conn: db_conn.clone(),
@@ -173,13 +172,12 @@ pub fn build_delegation_stack(
     }) as Arc<dyn ConnectionSpawner>;
     let depth_lookup =
         Arc::new(DbDepthLookup { db: db_arc.clone() }) as Arc<dyn ConversationDepthLookup>;
-    let agent_availability = Arc::new(crate::acp::connection::DbAgentAvailabilityLookup {
-        db: db_arc.clone(),
-    })
-        as Arc<dyn crate::acp::connection::AgentAvailabilityLookup>;
-    let assistants = Arc::new(crate::acp::delegation::assistants::DbAssistantLookup {
-        db: db_arc.clone(),
-    }) as Arc<dyn crate::acp::delegation::assistants::AssistantLookup>;
+    let agent_availability =
+        Arc::new(crate::acp::connection::DbAgentAvailabilityLookup { db: db_arc.clone() })
+            as Arc<dyn crate::acp::connection::AgentAvailabilityLookup>;
+    let assistants =
+        Arc::new(crate::acp::delegation::assistants::DbAssistantLookup { db: db_arc.clone() })
+            as Arc<dyn crate::acp::delegation::assistants::AssistantLookup>;
     let status_lookup = Arc::new(DbChildStatusLookup { db: db_arc }) as Arc<dyn ChildStatusLookup>;
     let meta_writer = Arc::new(ConnectionManagerMetaWriter {
         manager: cm_arc.clone(),
@@ -230,7 +228,15 @@ pub fn build_delegation_stack(
     });
 
     (
-        broker, tokens, socket_path, feedback, ask, sessions, authoring, browser, computer,
+        broker,
+        tokens,
+        socket_path,
+        feedback,
+        ask,
+        sessions,
+        authoring,
+        browser,
+        computer,
     )
 }
 

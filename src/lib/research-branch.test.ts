@@ -1,150 +1,50 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { createResearchBranch, snapshotForkPrompt } from "./research-branch"
+import type { MessageTurn } from "./types"
 
 const transport = vi.hoisted(() => ({ call: vi.fn() }))
 vi.mock("@/lib/transport", () => ({ getTransport: () => transport }))
 
-import {
-  cancelResearchBranchSummary,
-  createResearchBranch,
-  generateResearchBranchSummary,
-  listResearchBranches,
-  saveResearchBranchSummary,
-  snapshotForkPrompt,
-} from "./research-branch"
+beforeEach(() => transport.call.mockReset())
 
-beforeEach(() => {
-  transport.call.mockReset()
-})
-
-describe("research branch API", () => {
-  it("sends the selected user message to the independent fork endpoint", async () => {
+describe("conversation fork", () => {
+  it("passes the selected historical prompt to the only fork endpoint", async () => {
     const request = {
-      connectionId: "source",
-      sourceConversationId: 10,
-      requestId: "historical-1",
-      sourceTurnId: "turn-4",
+      connectionId: "connection-1",
+      sourceConversationId: 12,
+      requestId: "request-1",
+      sourceTurnId: "turn-2",
       sourcePrompt: {
-        text: "Exact selected text",
-        timestamp: "2026-11-10T01:00:00Z",
+        text: "Try again",
+        timestamp: "2026-11-11",
         agentMessageId: null,
       },
     }
-    await createResearchBranch(request)
-    expect(transport.call).toHaveBeenCalledWith(
-      "research_branch_create",
-      request,
-      { timeoutMs: 1_800_000 }
-    )
-  })
-
-  it("keeps the saved prompt text and timestamp separate from composer unescaping", () => {
-    expect(
-      snapshotForkPrompt({
-        id: "turn-2",
-        role: "user",
-        blocks: [
-          { type: "text", text: "a &amp; b" },
-          { type: "text", text: "\\*literal\\*" },
-        ],
-        timestamp: "2026-11-10T01:00:00Z",
-      })
-    ).toEqual({
-      text: "a &amp; b\n\\*literal\\*",
-      timestamp: "2026-11-10T01:00:00Z",
-      agentMessageId: null,
+    transport.call.mockResolvedValue({ branchConversationId: 13 })
+    await expect(createResearchBranch(request)).resolves.toEqual({
+      branchConversationId: 13,
+    })
+    expect(transport.call).toHaveBeenCalledWith("conversation_fork", request, {
+      timeoutMs: 30 * 60_000,
     })
   })
 
-  it("creates at the session tail with camelCase arguments and a long timeout", async () => {
-    const request = {
-      connectionId: "connection-1",
-      sourceConversationId: 10,
-      requestId: "create-1",
-    }
-    const info = { id: 1, branchConversationId: 20, boundary: "session_tail" }
-    transport.call.mockResolvedValue(info)
-
-    expect(await createResearchBranch(request)).toBe(info)
-    expect(transport.call).toHaveBeenCalledWith(
-      "research_branch_create",
-      request,
-      { timeoutMs: 1_800_000 }
-    )
-  })
-
-  it("lists persisted relations by either source or branch conversation", async () => {
-    transport.call.mockResolvedValue([])
-    expect(await listResearchBranches(20)).toEqual([])
-    expect(transport.call).toHaveBeenCalledWith(
-      "research_branch_list",
-      { conversationId: 20 },
-      { timeoutMs: 60_000 }
-    )
-  })
-
-  it("saves exactly the supplied summary with the ordinary timeout", async () => {
-    const info = { id: 1, summary: "  手动结论\n保留原文  " }
-    transport.call.mockResolvedValue(info)
-    expect(await saveResearchBranchSummary(20, info.summary)).toBe(info)
-    expect(transport.call).toHaveBeenCalledWith(
-      "research_branch_save_summary",
-      { branchConversationId: 20, summary: info.summary },
-      { timeoutMs: 60_000 }
-    )
-  })
-
-  it("allows 12000 Unicode code points, including surrogate pairs", async () => {
-    const summary = "😀".repeat(12_000)
-    transport.call.mockResolvedValue({ summary })
-    await saveResearchBranchSummary(20, summary)
-    expect(transport.call).toHaveBeenCalledWith(
-      "research_branch_save_summary",
-      { branchConversationId: 20, summary },
-      { timeoutMs: 60_000 }
-    )
-  })
-
-  it("rejects overlong summaries before making an API call", async () => {
-    await expect(
-      saveResearchBranchSummary(20, "😀".repeat(12_001))
-    ).rejects.toThrow("12000")
-    expect(transport.call).not.toHaveBeenCalled()
-  })
-
-  it("allows an empty summary when clearing a saved draft", async () => {
-    await saveResearchBranchSummary(20, "")
-    expect(transport.call).toHaveBeenCalledWith(
-      "research_branch_save_summary",
-      { branchConversationId: 20, summary: "" },
-      { timeoutMs: 60_000 }
-    )
-  })
-
-  it("generates a real one-shot summary via the dedicated API", async () => {
-    transport.call.mockResolvedValue({ summary: "结论" })
-    const request = { branchConversationId: 20, requestId: "summary-1" }
-    expect(await generateResearchBranchSummary(request)).toEqual({
-      summary: "结论",
+  it("snapshots original text and identity without copying tools or reasoning", () => {
+    const turn = {
+      id: "turn-2",
+      role: "user",
+      timestamp: "2026-11-11T01:00:00Z",
+      agent_message_id: "message-2",
+      blocks: [
+        { type: "text", text: "Original prompt" },
+        { type: "thinking", text: "private" },
+        { type: "text", text: "Second line" },
+      ],
+    } satisfies MessageTurn
+    expect(snapshotForkPrompt(turn)).toEqual({
+      text: "Original prompt\nSecond line",
+      timestamp: turn.timestamp,
+      agentMessageId: "message-2",
     })
-    expect(transport.call).toHaveBeenCalledWith(
-      "research_branch_generate_summary",
-      request,
-      { timeoutMs: 1_800_000 }
-    )
-  })
-
-  it("reuses side-question cancellation with the same request ID", async () => {
-    await cancelResearchBranchSummary("summary-1")
-    expect(transport.call).toHaveBeenCalledWith(
-      "side_question_cancel",
-      { requestId: "summary-1" },
-      { timeoutMs: 60_000 }
-    )
-  })
-
-  it("preserves backend failures for caller retry handling", async () => {
-    const error = new Error("offline")
-    transport.call.mockRejectedValue(error)
-    await expect(listResearchBranches(10)).rejects.toBe(error)
   })
 })
