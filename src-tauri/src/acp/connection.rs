@@ -44,8 +44,10 @@ use tokio_util::sync::CancellationToken;
 use crate::acp::agent_mentions::{append_agent_routes, append_assistant_routes};
 use crate::acp::background_watch;
 use crate::acp::context_pruning::{
-    PruningContinuation, PruningReceipt, ReceiptStream, CONTINUATION_PROMPT,
+    PruningContinuation, PruningReceipt, PruningReportKind, ReceiptStream,
 };
+#[cfg(test)]
+use crate::acp::context_pruning::CONTINUATION_PROMPT;
 use crate::acp::cursor_ext::{
     CursorAskQuestionRequest, CursorCreatePlanRequest, CursorGenerateImageRequest,
     CursorTaskRequest, CursorUpdateTodosRequest,
@@ -14575,22 +14577,30 @@ async fn flush_pruning_message(
             emitter,
             AcpEvent::ToolCallUpdate {
                 tool_call_id: format!("bili-pruning-{message_id}"),
-                title: Some(CONTEXT_COMPACTION_TITLE.to_string()),
+                title: Some(match receipt.kind {
+                    PruningReportKind::Compression => CONTEXT_COMPACTION_TITLE.to_string(),
+                    PruningReportKind::Status => "billion-context acp_status".to_string(),
+                }),
                 status: Some("completed".to_string()),
                 content: None,
                 raw_input: None,
                 raw_output: Some(receipt.detail.clone()),
                 raw_output_append: None,
                 locations: None,
-                meta: Some(serde_json::json!({
-                    "contextCompaction": {
-                        "version": 1,
-                        "trigger": "automatic",
-                        "provider": "billion-context",
-                        "savedTokens": receipt.saved_tokens,
-                        "blocks": receipt.blocks
-                    }
-                })),
+                meta: Some(match receipt.kind {
+                    PruningReportKind::Compression => serde_json::json!({
+                        "contextCompaction": {
+                            "version": 1,
+                            "trigger": "automatic",
+                            "provider": "billion-context",
+                            "savedTokens": receipt.saved_tokens,
+                            "blocks": receipt.blocks
+                        }
+                    }),
+                    PruningReportKind::Status => serde_json::json!({
+                        "codeg.contextStatus": {"version": 1, "provider": "billion-context"}
+                    }),
+                }),
                 images: None,
             },
         )
@@ -15782,19 +15792,20 @@ async fn run_conversation_loop(
                                     && !waiting_for_user
                                     && cmd_rx.is_empty();
                                 if pruning_continuation.should_continue(&receipt, clean_end) {
-                                    // Bili 把内部 compress 回执转换为 end_turn；保持原轮和取消入口，
+                                    // Bili 把内部工具回执转换为 end_turn；保持原轮和取消入口，
                                     // 仅补一次内部续接，不再次发送用户原话或提前触发任务完成事件。
+                                    let continuation_prompt = receipt.continuation_prompt();
                                     let blocks = vec![ContentBlock::Text(TextContent::new(
-                                        CONTINUATION_PROMPT,
+                                        continuation_prompt,
                                     ))];
                                     prompt_ledger.record_prompt_blocks(&[
                                         PromptInputBlock::Text {
-                                            text: CONTINUATION_PROMPT.to_string(),
+                                            text: continuation_prompt.to_string(),
                                         },
                                     ]);
                                     tracing::info!(
-                                        "[ACP] continuing after billion-context pruning; session={}",
-                                        sid.0
+                                        "[ACP] continuing after billion-context {:?}; session={}",
+                                        receipt.kind, sid.0
                                     );
                                     probe = TurnOutputProbe::new(stderr_tail.mark());
                                     prompt_response = Box::pin(
@@ -28189,7 +28200,7 @@ mod tests {
         let questions = Arc::new(UnansweredQuestions::default());
         let ask_config = crate::acp::question::QuestionRuntimeConfig::new();
         ask_config
-            .set(crate::acp::question::QuestionConfig { enabled: true })
+            .set(crate::acp::question::QuestionConfig { enabled: true, ..Default::default() })
             .await;
         let access: Option<(
             Arc<dyn crate::acp::question::SessionQuestionAccess>,
@@ -36509,7 +36520,9 @@ mod tests {
                                     ),
                                 )?;
                             }
-                            if hold_continuation && text == CONTINUATION_PROMPT {
+                            if hold_continuation
+                                && crate::acp::context_pruning::is_internal_continuation(&text)
+                            {
                                 let release = Arc::clone(&release_prompt);
                                 tokio::spawn(async move {
                                     release.notified().await;
@@ -36816,6 +36829,111 @@ mod tests {
                 if meta.pointer("/contextCompaction/provider").and_then(|value| value.as_str()) == Some("billion-context")
         )));
         assert_eq!(events.iter().filter(|event| matches!(event, AcpEvent::TurnComplete { .. })).count(), 1);
+        agent.closed().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn billion_context_status_continues_without_leaking_the_report_or_finishing_early() {
+        use crate::acp::context_pruning::{STATUS_CONTINUATION_PROMPT, TEST_STATUS_REPORT};
+
+        let (client_end, agent_end) = agent_client_protocol::Channel::duplex();
+        let mut agent = HandshakeAgent::start(
+            agent_end,
+            HandshakeScript {
+                prompt_replies: vec![
+                    vec!["ACT".to_string(), TEST_STATUS_REPORT[3..].to_string()],
+                    vec!["Gateway implementation continued".to_string()],
+                ],
+                ..Default::default()
+            },
+        );
+        let mut run = HandshakeRun::start_for_agent(client_end, None, AgentType::ClaudeCode).await;
+        assert_eq!(agent.next_request().await, "initialize");
+        assert_eq!(agent.next_request().await, "session/new");
+        run.prompt("Continue implementing the gateway").await;
+        agent.open_session.notify_one();
+        assert_eq!(agent.next_request().await, "session/prompt: Continue implementing the gateway");
+        assert_eq!(agent.next_request().await, format!("session/prompt: {STATUS_CONTINUATION_PROMPT}"));
+        let events = run.events_until_turn_complete().await;
+        assert!(!run.state.read().await.turn_in_flight);
+        assert_eq!(events.iter().filter(|event| matches!(event, AcpEvent::TurnComplete { .. })).count(), 1);
+        assert!(!events.iter().any(|event| matches!(
+            event, AcpEvent::ContentDelta { text, .. } if text.contains("ACTIVE SURFACE:")
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event, AcpEvent::ContentDelta { text, .. } if text == "Gateway implementation continued"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event, AcpEvent::ToolCallUpdate { title: Some(title), meta: Some(meta), .. }
+                if title == "billion-context acp_status"
+                    && meta.get("codeg.contextStatus").is_some()
+                    && meta.get("contextCompaction").is_none()
+        )));
+        run.cmd_tx.send(ConnectionCommand::Disconnect).await.unwrap();
+        let (ended, _) = run.ended().await;
+        assert!(ended.is_ok(), "{ended:?}");
+        agent.closed().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn billion_context_status_user_query_finishes_without_a_continuation() {
+        let (client_end, agent_end) = agent_client_protocol::Channel::duplex();
+        let mut agent = HandshakeAgent::start(
+            agent_end,
+            HandshakeScript {
+                prompt_replies: vec![vec![crate::acp::context_pruning::TEST_STATUS_REPORT.to_string()]],
+                ..Default::default()
+            },
+        );
+        let mut run = HandshakeRun::start_for_agent(client_end, None, AgentType::ClaudeCode).await;
+        assert_eq!(agent.next_request().await, "initialize");
+        assert_eq!(agent.next_request().await, "session/new");
+        run.prompt("查看压缩状态").await;
+        agent.open_session.notify_one();
+        assert_eq!(agent.next_request().await, "session/prompt: 查看压缩状态");
+        run.turn_completed().await;
+        assert!(agent.seen.try_recv().is_err());
+        run.cmd_tx.send(ConnectionCommand::Disconnect).await.unwrap();
+        let (ended, _) = run.ended().await;
+        assert!(ended.is_ok(), "{ended:?}");
+        agent.closed().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn billion_context_status_continuation_stays_cancellable() {
+        use crate::acp::context_pruning::{STATUS_CONTINUATION_PROMPT, TEST_STATUS_REPORT};
+
+        let (client_end, agent_end) = agent_client_protocol::Channel::duplex();
+        let mut agent = HandshakeAgent::start(
+            agent_end,
+            HandshakeScript {
+                prompt_replies: vec![vec![TEST_STATUS_REPORT.to_string()]],
+                hold_continuation: true,
+                ..Default::default()
+            },
+        );
+        let mut run = HandshakeRun::start_for_agent(client_end, None, AgentType::ClaudeCode).await;
+        assert_eq!(agent.next_request().await, "initialize");
+        assert_eq!(agent.next_request().await, "session/new");
+        run.prompt("Continue research").await;
+        agent.open_session.notify_one();
+        assert_eq!(agent.next_request().await, "session/prompt: Continue research");
+        assert_eq!(agent.next_request().await, format!("session/prompt: {STATUS_CONTINUATION_PROMPT}"));
+        assert!(run.state.read().await.turn_in_flight);
+        run.cmd_tx.send(ConnectionCommand::Cancel).await.unwrap();
+        let events = run.events_until_turn_complete().await;
+        assert!(events.iter().any(|event| matches!(
+            event, AcpEvent::TurnComplete { stop_reason, .. } if stop_reason == "cancelled"
+        )));
+        assert!(!run.state.read().await.turn_in_flight);
+        agent.open_session.notify_one();
+        // 旧响应和新请求完成一次往返后再断连，验证取消未破坏会话，也避免夹具仍在写响应。
+        run.prompt("Continue after cancellation").await;
+        assert_eq!(agent.next_request().await, "session/prompt: Continue after cancellation");
+        run.turn_completed().await;
+        run.cmd_tx.send(ConnectionCommand::Disconnect).await.unwrap();
+        let (ended, _) = run.ended().await;
+        assert!(ended.is_ok(), "{ended:?}");
         agent.closed().await;
     }
 
@@ -50794,7 +50912,7 @@ mod tests {
             )));
             let config = crate::acp::question::QuestionRuntimeConfig::new();
             config
-                .set(crate::acp::question::QuestionConfig { enabled })
+                .set(crate::acp::question::QuestionConfig { enabled, ..Default::default() })
                 .await;
             let access: Option<(Arc<dyn crate::acp::question::SessionQuestionAccess>, _)> =
                 Some((Arc::new(AntigravityTestAnswer { decline }), config));
@@ -51120,7 +51238,7 @@ mod tests {
         )));
         let ask_config = crate::acp::question::QuestionRuntimeConfig::new();
         ask_config
-            .set(crate::acp::question::QuestionConfig { enabled: true })
+            .set(crate::acp::question::QuestionConfig { enabled: true, ..Default::default() })
             .await;
         let access: Option<(
             Arc<dyn crate::acp::question::SessionQuestionAccess>,

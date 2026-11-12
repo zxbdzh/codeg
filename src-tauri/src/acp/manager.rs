@@ -4044,10 +4044,59 @@ impl ConnectionManager {
         {
             return None;
         }
-        Some(RegisteredQuestion {
+        let minutes = match self.delegation_injection.get() {
+            Some(injection) => injection.ask.snapshot().await.timeout_minutes,
+            None => 0,
+        };
+        Some(self.with_question_deadline(
+            conn_id,
+            RegisteredQuestion {
+                question_id,
+                answer_rx: rx,
+            },
+            (minutes > 0).then(|| Duration::from_secs(u64::from(minutes) * 60)),
+        ))
+    }
+
+    fn with_question_deadline(
+        &self,
+        conn_id: &str,
+        registered: RegisteredQuestion,
+        timeout: Option<Duration>,
+    ) -> RegisteredQuestion {
+        let Some(timeout) = timeout else {
+            return registered;
+        };
+        let RegisteredQuestion {
             question_id,
-            answer_rx: rx,
-        })
+            mut answer_rx,
+        } = registered;
+        let (mut sender, receiver) = tokio::sync::oneshot::channel();
+        let manager = self.clone_ref();
+        let parent = conn_id.to_string();
+        let id = question_id.clone();
+        // 注册时固定期限；回答、撤回或断连立即回收任务，不遗留长时计时器。
+        tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                outcome = &mut answer_rx => {
+                    if let Ok(outcome) = outcome { let _ = sender.send(outcome); }
+                }
+                _ = sender.closed() => {
+                    manager.cancel_question(&parent, &id).await;
+                }
+                _ = tokio::time::sleep(timeout) => {
+                    // 按问题 ID 清理，旧题到期不能误删同一连接上的新题。
+                    manager.cancel_question(&parent, &id).await;
+                    // 回答可能已先移除注册项；此时保留它赢得的结果。
+                    if let Ok(outcome) = answer_rx.await { let _ = sender.send(outcome); }
+                }
+            }
+        });
+        RegisteredQuestion {
+            question_id,
+            answer_rx: receiver,
+        }
     }
 
     /// Returns `true` — after emitting a clearing `QuestionResolved` — when
@@ -10852,6 +10901,76 @@ mod tests {
         mgr.answer_question("cq", &reg.question_id, Default::default())
             .await
             .unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn question_deadline_expires_and_clears_card() {
+        let mgr = ConnectionManager::new();
+        mgr.insert_test_connection("deadline", AgentType::ClaudeCode, None, EventEmitter::Noop)
+            .await;
+        let reg = mgr.register_question("deadline", q_spec()).await.unwrap();
+        let mut reg = mgr.with_question_deadline("deadline", reg, Some(Duration::from_secs(60)));
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(59)).await;
+        assert!(matches!(
+            reg.answer_rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(reg.answer_rx.await.is_err());
+        assert!(mgr.pending_questions.lock().await.is_empty());
+        assert!(mgr
+            .get_state("deadline")
+            .await
+            .unwrap()
+            .read()
+            .await
+            .pending_question
+            .is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn question_without_deadline_survives_and_can_be_answered() {
+        let mgr = ConnectionManager::new();
+        mgr.insert_test_connection("forever", AgentType::ClaudeCode, None, EventEmitter::Noop)
+            .await;
+        let reg = mgr.register_question("forever", q_spec()).await.unwrap();
+        let mut reg = mgr.with_question_deadline("forever", reg, None);
+        tokio::time::advance(Duration::from_secs(60 * 60 * 24 * 30)).await;
+        assert!(matches!(
+            reg.answer_rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+        mgr.answer_question("forever", &reg.question_id, Default::default())
+            .await
+            .unwrap();
+        assert!(reg.answer_rx.await.is_ok());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn answered_question_timer_cannot_remove_next_question() {
+        let mgr = ConnectionManager::new();
+        mgr.insert_test_connection("answered", AgentType::ClaudeCode, None, EventEmitter::Noop)
+            .await;
+        let reg = mgr.register_question("answered", q_spec()).await.unwrap();
+        let reg = mgr.with_question_deadline("answered", reg, Some(Duration::from_secs(60)));
+        mgr.answer_question("answered", &reg.question_id, Default::default())
+            .await
+            .unwrap();
+        assert!(reg.answer_rx.await.is_ok());
+        let mut next = mgr.register_question("answered", q_spec()).await.unwrap();
+        tokio::time::advance(Duration::from_secs(61)).await;
+        assert!(matches!(
+            next.answer_rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+        assert!(mgr
+            .pending_questions
+            .lock()
+            .await
+            .contains_key(&next.question_id));
+        mgr.cancel_questions_by_parent("answered").await;
+        assert!(next.answer_rx.await.is_err());
     }
 
     #[tokio::test]

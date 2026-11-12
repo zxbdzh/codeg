@@ -1,14 +1,32 @@
 use std::collections::HashSet;
 
 const RECEIPT_PREFIX: &str = "[Compressed ";
+const STATUS_PREFIXES: [&str; 4] = [
+    "ACTIVE SURFACE: ",
+    "[acp-status]",
+    "📊 [ACP] acp_status result:",
+    "[ACP] acp_status result:",
+];
 const FINGERPRINT_NOTE: &str = "Fingerprints show head/tail only — every summary is stored in full. To retrieve a specific detail from a new block, call search_context({ query }) first; decompress only if the excerpt doesn't answer it.";
 const MAX_RECEIPT_BYTES: usize = 64 * 1024;
 const MAX_CONTINUATIONS: usize = 3;
 
 pub(crate) const CONTINUATION_PROMPT: &str = "<codeg-context-pruning-continuation>\nContext pruning has finished. The preceding compression receipt is internal bookkeeping, not a user request or a final answer. Continue the active task from the latest real user instruction and the retained context. Do not repeat the compression receipt or redo completed work. Preserve any pending question, approval, cancellation, and task scope; if the task is complete or needs user input, respond normally and stop.\n</codeg-context-pruning-continuation>";
+pub(crate) const STATUS_CONTINUATION_PROMPT: &str = "<codeg-context-pruning-continuation>\nThe internal billion-context status query has finished. Its status report is tool output, not task completion or a new user instruction. Continue the active task from the latest real user instruction and retained context. Do not repeat the status report or redo completed work. Preserve pending questions, approvals, cancellation, and task scope; if the task is complete or needs user input, respond normally and stop.\n</codeg-context-pruning-continuation>";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PruningReportKind {
+    Compression,
+    Status,
+}
+
+pub(crate) fn is_internal_continuation(text: &str) -> bool {
+    matches!(text, CONTINUATION_PROMPT | STATUS_CONTINUATION_PROMPT)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PruningReceipt {
+    pub(crate) kind: PruningReportKind,
     pub(crate) header: String,
     pub(crate) detail: String,
     pub(crate) blocks: u64,
@@ -20,6 +38,9 @@ impl PruningReceipt {
         let text = text.trim();
         if text.len() > MAX_RECEIPT_BYTES {
             return None;
+        }
+        if !text.starts_with(RECEIPT_PREFIX) {
+            return Self::parse_status(text);
         }
         let body = text.strip_prefix(RECEIPT_PREFIX)?;
         let (header, rest) = body.split_once(']')?;
@@ -41,13 +62,115 @@ impl PruningReceipt {
             return None;
         }
         Some(Self {
+            kind: PruningReportKind::Compression,
             header: format!("{RECEIPT_PREFIX}{header}]"),
             detail: text.to_string(),
             blocks,
             saved_tokens,
         })
     }
+
+    fn parse_status(text: &str) -> Option<Self> {
+        let mut body = text;
+        for prefix in ["📊 [ACP] acp_status result:", "[ACP] acp_status result:"] {
+            if let Some(rest) = body.strip_prefix(prefix) {
+                body = rest.trim();
+                if !body.starts_with("[acp-status]") {
+                    return None;
+                }
+                break;
+            }
+        }
+        if let Some(rest) = body.strip_prefix("[acp-status]") {
+            body = rest.trim_end().strip_suffix("[/acp-status]")?.trim();
+        }
+        let mut lines = body.lines();
+        let surface = lines.next()?.strip_prefix("ACTIVE SURFACE: ")?;
+        let host = surface
+            .split(" | ")
+            .find_map(|field| field.strip_prefix("host=billion-context "))?;
+        if !host.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+            return None;
+        }
+        let mut breakdown = false;
+        let mut blocks = false;
+        let mut billed = false;
+        let mut storage = false;
+        let mut section = false;
+        for line in lines {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if line == "CONTEXT BREAKDOWN" {
+                breakdown = true;
+            } else if line == "COMPRESSED BLOCKS" || line.starts_with("COMPRESSED BLOCKS — ") {
+                blocks = true;
+            } else if let Some(count) = line.strip_prefix("BILLED INPUT (upstream usage): ") {
+                count.split_whitespace().next()?.parse::<u64>().ok()?;
+                billed = true;
+            } else if line.starts_with("STORAGE — ") {
+                storage = true;
+            } else if line.starts_with("  ") && section {
+                continue;
+            } else if !STATUS_SECTIONS
+                .iter()
+                .any(|prefix| line.starts_with(prefix))
+            {
+                // 只接管当前 Bili 格式；未知段落或报告后的真实回答必须原样显示。
+                return None;
+            }
+            section = true;
+        }
+        if !breakdown || !blocks || !billed || !storage {
+            return None;
+        }
+        Some(Self {
+            kind: PruningReportKind::Status,
+            header: "billion-context acp_status".to_string(),
+            detail: text.to_string(),
+            blocks: 0,
+            saved_tokens: 0,
+        })
+    }
+
+    pub(crate) fn continuation_prompt(&self) -> &'static str {
+        match self.kind {
+            PruningReportKind::Compression => CONTINUATION_PROMPT,
+            PruningReportKind::Status => STATUS_CONTINUATION_PROMPT,
+        }
+    }
 }
+
+const STATUS_SECTIONS: &[&str] = &[
+    "Tip: call again with ",
+    "NOTE: the token figures ",
+    "Nudge: ",
+    "Compressible ranges (",
+    "Compressible ranges: ",
+    "DEAD REFS — ",
+    "PRE-COMPACTION ARCHIVE — ",
+    "COMPRESSION CONFLICTS — ",
+    "Every event above is an UNCONFIRMED signal: ",
+    "Fix (",
+    "Fix: ",
+    "CONFIGURATION.md → ",
+    "PCK SELF-STAMPING OFF BY DEFAULT (instance-level, #5079): ",
+    "UNRECOGNIZED PATHS (instance-level): ",
+    "UNDECRYPTED TRAFFIC (instance-level): ",
+    "PRESSURE NOTE: ",
+    "FOLD BASE GENERATION MISMATCH — ",
+    "FOLD SUBSTRATE INVALID — ",
+    "STORE (CCR) — ",
+    "RETRIEVAL QUALITY — ",
+    "BLOCK SPANS — ",
+    "CRITICAL ADVISORY (instance-level): ",
+    "CRITICAL UPDATE READY (instance-level): ",
+    "CRITICAL UPDATE AVAILABLE (instance-level): ",
+    "Last failures were attributed to ",
+    "The Compressible-ranges list above was re-derived",
+    "Live state: GET /__bili/status",
+    "Update with: npm install -g billion-context@",
+];
 
 fn valid_range(range: &str) -> bool {
     let Some((start, end)) = range.split_once('–') else {
@@ -75,7 +198,9 @@ impl ReceiptStream {
         self.pending.push_str(text);
         let trimmed = self.pending.trim_start();
         if self.pending.len() <= MAX_RECEIPT_BYTES
-            && (RECEIPT_PREFIX.starts_with(trimmed) || trimmed.starts_with(RECEIPT_PREFIX))
+            && std::iter::once(RECEIPT_PREFIX)
+                .chain(STATUS_PREFIXES)
+                .any(|prefix| prefix.starts_with(trimmed) || trimmed.starts_with(prefix))
         {
             return None;
         }
@@ -96,31 +221,74 @@ impl ReceiptStream {
 #[derive(Debug, Default)]
 pub(crate) struct PruningContinuation {
     enabled: bool,
+    status_enabled: bool,
     seen: HashSet<String>,
 }
 
 impl PruningContinuation {
     pub(crate) fn for_prompt(text: &str) -> Self {
         let command = text.split_whitespace().next().unwrap_or("");
+        let status_query = matches!(
+            text.trim().to_lowercase().as_str(),
+            "acp_status"
+                | "/acp_status"
+                | "/status"
+                | "查看压缩状态"
+                | "显示上下文状态"
+                | "查看上下文状态"
+                | "show compression status"
+                | "show context status"
+        ) || (text.trim().starts_with("acp_status(")
+            && text.trim().ends_with(')'));
         Self {
             enabled: !matches!(command, "/compact" | "/compress" | "/clear")
                 && !matches!(text.trim(), "压缩" | "压缩上下文"),
+            status_enabled: !status_query,
             seen: HashSet::new(),
         }
     }
 
     pub(crate) fn should_continue(&mut self, receipt: &PruningReceipt, clean_end: bool) -> bool {
-        // 只延续明确的成功回执；重复或连续压缩必须停下，防止自动请求形成收费死循环。
+        // 工具回执可能只结束了中间步骤；重复结果及连续续接必须停下，防止形成收费死循环。
         self.enabled
+            && (receipt.kind != PruningReportKind::Status || self.status_enabled)
             && clean_end
             && self.seen.len() < MAX_CONTINUATIONS
-            && self.seen.insert(receipt.header.clone())
+            && self.seen.insert(match receipt.kind {
+                PruningReportKind::Compression => receipt.header.clone(),
+                PruningReportKind::Status => receipt.detail.clone(),
+            })
     }
 
     pub(crate) fn has_continued(&self) -> bool {
         !self.seen.is_empty()
     }
 }
+
+#[cfg(test)]
+pub(crate) const TEST_STATUS_REPORT: &str = concat!(
+    "ACTIVE SURFACE: pack=default | host=billion-context 0.1.213 (133f3525c)\n\n",
+    "CONTEXT BREAKDOWN\n",
+    "  27.8K tool (33%) | 52.2K text (62%) | 4.7K summaries (6%)\n",
+    "  Top tools: text (62%), Bash (23%)\n\n",
+    "COMPRESSED BLOCKS — 3 active (4.7K summary, 116.3K original)\n",
+    "  b5 (T1) 49.9K→1.4K 52 msgs \"Retained research\"\n\n",
+    "Tip: call again with scope:\"uncompressed\", view:\"messages\", tool:\"text\" for a per-message listing\n\n",
+    "BILLED INPUT (upstream usage): 160601 tok · est-view total 112428 tok · ratio 1.4×\n\n",
+    "Nudge: idle — growth -80957 < floor 22500, ready: T1 62725, blocked: T1 (cadence)\n\n",
+    "Compressible ranges (1, oldest first):\n",
+    "  m00402–m00503 31 msgs 48.2K [tool 85% | text 15%]\n\n",
+    "DEAD REFS — 149 ref(s) no longer back any visible or folded message.\n\n",
+    "STORAGE — storage: full (unified-first reads, dual-write)\n\n",
+    "PRE-COMPACTION ARCHIVE — 1 block(s): content left the session history.\n",
+    "  1: content replaced by client native compaction summary\n\n",
+    "COMPRESSION CONFLICTS — 1 event(s) in this session.\n",
+    "  [2026-11-11 13:45:41Z] unannounced-rewrite — 3/15 incoming message(s) carry pre-turn refs\n",
+    "Every event above is an UNCONFIRMED signal: history changes were observed.\n\n",
+    "Fix (claude): launch through bili claude.\n",
+    "CONFIGURATION.md → \"Detecting other compression plugins (#1206)\"\n\n",
+    "UNRECOGNIZED PATHS (instance-level): 62 request(s) matched no known protocol."
+);
 
 #[cfg(test)]
 pub(crate) const TEST_RECEIPT: &str = concat!(
@@ -133,6 +301,88 @@ pub(crate) const TEST_RECEIPT: &str = concat!(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn billion_context_status_report_resumes_the_active_task() {
+        let report = PruningReceipt::parse(TEST_STATUS_REPORT)
+            .expect("acp_status output is internal tool output, not a final answer");
+        assert!(
+            PruningContinuation::for_prompt("Continue implementing the gateway")
+                .should_continue(&report, true)
+        );
+        assert_eq!(report.kind, PruningReportKind::Status);
+        assert!(is_internal_continuation(report.continuation_prompt()));
+        assert_eq!(report.continuation_prompt(), STATUS_CONTINUATION_PROMPT);
+    }
+
+    #[test]
+    fn billion_context_status_stream_reassembles_every_character_boundary() {
+        for report in [
+            TEST_STATUS_REPORT.to_string(),
+            format!(
+                "\n📊 [ACP] acp_status result:\n[acp-status]\n{TEST_STATUS_REPORT}\n[/acp-status]\n"
+            ),
+        ] {
+            for split in report.char_indices().map(|(index, _)| index) {
+                let mut stream = ReceiptStream::default();
+                assert!(stream.push(&report[..split]).is_none(), "split={split}");
+                assert!(stream.push(&report[split..]).is_none(), "split={split}");
+                let (parsed, prose) = stream.finish();
+                assert!(parsed.is_some(), "split={split}");
+                assert!(prose.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn billion_context_status_queries_do_not_restart_the_task() {
+        let report = PruningReceipt::parse(TEST_STATUS_REPORT).unwrap();
+        for prompt in [
+            "acp_status",
+            "/acp_status",
+            "查看压缩状态",
+            "显示上下文状态",
+            "Show compression status",
+        ] {
+            assert!(
+                !PruningContinuation::for_prompt(prompt).should_continue(&report, true),
+                "{prompt}"
+            );
+        }
+    }
+
+    #[test]
+    fn billion_context_status_quotes_and_trailing_answers_remain_prose() {
+        for text in [
+            format!("> {TEST_STATUS_REPORT}"),
+            format!("{TEST_STATUS_REPORT}\n\nThe gateway is ready."),
+        ] {
+            assert!(PruningReceipt::parse(&text).is_none());
+        }
+        assert!(
+            PruningReceipt::parse("ACTIVE SURFACE: host=another-tool\nCONTEXT BREAKDOWN").is_none()
+        );
+    }
+
+    #[test]
+    fn billion_context_status_repetitions_and_changes_share_the_continuation_budget() {
+        let report = PruningReceipt::parse(TEST_STATUS_REPORT).unwrap();
+        let mut continuation = PruningContinuation::for_prompt("Continue research");
+        assert!(!continuation.has_continued());
+        assert!(!continuation.should_continue(&report, false));
+        assert!(continuation.should_continue(&report, true));
+        assert!(continuation.has_continued());
+        assert!(!continuation.should_continue(&report, true));
+        for tokens in [160602, 160603] {
+            let report =
+                PruningReceipt::parse(&TEST_STATUS_REPORT.replace("160601", &tokens.to_string()))
+                    .unwrap();
+            assert!(continuation.should_continue(&report, true));
+        }
+        let report =
+            PruningReceipt::parse(&TEST_STATUS_REPORT.replace("160601", "160604")).unwrap();
+        assert!(!continuation.should_continue(&report, true));
+    }
 
     #[test]
     fn billion_context_receipt_is_bookkeeping_that_needs_continuation() {

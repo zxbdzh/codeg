@@ -25,7 +25,7 @@ pub async fn get_question_settings(
 
 #[derive(Deserialize)]
 pub struct SetQuestionSettingsParams {
-    pub settings: QuestionSettings,
+    pub settings: crate::commands::question::QuestionSettingsUpdate,
 }
 
 pub async fn set_question_settings(

@@ -5684,12 +5684,18 @@
   },
   "AgentToolsSettings": {
     "title": "Outils dans la conversation",
-    "description": "Outils supplémentaires que codeg fournit à un agent au sein d'une conversation. Ils sont injectés au démarrage de l'agent : une modification s'applique donc aux agents démarrés ensuite.",
+    "description": "Outils supplémentaires que codeg fournit à un agent dans une conversation. Les interrupteurs concernent les agents démarrés ensuite ; le délai d’attente concerne les nouvelles questions.",
     "save": "Enregistrer",
     "saving": "Enregistrement…",
     "saved": "Paramètres des outils enregistrés",
     "saveFailed": "Échec de l'enregistrement des paramètres des outils",
-    "loadFailed": "Échec du chargement : {detail}"
+    "loadFailed": "Échec du chargement : {detail}",
+    "questionTimeout": "Délai d’attente des questions",
+    "questionTimeoutDescription": "S’applique uniquement aux nouvelles questions. L’attente indéfinie supprime seulement le délai de Codeg ; un arrêt, une déconnexion ou une annulation par l’agent met toujours fin à la question. L’hôte peut imposer ses propres limites.",
+    "questionTimeoutPermanent": "Attendre indéfiniment",
+    "questionTimeoutCustom": "Durée personnalisée",
+    "questionTimeoutMinutes": "Minutes",
+    "questionTimeoutInvalid": "Saisissez un nombre entier compris entre 1 et 10080 minutes."
   },
   "AgentTools": {
     "delegation": {

@@ -5684,12 +5684,18 @@
   },
   "AgentToolsSettings": {
     "title": "Tools in der Unterhaltung",
-    "description": "Zusätzliche Tools, die codeg einem Agenten innerhalb einer Unterhaltung gibt. Sie werden beim Start des Agenten injiziert – eine Änderung gilt daher für danach gestartete Agenten.",
+    "description": "Zusätzliche Tools, die codeg einem Agenten in einer Unterhaltung bereitstellt. Die Schalter gelten für danach gestartete Agenten; die Wartefrist gilt für neue Fragen.",
     "save": "Speichern",
     "saving": "Wird gespeichert…",
     "saved": "Tool-Einstellungen gespeichert",
     "saveFailed": "Tool-Einstellungen konnten nicht gespeichert werden",
-    "loadFailed": "Laden fehlgeschlagen: {detail}"
+    "loadFailed": "Laden fehlgeschlagen: {detail}",
+    "questionTimeout": "Wartefrist für Fragen",
+    "questionTimeoutDescription": "Gilt nur für neue Fragen. Unbegrenztes Warten hebt nur die Frist von Codeg auf; ein Stopp, eine Trennung oder ein Widerruf durch den Agenten beendet die Frage weiterhin. Der Host kann eigene Grenzen setzen.",
+    "questionTimeoutPermanent": "Unbegrenzt warten",
+    "questionTimeoutCustom": "Eigene Dauer",
+    "questionTimeoutMinutes": "Minuten",
+    "questionTimeoutInvalid": "Eine ganze Zahl von 1 bis 10080 Minuten eingeben."
   },
   "AgentTools": {
     "delegation": {

@@ -5788,9 +5788,11 @@ export async function submitSessionFeedback(
 
 // ─── Ask-user-question settings ────────────────────────────────────────────
 
-/** Mirror of Rust `QuestionSettings` (default ON). */
+/** Mirror of Rust `QuestionSettings` (default ON, no Codeg deadline). */
 export interface QuestionSettings {
   enabled: boolean
+  /** 0 仅表示不设 Codeg 期限，不改变停止、断连或代理撤回的行为。 */
+  timeout_minutes: number
 }
 
 export async function getQuestionSettings(): Promise<QuestionSettings> {
@@ -5798,7 +5800,8 @@ export async function getQuestionSettings(): Promise<QuestionSettings> {
 }
 
 export async function setQuestionSettings(
-  settings: QuestionSettings
+  // 未传入期限时不更新该字段，兼容只切换提问开关的其他入口。
+  settings: { enabled: boolean; timeout_minutes?: number }
 ): Promise<QuestionSettings> {
   return getTransport().call("set_question_settings", { settings })
 }

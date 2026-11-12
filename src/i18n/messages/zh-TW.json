@@ -5684,12 +5684,18 @@
   },
   "AgentToolsSettings": {
     "title": "對話內工具",
-    "description": "codeg 在對話中額外提供給智慧代理的工具。工具會在代理啟動時注入，變更只對之後啟動的代理生效。",
+    "description": "codeg 在對話中額外提供給智慧代理的工具。工具開關對之後啟動的代理生效；提問等待期限對新問題生效。",
     "save": "儲存",
     "saving": "儲存中…",
     "saved": "工具設定已儲存",
     "saveFailed": "儲存工具設定失敗",
-    "loadFailed": "載入失敗：{detail}"
+    "loadFailed": "載入失敗：{detail}",
+    "questionTimeout": "提問等待期限",
+    "questionTimeoutDescription": "僅對新問題生效。永久等待僅表示不設定 Codeg 期限；停止、中斷連線或代理主動撤回仍會結束問題，宿主也可能有自身限制。",
+    "questionTimeoutPermanent": "永久等待",
+    "questionTimeoutCustom": "自訂時長",
+    "questionTimeoutMinutes": "分鐘數",
+    "questionTimeoutInvalid": "請輸入 1–10080 之間的整數分鐘數。"
   },
   "AgentTools": {
     "delegation": {

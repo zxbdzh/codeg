@@ -5684,12 +5684,18 @@
   },
   "AgentToolsSettings": {
     "title": "Herramientas en la conversación",
-    "description": "Herramientas adicionales que codeg entrega a un agente dentro de una conversación. Se inyectan al iniciar el agente, así que los cambios se aplican a los agentes iniciados después.",
+    "description": "Herramientas adicionales que codeg ofrece a un agente en una conversación. Los interruptores se aplican a los agentes que se inicien después; el límite de espera se aplica a las preguntas nuevas.",
     "save": "Guardar",
     "saving": "Guardando…",
     "saved": "Ajustes de herramientas guardados",
     "saveFailed": "No se pudieron guardar los ajustes de herramientas",
-    "loadFailed": "Error al cargar: {detail}"
+    "loadFailed": "Error al cargar: {detail}",
+    "questionTimeout": "Límite de espera de las preguntas",
+    "questionTimeoutDescription": "Solo se aplica a las preguntas nuevas. La espera indefinida elimina únicamente el plazo de Codeg; detenerse, desconectarse o la cancelación por parte del agente siguen finalizando la pregunta. El anfitrión puede imponer sus propios límites.",
+    "questionTimeoutPermanent": "Esperar indefinidamente",
+    "questionTimeoutCustom": "Duración personalizada",
+    "questionTimeoutMinutes": "Minutos",
+    "questionTimeoutInvalid": "Introduce un número entero de 1 a 10080 minutos."
   },
   "AgentTools": {
     "delegation": {

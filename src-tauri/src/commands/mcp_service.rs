@@ -289,7 +289,7 @@ pub async fn set_codeg_mcp_tool_group_core(
                 conn,
                 targets.question,
                 emitter,
-                question::QuestionSettings { enabled },
+                question::QuestionSettingsUpdate { enabled, timeout_minutes: None },
             )
             .await?;
         }

@@ -5684,12 +5684,18 @@
   },
   "AgentToolsSettings": {
     "title": "대화 내 도구",
-    "description": "codeg가 대화 안에서 에이전트에게 추가로 제공하는 도구입니다. 에이전트가 시작할 때 주입되므로 변경 사항은 이후에 시작한 에이전트부터 적용됩니다.",
+    "description": "codeg가 대화 안에서 에이전트에게 추가로 제공하는 도구입니다. 도구 스위치는 이후 시작하는 에이전트에 적용되며, 질문 대기 시간 제한은 새 질문에 적용됩니다.",
     "save": "저장",
     "saving": "저장 중…",
     "saved": "도구 설정을 저장했습니다",
     "saveFailed": "도구 설정 저장에 실패했습니다",
-    "loadFailed": "불러오기 실패: {detail}"
+    "loadFailed": "불러오기 실패: {detail}",
+    "questionTimeout": "질문 대기 시간 제한",
+    "questionTimeoutDescription": "새 질문에만 적용됩니다. 무기한 대기는 Codeg의 시간 제한만 없애며, 중지하거나 연결이 끊기거나 에이전트가 취소하면 질문은 종료됩니다. 호스트 자체의 제한이 있을 수도 있습니다.",
+    "questionTimeoutPermanent": "무기한 대기",
+    "questionTimeoutCustom": "시간 직접 설정",
+    "questionTimeoutMinutes": "대기 시간(분)",
+    "questionTimeoutInvalid": "1~10080분 사이의 정수를 입력하세요."
   },
   "AgentTools": {
     "delegation": {

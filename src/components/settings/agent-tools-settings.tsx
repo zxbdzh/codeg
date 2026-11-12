@@ -27,7 +27,7 @@
  * unless the user touched it.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { Fragment, useCallback, useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { Wrench } from "lucide-react"
 import { toast } from "sonner"
@@ -38,6 +38,14 @@ import {
   SettingsSaveBar,
   SettingsSection,
 } from "@/components/shared/settings-section"
+import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import {
   AGENT_TOOLS_NAMESPACE,
@@ -47,6 +55,7 @@ import { subscribe } from "@/lib/platform"
 import {
   BROWSER_TOOLS_SETTINGS_CHANGED_EVENT,
   CHAT_AUTHORING_SETTINGS_CHANGED_EVENT,
+  QUESTION_SETTINGS_CHANGED_EVENT,
 } from "@/lib/types"
 import {
   getComputerToolsSettings,
@@ -69,6 +78,7 @@ import {
   setSessionInfoSettings,
   type BrowserToolsSettings,
   type ChatAuthoringSettings,
+  type QuestionSettings,
 } from "@/lib/api"
 import { toErrorMessage } from "@/lib/app-error"
 import { primeFeedbackEnabled } from "@/hooks/use-feedback-enabled"
@@ -77,6 +87,9 @@ import { primeFeedbackEnabled } from "@/hooks/use-feedback-enabled"
 interface AgentToolValues {
   feedback: boolean
   question: boolean
+  questionTimeoutMode: "permanent" | "custom"
+  // 保留输入原文，清空或越界时禁止保存，而不是悄悄转换成永久等待。
+  questionTimeoutMinutes: string
   sessionInfo: boolean
   browserTools: boolean
   browserEval: boolean
@@ -94,6 +107,8 @@ interface AgentToolValues {
 const DEFAULTS: AgentToolValues = {
   feedback: false,
   question: true,
+  questionTimeoutMode: "permanent",
+  questionTimeoutMinutes: "",
   sessionInfo: true,
   browserTools: false,
   browserEval: false,
@@ -129,8 +144,35 @@ const TOOL_ROWS = [
 /** Slug → the form field it edits, for resolving a `requires` relation (which
  *  is expressed in slugs, because the backend sends it that way) back to a
  *  row of this form. */
-const FIELD_OF_SLUG: Record<string, keyof AgentToolValues | undefined> =
-  Object.fromEntries(TOOL_ROWS.map((row) => [row.slug, row.key]))
+const FIELD_OF_SLUG: Record<
+  string,
+  (typeof TOOL_ROWS)[number]["key"] | undefined
+> = Object.fromEntries(TOOL_ROWS.map((row) => [row.slug, row.key]))
+
+const QUESTION_TIMEOUT_MAX = 10080
+
+type QuestionTimeoutValues = Pick<
+  AgentToolValues,
+  "questionTimeoutMode" | "questionTimeoutMinutes"
+>
+
+function questionTimeoutValues(minutes: number): QuestionTimeoutValues {
+  return {
+    questionTimeoutMode: minutes === 0 ? "permanent" : "custom",
+    questionTimeoutMinutes: minutes === 0 ? "" : String(minutes),
+  }
+}
+
+function questionTimeoutDirty(
+  current: QuestionTimeoutValues,
+  base: QuestionTimeoutValues
+): boolean {
+  return (
+    current.questionTimeoutMode !== base.questionTimeoutMode ||
+    (current.questionTimeoutMode === "custom" &&
+      current.questionTimeoutMinutes !== base.questionTimeoutMinutes)
+  )
+}
 
 export function AgentToolsSettingsSection() {
   const t = useTranslations("AgentToolsSettings")
@@ -155,7 +197,7 @@ export function AgentToolsSettingsSection() {
    * while they were in flight, yields that record's fields to the broadcast —
    * that read is older than it. A broadcast about one record says nothing
    * about another's read. */
-  const remoteGenRef = useRef({ chat: 0, browser: 0, computer: 0 })
+  const remoteGenRef = useRef({ question: 0, chat: 0, browser: 0, computer: 0 })
 
   useEffect(() => {
     let cancelled = false
@@ -179,9 +221,13 @@ export function AgentToolsSettingsSection() {
       if (feedback.status === "fulfilled")
         next.feedback = feedback.value.enabled
       else failures.push(toErrorMessage(feedback.reason))
-      if (question.status === "fulfilled")
+      if (question.status === "fulfilled") {
         next.question = question.value.enabled
-      else failures.push(toErrorMessage(question.reason))
+        Object.assign(
+          next,
+          questionTimeoutValues(question.value.timeout_minutes)
+        )
+      } else failures.push(toErrorMessage(question.reason))
       if (sessionInfo.status === "fulfilled")
         next.sessionInfo = sessionInfo.value.enabled
       else failures.push(toErrorMessage(sessionInfo.reason))
@@ -204,6 +250,14 @@ export function AgentToolsSettingsSection() {
       // also write — a read that started before that write is older than it.
       const keepBroadcast = (prev: AgentToolValues): AgentToolValues => ({
         ...next,
+        // 读取期间收到的提问广播更新了整条记录，不能被较旧的读取结果盖回。
+        ...(moved.question !== gen.question
+          ? {
+              question: prev.question,
+              questionTimeoutMode: prev.questionTimeoutMode,
+              questionTimeoutMinutes: prev.questionTimeoutMinutes,
+            }
+          : {}),
         ...(moved.chat !== gen.chat
           ? { automations: prev.automations, workTasks: prev.workTasks }
           : {}),
@@ -348,9 +402,57 @@ export function AgentToolsSettingsSection() {
     }
   }, [])
 
+  useEffect(() => {
+    let disposed = false
+    let unsubscribe: (() => void) | undefined
+    void subscribe<QuestionSettings>(
+      QUESTION_SETTINGS_CHANGED_EVENT,
+      (remote) => {
+        if (disposed) return
+        remoteGenRef.current.question += 1
+        const incoming = {
+          question: remote.enabled,
+          ...questionTimeoutValues(remote.timeout_minutes),
+        }
+        // 先快照旧基线再同步 ref，连续广播也按字段保留草稿；开关与期限互不覆盖。
+        const base = baselineRef.current
+        baselineRef.current = { ...base, ...incoming }
+        setValues((prev) => ({
+          ...prev,
+          ...(prev.question === base.question
+            ? { question: incoming.question }
+            : {}),
+          ...(!questionTimeoutDirty(prev, base)
+            ? questionTimeoutValues(remote.timeout_minutes)
+            : {}),
+        }))
+        setBaseline((prev) => ({ ...prev, ...incoming }))
+      }
+    )
+      .then((fn) => {
+        if (disposed) fn()
+        else unsubscribe = fn
+      })
+      .catch(() => {})
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
+  }, [])
+
+  const timeoutDirty = questionTimeoutDirty(values, baseline)
+  const timeoutMinutes = Number(values.questionTimeoutMinutes)
+  const invalidTimeout =
+    values.questionTimeoutMode === "custom" &&
+    (!/^\d+$/.test(values.questionTimeoutMinutes) ||
+      !Number.isInteger(timeoutMinutes) ||
+      timeoutMinutes < 1 ||
+      timeoutMinutes > QUESTION_TIMEOUT_MAX)
+
   const dirty =
     values.feedback !== baseline.feedback ||
     values.question !== baseline.question ||
+    timeoutDirty ||
     values.sessionInfo !== baseline.sessionInfo ||
     values.browserTools !== baseline.browserTools ||
     values.browserEval !== baseline.browserEval ||
@@ -359,7 +461,9 @@ export function AgentToolsSettingsSection() {
     values.workTasks !== baseline.workTasks
 
   const save = useCallback(async () => {
+    if (invalidTimeout) return
     setSaving(true)
+    const questionGen = remoteGenRef.current.question
     try {
       const writes: Array<Promise<Partial<AgentToolValues>>> = []
 
@@ -373,10 +477,22 @@ export function AgentToolsSettingsSection() {
           })
         )
       }
-      if (values.question !== baseline.question) {
+      if (values.question !== baseline.question || timeoutDirty) {
         writes.push(
-          setQuestionSettings({ enabled: values.question }).then((applied) => ({
+          setQuestionSettings({
+            enabled: values.question,
+            // 仅修改开关时不回写期限，其他入口或窗口刚保存的期限应由后端保留。
+            ...(timeoutDirty
+              ? {
+                  timeout_minutes:
+                    values.questionTimeoutMode === "permanent"
+                      ? 0
+                      : timeoutMinutes,
+                }
+              : {}),
+          }).then((applied) => ({
             question: applied.enabled,
+            ...questionTimeoutValues(applied.timeout_minutes),
           }))
         )
       }
@@ -437,6 +553,18 @@ export function AgentToolsSettingsSection() {
           result.status === "fulfilled" ? { ...acc, ...result.value } : acc,
         {}
       )
+      if (
+        "question" in applied &&
+        remoteGenRef.current.question !== questionGen
+      ) {
+        // 保存答复可能晚于更新的广播；以后端按提交顺序广播的最新基线为准。
+        const latest = baselineRef.current
+        Object.assign(applied, {
+          question: latest.question,
+          questionTimeoutMode: latest.questionTimeoutMode,
+          questionTimeoutMinutes: latest.questionTimeoutMinutes,
+        })
+      }
       setValues((prev) => ({ ...prev, ...applied }))
       setBaseline((prev) => ({ ...prev, ...applied }))
 
@@ -451,7 +579,7 @@ export function AgentToolsSettingsSection() {
     } finally {
       setSaving(false)
     }
-  }, [values, baseline, t])
+  }, [values, baseline, invalidTimeout, timeoutDirty, timeoutMinutes, t])
 
   return (
     <SettingsSection
@@ -475,26 +603,107 @@ export function AgentToolsSettingsSection() {
           const gate = meta.requires ? FIELD_OF_SLUG[meta.requires] : undefined
           const available = !gate || values[gate]
           return (
-            <SettingRow
-              key={row.key}
-              icon={meta.icon}
-              title={tools(meta.label)}
-              description={tools(meta.hint)}
-              htmlFor={row.id}
-              control={
-                <Switch
-                  id={row.id}
-                  checked={values[row.key] && available}
-                  onCheckedChange={(next) =>
-                    setValues((prev) => ({ ...prev, [row.key]: next }))
+            <Fragment key={row.key}>
+              <SettingRow
+                icon={meta.icon}
+                title={tools(meta.label)}
+                description={tools(meta.hint)}
+                htmlFor={row.id}
+                control={
+                  <Switch
+                    id={row.id}
+                    checked={values[row.key] && available}
+                    onCheckedChange={(next) =>
+                      setValues((prev) => ({ ...prev, [row.key]: next }))
+                    }
+                    // 保存期间不接收草稿，避免被保存答复无声覆盖。
+                    disabled={loading || saving || !available}
+                  />
+                }
+              />
+              {row.key === "question" && (
+                <SettingRow
+                  title={t("questionTimeout")}
+                  description={
+                    <span id="agent-tools-question-timeout-hint">
+                      {t("questionTimeoutDescription")}
+                    </span>
                   }
-                  // Not while a save is on its way: its answer replaces the
-                  // switches it wrote, and a flip made meanwhile would be
-                  // overwritten without a trace.
-                  disabled={loading || saving || !available}
-                />
-              }
-            />
+                  htmlFor="agent-tools-question-timeout-mode"
+                  control={
+                    <Select
+                      value={values.questionTimeoutMode}
+                      onValueChange={(next) =>
+                        setValues((prev) => ({
+                          ...prev,
+                          questionTimeoutMode:
+                            next === "custom" ? "custom" : "permanent",
+                        }))
+                      }
+                      disabled={loading || saving}
+                    >
+                      <SelectTrigger
+                        id="agent-tools-question-timeout-mode"
+                        size="sm"
+                        aria-describedby="agent-tools-question-timeout-hint"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="permanent">
+                          {t("questionTimeoutPermanent")}
+                        </SelectItem>
+                        <SelectItem value="custom">
+                          {t("questionTimeoutCustom")}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  }
+                >
+                  {values.questionTimeoutMode === "custom" && (
+                    <div className="flex flex-col gap-1.5">
+                      <label
+                        htmlFor="agent-tools-question-timeout-minutes"
+                        className="text-xs text-muted-foreground"
+                      >
+                        {t("questionTimeoutMinutes")}
+                      </label>
+                      <Input
+                        id="agent-tools-question-timeout-minutes"
+                        type="number"
+                        min={1}
+                        max={QUESTION_TIMEOUT_MAX}
+                        step={1}
+                        className="h-8 w-32"
+                        value={values.questionTimeoutMinutes}
+                        onChange={(event) =>
+                          setValues((prev) => ({
+                            ...prev,
+                            questionTimeoutMinutes: event.target.value,
+                          }))
+                        }
+                        disabled={loading || saving}
+                        aria-invalid={invalidTimeout}
+                        aria-describedby={
+                          invalidTimeout
+                            ? "agent-tools-question-timeout-error"
+                            : "agent-tools-question-timeout-hint"
+                        }
+                      />
+                      {invalidTimeout && (
+                        <p
+                          id="agent-tools-question-timeout-error"
+                          role="alert"
+                          className="text-xs text-destructive"
+                        >
+                          {t("questionTimeoutInvalid")}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </SettingRow>
+              )}
+            </Fragment>
           )
         })}
       </SettingCard>
@@ -502,7 +711,7 @@ export function AgentToolsSettingsSection() {
       <SettingsSaveBar
         onSave={() => void save()}
         saving={saving}
-        disabled={loading || !dirty}
+        disabled={loading || !dirty || invalidTimeout}
         label={t("save")}
         savingLabel={t("saving")}
       />

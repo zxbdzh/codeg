@@ -39,10 +39,10 @@ use std::sync::Arc;
 
 use codeg_lib::acp::delegation::companion::{
     dispatch_line, drain_and_cancel_all, CompanionContext, CompanionFeatures, InflightCalls,
-    JsonRpcResponse, LineAction, SpawnResult,
+    LineAction, SpawnResult,
 };
 use codeg_lib::acp::delegation::parent_watcher::{wait_for_parent_exit, DEFAULT_POLL_INTERVAL};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Stdout};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 
 struct Args {
@@ -164,9 +164,9 @@ fn parse_csv(raw: Option<&str>) -> Vec<String> {
 
 /// Serialize a `JsonRpcResponse` and append a newline; small enough to keep
 /// inline so the write-mutex critical section stays tight.
-async fn write_response(
-    stdout: &Arc<Mutex<Stdout>>,
-    resp: &JsonRpcResponse,
+async fn write_response<W: tokio::io::AsyncWrite + Unpin, T: serde::Serialize>(
+    stdout: &Arc<Mutex<W>>,
+    resp: &T,
 ) -> std::io::Result<()> {
     let serialized = serde_json::to_string(resp).map_err(|e| {
         std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {e}"))
@@ -176,6 +176,57 @@ async fn write_response(
     guard.write_all(b"\n").await?;
     guard.flush().await?;
     Ok(())
+}
+
+/// 只回传提问请求主动提供的 token，不给其他工具伪造进度。
+fn question_progress_token(line: &str) -> Option<serde_json::Value> {
+    let request: serde_json::Value = serde_json::from_str(line).ok()?;
+    if request.get("method")?.as_str()? != "tools/call"
+        || request.pointer("/params/name")?.as_str()? != "ask_user_question"
+    {
+        return None;
+    }
+    request
+        .pointer("/params/_meta/progressToken")
+        .filter(|token| token.is_string() || token.is_i64() || token.is_u64())
+        .cloned()
+}
+
+async fn await_question_with_progress<W: tokio::io::AsyncWrite + Unpin>(
+    stdout: &Arc<Mutex<W>>,
+    token: Option<serde_json::Value>,
+    future: impl std::future::Future<Output = SpawnResult>,
+) -> std::io::Result<SpawnResult> {
+    let Some(token) = token else {
+        return Ok(future.await);
+    };
+    tokio::pin!(future);
+    let period = std::time::Duration::from_secs(60);
+    let start = tokio::time::Instant::now();
+    let mut timer = tokio::time::interval_at(start + period, period);
+    timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut sequence = 0_u64;
+    loop {
+        tokio::select! {
+            biased;
+            // 完成和撤回优先，不在请求结束后继续发通知。
+            result = &mut future => return Ok(result),
+            _ = timer.tick() => {
+                sequence += 1;
+                let notification = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": "notifications/progress",
+                    "params": {
+                        "progressToken": token,
+                        "progress": sequence,
+                        "message": "Waiting for your answer in Codeg"
+                    }
+                });
+                // 完整写出一帧，不能取消半次写入，否则后续响应会拼成损坏的 JSON。
+                write_response(stdout, &notification).await?;
+            }
+        }
+    }
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -283,7 +334,15 @@ async fn main() -> ExitCode {
                             let SpawnResult {
                                 response,
                                 after_relay,
-                            } = spawned.future.await;
+                            } = match await_question_with_progress(
+                                &stdout, question_progress_token(&line), spawned.future,
+                            ).await {
+                                Ok(result) => result,
+                                Err(e) => {
+                                    let _ = writeln!(std::io::stderr(), "codeg-mcp: write progress: {e}");
+                                    return;
+                                }
+                            };
                             // `None` → cancellation won; suppress per MCP spec.
                             let Some(resp) = response else {
                                 return;
@@ -313,4 +372,91 @@ async fn main() -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+    use std::time::Duration;
+
+    #[test]
+    fn progress_only_accepts_question_tokens() {
+        for token in [json!("question-1"), json!(0), json!(-2)] {
+            let request = json!({"method": "tools/call", "params": {"name": "ask_user_question", "_meta": {"progressToken": token}}});
+            assert_eq!(question_progress_token(&request.to_string()), Some(token));
+        }
+        for token in [Value::Null, json!(false), json!({}), json!(1.5)] {
+            let request = json!({"method": "tools/call", "params": {"name": "ask_user_question", "_meta": {"progressToken": token}}});
+            assert_eq!(question_progress_token(&request.to_string()), None);
+        }
+        assert_eq!(question_progress_token("invalid"), None);
+        assert_eq!(question_progress_token(&json!({"method": "tools/call", "params": {"name": "get_session_info", "_meta": {"progressToken": "x"}}}).to_string()), None);
+        assert_eq!(
+            question_progress_token(
+                &json!({"method": "tools/call", "params": {"name": "ask_user_question"}})
+                    .to_string()
+            ),
+            None
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn progress_increases_and_stops_when_question_finishes() {
+        let output = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let writer = output.clone();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            await_question_with_progress(&writer, Some(json!("question-1")), async {
+                receiver.await.unwrap();
+                SpawnResult {
+                    response: None,
+                    after_relay: None,
+                }
+            })
+            .await
+            .unwrap()
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(59)).await;
+        tokio::task::yield_now().await;
+        assert!(output.lock().await.is_empty());
+        for seconds in [1, 60] {
+            tokio::time::advance(Duration::from_secs(seconds)).await;
+            tokio::task::yield_now().await;
+        }
+        let bytes = output.lock().await.clone();
+        let messages: Vec<Value> = std::str::from_utf8(&bytes)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(messages.len(), 2);
+        for (index, message) in messages.iter().enumerate() {
+            assert_eq!(message["method"], "notifications/progress");
+            assert_eq!(message["params"]["progressToken"], "question-1");
+            assert_eq!(message["params"]["progress"], index + 1);
+            assert!(message.get("id").is_none());
+        }
+        sender.send(()).unwrap();
+        assert!(task.await.unwrap().response.is_none());
+        tokio::time::advance(Duration::from_secs(600)).await;
+        assert_eq!(*output.lock().await, bytes);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn absent_token_sends_no_notifications() {
+        let output = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let result = await_question_with_progress(&output, None, async {
+            tokio::time::sleep(Duration::from_secs(600)).await;
+            SpawnResult {
+                response: None,
+                after_relay: None,
+            }
+        })
+        .await
+        .unwrap();
+        assert!(result.response.is_none());
+        assert!(output.lock().await.is_empty());
+    }
 }

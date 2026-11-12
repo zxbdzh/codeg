@@ -5746,12 +5746,18 @@
   },
   "AgentToolsSettings": {
     "title": "会话内工具",
-    "description": "codeg 在会话中额外提供给智能体的工具。工具在智能体启动时注入，改动只对之后启动的智能体生效。",
+    "description": "codeg 在会话中额外提供给智能体的工具。工具开关对之后启动的智能体生效；提问等待期限对新问题生效。",
     "save": "保存",
     "saving": "保存中…",
     "saved": "工具设置已保存",
     "saveFailed": "保存工具设置失败",
-    "loadFailed": "加载失败：{detail}"
+    "loadFailed": "加载失败：{detail}",
+    "questionTimeout": "提问等待期限",
+    "questionTimeoutDescription": "仅对新问题生效。永久等待仅表示不设置 Codeg 期限；停止、断连或智能体主动撤回仍会结束问题，宿主也可能有自身限制。",
+    "questionTimeoutPermanent": "永久等待",
+    "questionTimeoutCustom": "自定义时长",
+    "questionTimeoutMinutes": "分钟数",
+    "questionTimeoutInvalid": "请输入 1–10080 之间的整数分钟数。"
   },
   "AgentTools": {
     "delegation": {

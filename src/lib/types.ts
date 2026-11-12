@@ -667,6 +667,10 @@ export const FOLDER_LINKS_CHANGED_EVENT = "folder://links-changed"
  *  frontend-only cache. Mirrors the Rust `FEEDBACK_SETTINGS_CHANGED_EVENT`. */
 export const FEEDBACK_SETTINGS_CHANGED_EVENT = "feedback-settings://changed"
 
+/** 提问开关和等待期限共用一条记录；跨窗口广播防止未改字段被旧值覆盖。
+ *  Payload: `QuestionSettings`，对应 Rust `QUESTION_SETTINGS_CHANGED_EVENT`。 */
+export const QUESTION_SETTINGS_CHANGED_EVENT = "question-settings://changed"
+
 /** Global side-channel announcing a create-from-chat switch move (payload is
  *  `ChatAuthoringSettings`). Load-bearing rather than cosmetic: these two flags
  *  share one record and have two editors — the settings form, which writes the

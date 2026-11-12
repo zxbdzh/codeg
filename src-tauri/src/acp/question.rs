@@ -2071,6 +2071,8 @@ pub fn grok_result_card_output(outcome: &QuestionOutcome) -> Value {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct QuestionConfig {
     pub enabled: bool,
+    /// 注册新题时快照；0 不设置 Codeg 答题期限。
+    pub timeout_minutes: u32,
 }
 
 /// Shared, hot-swappable handle to [`QuestionConfig`]. Cloned into
@@ -3806,7 +3808,7 @@ mod tests {
     async fn runtime_config_hot_swaps() {
         let cfg = QuestionRuntimeConfig::new();
         assert!(!cfg.is_enabled().await);
-        cfg.set(QuestionConfig { enabled: true }).await;
+        cfg.set(QuestionConfig { enabled: true, ..Default::default() }).await;
         assert!(cfg.is_enabled().await);
     }
 

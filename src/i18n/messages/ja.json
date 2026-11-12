@@ -5684,12 +5684,18 @@
   },
   "AgentToolsSettings": {
     "title": "会話内ツール",
-    "description": "codeg が会話の中でエージェントに追加で渡すツールです。エージェントの起動時に注入されるため、変更は以降に起動したエージェントに適用されます。",
+    "description": "codeg が会話内でエージェントに追加するツールです。ツールの切り替えは以降に起動するエージェントに、質問の待機期限は新しい質問に適用されます。",
     "save": "保存",
     "saving": "保存中…",
     "saved": "ツール設定を保存しました",
     "saveFailed": "ツール設定の保存に失敗しました",
-    "loadFailed": "読み込みに失敗しました: {detail}"
+    "loadFailed": "読み込みに失敗しました: {detail}",
+    "questionTimeout": "質問の待機期限",
+    "questionTimeoutDescription": "新しい質問にのみ適用されます。無期限の待機は Codeg の期限を設けないだけで、停止、切断、エージェントによる取り消しで質問は終了します。ホスト側の制限が適用される場合もあります。",
+    "questionTimeoutPermanent": "無期限に待機",
+    "questionTimeoutCustom": "待機時間を指定",
+    "questionTimeoutMinutes": "待機時間（分）",
+    "questionTimeoutInvalid": "1～10080 分の整数を入力してください。"
   },
   "AgentTools": {
     "delegation": {

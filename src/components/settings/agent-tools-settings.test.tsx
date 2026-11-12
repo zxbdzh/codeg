@@ -40,6 +40,7 @@ const browserToolsHandler = () =>
   handlers.get("browser-tools-settings://changed")
 const computerToolsHandler = () =>
   handlers.get("computer-tools-settings://changed")
+const questionHandler = () => handlers.get("question-settings://changed")
 
 // Avoid mutating the shared module cache across tests.
 vi.mock("@/hooks/use-feedback-enabled", () => ({
@@ -118,6 +119,7 @@ function primeBackend(
   overrides: {
     feedback?: boolean
     question?: boolean
+    questionTimeout?: number
     sessionInfo?: boolean
     browserTools?: boolean
     browserEval?: boolean
@@ -129,6 +131,7 @@ function primeBackend(
   const {
     feedback = false,
     question = true,
+    questionTimeout = 0,
     sessionInfo = true,
     browserTools = false,
     browserEval = false,
@@ -137,7 +140,10 @@ function primeBackend(
     workTasks = false,
   } = overrides
   mockGetFeedback.mockResolvedValue({ enabled: feedback })
-  mockGetQuestion.mockResolvedValue({ enabled: question })
+  mockGetQuestion.mockResolvedValue({
+    enabled: question,
+    timeout_minutes: questionTimeout,
+  })
   mockGetSessionInfo.mockResolvedValue({ enabled: sessionInfo })
   mockGetBrowser.mockResolvedValue({
     enabled: browserTools,
@@ -148,7 +154,10 @@ function primeBackend(
     work_tasks_enabled: workTasks,
   })
   mockSetFeedback.mockImplementation(async (next) => next)
-  mockSetQuestion.mockImplementation(async (next) => next)
+  mockSetQuestion.mockImplementation(async (next) => ({
+    enabled: next.enabled,
+    timeout_minutes: next.timeout_minutes ?? questionTimeout,
+  }))
   mockSetSessionInfo.mockImplementation(async (next) => next)
   mockSetBrowser.mockImplementation(async (next) => next)
   mockSetChat.mockImplementation(async (next) => next)
@@ -184,7 +193,263 @@ beforeEach(() => {
   handlers.clear()
 })
 
+async function chooseQuestionTimeout(
+  name: "Wait indefinitely" | "Custom duration"
+) {
+  fireEvent.keyDown(
+    screen.getByRole("combobox", { name: "Question waiting limit" }),
+    { key: " " }
+  )
+  fireEvent.click(await screen.findByRole("option", { name }))
+}
+
 describe("AgentToolsSettingsSection", () => {
+  it("defaults to no Codeg deadline and explains the scope and cancellation limits", async () => {
+    primeBackend()
+    renderWithIntl()
+    await loaded()
+
+    expect(
+      screen.getByRole("combobox", { name: "Question waiting limit" })
+    ).toHaveTextContent("Wait indefinitely")
+    expect(
+      screen.queryByRole("spinbutton", { name: "Minutes" })
+    ).not.toBeInTheDocument()
+    expect(screen.getByText(/Applies only to new questions/)).toHaveTextContent(
+      "stopping, disconnecting or cancellation by the agent still ends the question"
+    )
+    expect(screen.getByText(/Applies only to new questions/)).toHaveTextContent(
+      "The host may impose its own limits."
+    )
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+  })
+
+  it("loads a stored custom duration without making it dirty", async () => {
+    primeBackend({ questionTimeout: 45 })
+    renderWithIntl()
+    await loaded()
+
+    expect(
+      screen.getByRole("combobox", { name: "Question waiting limit" })
+    ).toHaveTextContent("Custom duration")
+    expect(screen.getByRole("spinbutton", { name: "Minutes" })).toHaveValue(45)
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+  })
+
+  it("requires valid minutes after choosing a custom duration", async () => {
+    primeBackend()
+    renderWithIntl()
+    await loaded()
+    await chooseQuestionTimeout("Custom duration")
+
+    const minutes = screen.getByRole("spinbutton", { name: "Minutes" })
+    expect(minutes).toHaveAttribute("aria-invalid", "true")
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+    fireEvent.change(minutes, { target: { value: "30" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+
+    await waitFor(() =>
+      expect(mockSetQuestion).toHaveBeenCalledWith({
+        enabled: true,
+        timeout_minutes: 30,
+      })
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+    )
+  })
+
+  it.each([1, 10080])(
+    "saves the custom duration boundary %i independently",
+    async (minutes) => {
+      primeBackend({ questionTimeout: 30 })
+      renderWithIntl()
+      await loaded()
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Minutes" }), {
+        target: { value: String(minutes) },
+      })
+      fireEvent.click(screen.getByRole("button", { name: "Save" }))
+
+      await waitFor(() =>
+        expect(mockSetQuestion).toHaveBeenCalledWith({
+          enabled: true,
+          timeout_minutes: minutes,
+        })
+      )
+      expect(mockSetFeedback).not.toHaveBeenCalled()
+      expect(mockSetBrowser).not.toHaveBeenCalled()
+      expect(mockSetChat).not.toHaveBeenCalled()
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+      )
+    }
+  )
+
+  it.each(["", "0", "-1", "1.5", "10081", "invalid"])(
+    "blocks all writes for invalid custom minutes %j",
+    async (value) => {
+      primeBackend({ questionTimeout: 30 })
+      renderWithIntl()
+      await loaded()
+      fireEvent.click(screen.getByLabelText(LABELS.feedback))
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Minutes" }), {
+        target: { value },
+      })
+
+      expect(
+        screen.getByRole("spinbutton", { name: "Minutes" })
+      ).toHaveAttribute("aria-invalid", "true")
+      expect(screen.getByRole("alert")).toHaveTextContent("1 to 10080")
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+      fireEvent.click(screen.getByRole("button", { name: "Save" }))
+      expect(mockSetQuestion).not.toHaveBeenCalled()
+      expect(mockSetFeedback).not.toHaveBeenCalled()
+    }
+  )
+
+  it("saves zero for indefinite waiting and clears custom validation", async () => {
+    primeBackend({ questionTimeout: 30 })
+    renderWithIntl()
+    await loaded()
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Minutes" }), {
+      target: { value: "0" },
+    })
+    await chooseQuestionTimeout("Wait indefinitely")
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+
+    await waitFor(() =>
+      expect(mockSetQuestion).toHaveBeenCalledWith({
+        enabled: true,
+        timeout_minutes: 0,
+      })
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+    )
+  })
+
+  it("omits an untouched custom duration when only the question switch changes", async () => {
+    primeBackend({ questionTimeout: 45 })
+    renderWithIntl()
+    await loaded()
+    fireEvent.click(screen.getByLabelText(LABELS.question))
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+
+    await waitFor(() =>
+      expect(mockSetQuestion).toHaveBeenCalledWith({ enabled: false })
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+    )
+    expect(screen.getByRole("spinbutton", { name: "Minutes" })).toHaveValue(45)
+  })
+
+  it("adopts a remote duration while retaining a local question-switch draft", async () => {
+    primeBackend()
+    renderWithIntl()
+    await loaded()
+    fireEvent.click(screen.getByLabelText(LABELS.question))
+    act(() => questionHandler()?.({ enabled: true, timeout_minutes: 90 }))
+
+    expect(screen.getByLabelText(LABELS.question)).not.toBeChecked()
+    expect(screen.getByRole("spinbutton", { name: "Minutes" })).toHaveValue(90)
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() =>
+      expect(mockSetQuestion).toHaveBeenCalledWith({ enabled: false })
+    )
+  })
+
+  it("retains a local duration draft but adopts a remote question switch", async () => {
+    primeBackend({ questionTimeout: 30 })
+    renderWithIntl()
+    await loaded()
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Minutes" }), {
+      target: { value: "60" },
+    })
+    act(() => questionHandler()?.({ enabled: false, timeout_minutes: 90 }))
+
+    expect(screen.getByLabelText(LABELS.question)).not.toBeChecked()
+    expect(screen.getByRole("spinbutton", { name: "Minutes" })).toHaveValue(60)
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() =>
+      expect(mockSetQuestion).toHaveBeenCalledWith({
+        enabled: false,
+        timeout_minutes: 60,
+      })
+    )
+  })
+
+  it("merges consecutive question broadcasts without mistaking remote state for a draft", async () => {
+    primeBackend()
+    renderWithIntl()
+    await loaded()
+    act(() => {
+      questionHandler()?.({ enabled: false, timeout_minutes: 30 })
+      questionHandler()?.({ enabled: true, timeout_minutes: 60 })
+    })
+
+    expect(screen.getByLabelText(LABELS.question)).toBeChecked()
+    expect(screen.getByRole("spinbutton", { name: "Minutes" })).toHaveValue(60)
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+  })
+
+  it("does not let a slow question read overwrite a newer question broadcast", async () => {
+    primeBackend()
+    let releaseQuestion: (value: {
+      enabled: boolean
+      timeout_minutes: number
+    }) => void = () => {}
+    mockGetQuestion.mockReturnValueOnce(
+      new Promise((resolve) => {
+        releaseQuestion = resolve
+      })
+    )
+    renderWithIntl()
+    await waitFor(() => expect(questionHandler()).toBeDefined())
+    act(() => questionHandler()?.({ enabled: false, timeout_minutes: 90 }))
+    await act(async () =>
+      releaseQuestion({ enabled: true, timeout_minutes: 0 })
+    )
+    await loaded()
+
+    expect(screen.getByLabelText(LABELS.question)).not.toBeChecked()
+    expect(screen.getByRole("spinbutton", { name: "Minutes" })).toHaveValue(90)
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+  })
+
+  it("keeps question controls locked while saving and yields a late reply to broadcasts", async () => {
+    primeBackend({ questionTimeout: 30 })
+    let releaseSave: (value: {
+      enabled: boolean
+      timeout_minutes: number
+    }) => void = () => {}
+    mockSetQuestion.mockReturnValueOnce(
+      new Promise((resolve) => {
+        releaseSave = resolve
+      })
+    )
+    renderWithIntl()
+    await loaded()
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Minutes" }), {
+      target: { value: "60" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    expect(screen.getByRole("spinbutton", { name: "Minutes" })).toBeDisabled()
+    expect(
+      screen.getByRole("combobox", { name: "Question waiting limit" })
+    ).toBeDisabled()
+
+    act(() => questionHandler()?.({ enabled: false, timeout_minutes: 90 }))
+    await act(async () => releaseSave({ enabled: true, timeout_minutes: 60 }))
+    await waitFor(() =>
+      expect(screen.getByRole("spinbutton", { name: "Minutes" })).toBeEnabled()
+    )
+    expect(screen.getByLabelText(LABELS.question)).not.toBeChecked()
+    expect(screen.getByRole("spinbutton", { name: "Minutes" })).toHaveValue(90)
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+  })
+
   it("shows one switch per tool, each reflecting its own endpoint", async () => {
     primeBackend({ feedback: true, sessionInfo: false, workTasks: true })
 

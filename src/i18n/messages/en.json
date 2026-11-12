@@ -5746,12 +5746,18 @@
   },
   "AgentToolsSettings": {
     "title": "In-conversation tools",
-    "description": "Extra tools codeg gives an agent inside a conversation. Each is injected when the agent starts, so a change applies to agents started afterwards.",
+    "description": "Extra tools codeg gives an agent inside a conversation. Tool switches apply to agents started afterwards; question waiting limits apply to new questions.",
     "save": "Save",
     "saving": "Saving…",
     "saved": "Tool settings saved",
     "saveFailed": "Failed to save tool settings",
-    "loadFailed": "Failed to load: {detail}"
+    "loadFailed": "Failed to load: {detail}",
+    "questionTimeout": "Question waiting limit",
+    "questionTimeoutDescription": "Applies only to new questions. Indefinite waiting removes only Codeg's deadline; stopping, disconnecting or cancellation by the agent still ends the question. The host may impose its own limits.",
+    "questionTimeoutPermanent": "Wait indefinitely",
+    "questionTimeoutCustom": "Custom duration",
+    "questionTimeoutMinutes": "Minutes",
+    "questionTimeoutInvalid": "Enter a whole number from 1 to 10080 minutes."
   },
   "AgentTools": {
     "delegation": {

@@ -730,7 +730,7 @@ pub(crate) fn is_meta_message(value: &serde_json::Value) -> bool {
             })
         });
         // 内部续接不是用户发言，刷新后也不能产生额外用户消息或历史分叉边界。
-        if text == Some(crate::acp::context_pruning::CONTINUATION_PROMPT) {
+        if text.is_some_and(crate::acp::context_pruning::is_internal_continuation) {
             return true;
         }
     }
@@ -2438,18 +2438,26 @@ impl ClaudeRecordAccumulator {
                     vec![
                         ContentBlock::ToolUse {
                             tool_use_id: Some(format!("bili-pruning-{message_id}")),
-                            tool_name: "context_compaction".to_string(),
+                            tool_name: match receipt.kind {
+                                crate::acp::context_pruning::PruningReportKind::Compression => "context_compaction",
+                                crate::acp::context_pruning::PruningReportKind::Status => "billion-context acp_status",
+                            }.to_string(),
                             input_preview: None,
                             status: Some("completed".to_string()),
-                            meta: Some(serde_json::json!({
-                                "contextCompaction": {
-                                    "version": 1,
-                                    "trigger": "automatic",
-                                    "provider": "billion-context",
-                                    "savedTokens": receipt.saved_tokens,
-                                    "blocks": receipt.blocks
-                                }
-                            })),
+                            meta: Some(match receipt.kind {
+                                crate::acp::context_pruning::PruningReportKind::Compression => serde_json::json!({
+                                    "contextCompaction": {
+                                        "version": 1,
+                                        "trigger": "automatic",
+                                        "provider": "billion-context",
+                                        "savedTokens": receipt.saved_tokens,
+                                        "blocks": receipt.blocks
+                                    }
+                                }),
+                                crate::acp::context_pruning::PruningReportKind::Status => serde_json::json!({
+                                    "codeg.contextStatus": {"version": 1, "provider": "billion-context"}
+                                }),
+                            }),
                         },
                         ContentBlock::ToolResult {
                             tool_use_id: Some(format!("bili-pruning-{message_id}")),
@@ -10278,6 +10286,23 @@ mod tests {
 
     #[test]
     fn billion_context_pruning_receipt_reloads_as_a_card_without_a_fake_user_turn() {
+        check_billion_context_report_history(
+            crate::acp::context_pruning::TEST_RECEIPT,
+            crate::acp::context_pruning::CONTINUATION_PROMPT,
+            "context_compaction",
+        );
+    }
+
+    #[test]
+    fn billion_context_status_reloads_as_a_tool_without_a_fake_user_turn() {
+        check_billion_context_report_history(
+            crate::acp::context_pruning::TEST_STATUS_REPORT,
+            crate::acp::context_pruning::STATUS_CONTINUATION_PROMPT,
+            "billion-context acp_status",
+        );
+    }
+
+    fn check_billion_context_report_history(report: &str, continuation: &str, tool: &str) {
         let records = [
             serde_json::json!({
                 "type": "user", "uuid": "user-1", "sessionId": "s1",
@@ -10288,14 +10313,14 @@ mod tests {
                 "type": "assistant", "uuid": "receipt", "sessionId": "s1",
                 "timestamp": "2026-11-11T03:55:00Z",
                 "message": {"id": "message-receipt", "role": "assistant", "content": [
-                    {"type": "text", "text": crate::acp::context_pruning::TEST_RECEIPT}
+                    {"type": "text", "text": report}
                 ]}
             }),
             serde_json::json!({
                 "type": "user", "uuid": "continuation", "sessionId": "s1",
                 "timestamp": "2026-11-11T03:55:01Z",
                 "message": {"role": "user", "content": [
-                    {"type": "text", "text": crate::acp::context_pruning::CONTINUATION_PROMPT}
+                    {"type": "text", "text": continuation}
                 ]}
             }),
             serde_json::json!({
@@ -10309,25 +10334,30 @@ mod tests {
         let detail = parse_lines("bili-pruning", &record_lines(&records));
         let texts = turn_texts(&detail.turns);
         assert_eq!(texts.iter().filter(|(role, _)| *role == "user").count(), 1);
-        assert!(texts.iter().any(|(_, text)| text.contains("context_compaction")));
+        assert!(texts.iter().any(|(_, text)| text.contains(tool)));
         assert!(texts.iter().any(|(_, text)| text == "Research continued"));
         assert!(!texts.iter().any(|(_, text)| text.contains("[Compressed")));
+        assert!(!texts.iter().any(|(_, text)| text.contains("ACTIVE SURFACE:")));
         assert!(!texts.iter().any(|(_, text)| text.contains("codeg-context-pruning-continuation")));
     }
 
     #[test]
     fn billion_context_pruning_internal_prompt_filter_is_exact() {
-        let marker = crate::acp::context_pruning::CONTINUATION_PROMPT;
-        assert!(is_meta_message(&serde_json::json!({
-            "type": "user", "message": {"content": marker}
-        })));
-        assert!(!is_meta_message(&serde_json::json!({
-            "type": "user", "message": {"content": format!("Explain this:\n{marker}")}
-        })));
-        assert!(!is_meta_message(&serde_json::json!({
-            "type": "user", "message": {"content": [
-                {"type": "tool_result", "content": marker}
-            ]}
-        })));
+        for marker in [
+            crate::acp::context_pruning::CONTINUATION_PROMPT,
+            crate::acp::context_pruning::STATUS_CONTINUATION_PROMPT,
+        ] {
+            assert!(is_meta_message(&serde_json::json!({
+                "type": "user", "message": {"content": marker}
+            })));
+            assert!(!is_meta_message(&serde_json::json!({
+                "type": "user", "message": {"content": format!("Explain this:\n{marker}")}
+            })));
+            assert!(!is_meta_message(&serde_json::json!({
+                "type": "user", "message": {"content": [
+                    {"type": "tool_result", "content": marker}
+                ]}
+            })));
+        }
     }
 }
