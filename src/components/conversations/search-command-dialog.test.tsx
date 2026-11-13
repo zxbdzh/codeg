@@ -416,7 +416,6 @@ describe("SearchCommandDialog focus", () => {
       composer.remove()
     }
   })
-
 })
 
 describe("SearchCommandDialog global search tab", () => {
@@ -453,9 +452,7 @@ describe("SearchCommandDialog global search tab", () => {
       await screen.findByRole("option", { name: /auth flow/ })
     ).toBeVisible()
     expect(screen.getByRole("option", { name: /auth style/ })).toBeVisible()
-    expect(
-      await screen.findByRole("option", { name: /auth.ts/ })
-    ).toBeVisible()
+    expect(await screen.findByRole("option", { name: /auth.ts/ })).toBeVisible()
     // 别的项目文件夹里的会话不进入当前项目的全局搜索结果。
     expect(screen.queryByRole("option", { name: /auth elsewhere/ })).toBeNull()
   })
