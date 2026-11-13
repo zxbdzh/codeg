@@ -42,7 +42,7 @@ export function ComposerToolbar({
   return (
     <div
       className={cn(
-        "flex shrink-0 items-end justify-between gap-1 px-2 pb-2",
+        "flex shrink-0 items-end justify-between gap-1 px-1 pb-1 md:px-2 md:pb-2",
         className
       )}
       {...props}

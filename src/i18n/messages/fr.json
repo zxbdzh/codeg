@@ -2781,6 +2781,13 @@
       "closeWindow": "Fermer la fenêtre",
       "close": "Fermer"
     },
+    "mobileTabs": {
+      "title": "Onglets ouverts",
+      "open": "Changer d’onglet ({count})",
+      "conversations": "Conversations",
+      "files": "Fichiers et aperçus",
+      "empty": "Aucun onglet ouvert"
+    },
     "tabs": {
       "closeConversationTab": "Fermer l’onglet de conversation",
       "close": "Fermer",
@@ -4681,6 +4688,22 @@
       "directoryExists": "Le répertoire cible existe déjà",
       "commandFailed": "La commande de création du projet a échoué."
     }
+  },
+  "WebAppInstall": {
+    "title": "Installer Codeg",
+    "description": "Ouvrez Codeg depuis l’écran d’accueil ou le bureau dans sa propre fenêtre.",
+    "install": "Installer l’application",
+    "installing": "En attente du navigateur…",
+    "standalone": "Ouvert en mode application",
+    "installed": "Installé. Ouvrez Codeg depuis l’écran d’accueil ou la liste des applications.",
+    "accepted": "Terminez l’installation dans le navigateur, puis ouvrez Codeg depuis l’écran d’accueil ou la liste des applications.",
+    "httpsRequired": "Ouvrez l’adresse HTTPS de ce serveur pour installer l’application. Une adresse HTTP classique du réseau local ne permet pas l’installation.",
+    "iosOpen": "Ouvrez cette page dans Safari.",
+    "iosShare": "Ouvrez le menu Partager et choisissez Sur l’écran d’accueil.",
+    "iosAdd": "Si l’option Ouvrir comme app web apparaît, activez-la, puis touchez Ajouter.",
+    "browserMenu": "Cherchez Installer l’application ou Ajouter à l’écran d’accueil dans le menu du navigateur. Sinon, essayez un navigateur compatible comme Chrome ou Edge.",
+    "failed": "Impossible d’ouvrir l’invite d’installation. Utilisez le menu du navigateur ou rechargez la page.",
+    "connection": "Votre ordinateur ou serveur doit rester connecté pour les conversations et les tâches. L’installation ne déplace pas les agents ni les fichiers du projet sur votre téléphone."
   },
   "WebServiceSettings": {
     "addressSwitchHint": "Changer ne modifie que l'adresse affichée et ouverte ici ; le service écoute sur toutes les interfaces et reste accessible à chaque adresse.",

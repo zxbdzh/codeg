@@ -2781,6 +2781,13 @@
       "closeWindow": "Cerrar ventana",
       "close": "Cerrar"
     },
+    "mobileTabs": {
+      "title": "Pestañas abiertas",
+      "open": "Cambiar de pestaña ({count})",
+      "conversations": "Conversaciones",
+      "files": "Archivos y vistas previas",
+      "empty": "No hay pestañas abiertas"
+    },
     "tabs": {
       "closeConversationTab": "Cerrar pestaña de conversación",
       "close": "Cerrar",
@@ -4681,6 +4688,22 @@
       "directoryExists": "El directorio de destino ya existe",
       "commandFailed": "El comando de creación del proyecto falló."
     }
+  },
+  "WebAppInstall": {
+    "title": "Instalar Codeg",
+    "description": "Abre Codeg desde la pantalla de inicio o el escritorio en su propia ventana.",
+    "install": "Instalar aplicación",
+    "installing": "Esperando al navegador…",
+    "standalone": "Abierto como aplicación",
+    "installed": "Instalado. Abre Codeg desde la pantalla de inicio o la lista de aplicaciones.",
+    "accepted": "Completa la instalación en el navegador y abre Codeg desde la pantalla de inicio o la lista de aplicaciones.",
+    "httpsRequired": "Abre la dirección HTTPS de este servidor para instalar. Una dirección HTTP normal de la red local no permite instalar la aplicación.",
+    "iosOpen": "Abre esta página en Safari.",
+    "iosShare": "Abre Compartir y selecciona Añadir a la pantalla de inicio.",
+    "iosAdd": "Si aparece Abrir como app web, actívalo y pulsa Añadir.",
+    "browserMenu": "Busca Instalar aplicación o Añadir a la pantalla de inicio en el menú del navegador. Si no aparecen, prueba un navegador compatible como Chrome o Edge.",
+    "failed": "No se pudo abrir la instalación. Usa el menú del navegador o recarga la página.",
+    "connection": "Tu ordenador o servidor debe seguir conectado para las conversaciones y tareas. La instalación no traslada los agentes ni los archivos del proyecto al teléfono."
   },
   "WebServiceSettings": {
     "addressSwitchHint": "Cambiar solo modifica la dirección que se muestra y se abre aquí; el servicio escucha en todas las interfaces y sigue accesible en cada dirección.",

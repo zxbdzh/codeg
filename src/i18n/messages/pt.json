@@ -2781,6 +2781,13 @@
       "closeWindow": "Fechar janela",
       "close": "Fechar"
     },
+    "mobileTabs": {
+      "title": "Abas abertas",
+      "open": "Alternar abas ({count})",
+      "conversations": "Conversas",
+      "files": "Arquivos e prévias",
+      "empty": "Nenhuma aba aberta"
+    },
     "tabs": {
       "closeConversationTab": "Fechar aba de conversa",
       "close": "Fechar",
@@ -4681,6 +4688,22 @@
       "directoryExists": "O diretório de destino já existe",
       "commandFailed": "O comando de criação do projeto falhou."
     }
+  },
+  "WebAppInstall": {
+    "title": "Instalar Codeg",
+    "description": "Abra o Codeg pela tela inicial ou área de trabalho em uma janela própria.",
+    "install": "Instalar aplicativo",
+    "installing": "Aguardando o navegador…",
+    "standalone": "Executando como aplicativo",
+    "installed": "Instalado. Abra o Codeg pela tela inicial ou lista de aplicativos.",
+    "accepted": "Conclua a instalação no navegador e abra o Codeg pela tela inicial ou lista de aplicativos.",
+    "httpsRequired": "Abra o endereço HTTPS deste servidor para instalar. Um endereço HTTP comum na rede local não permite instalar o aplicativo.",
+    "iosOpen": "Abra esta página no Safari.",
+    "iosShare": "Abra Compartilhar e escolha Adicionar à Tela de Início.",
+    "iosAdd": "Se aparecer Abrir como App da Web, ative a opção e toque em Adicionar.",
+    "browserMenu": "Procure Instalar aplicativo ou Adicionar à tela inicial no menu do navegador. Se não encontrar, tente um navegador compatível, como Chrome ou Edge.",
+    "failed": "Não foi possível abrir a instalação. Use o menu do navegador ou recarregue a página.",
+    "connection": "Seu computador ou servidor precisa continuar online para conversas e tarefas. A instalação não transfere agentes nem arquivos do projeto para o celular."
   },
   "WebServiceSettings": {
     "addressSwitchHint": "Alternar muda apenas o endereço mostrado e aberto aqui; o serviço escuta em todas as interfaces e continua acessível em cada endereço.",

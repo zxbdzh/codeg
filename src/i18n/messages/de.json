@@ -2781,6 +2781,13 @@
       "closeWindow": "Fenster schließen",
       "close": "Schließen"
     },
+    "mobileTabs": {
+      "title": "Offene Tabs",
+      "open": "Tabs wechseln ({count})",
+      "conversations": "Unterhaltungen",
+      "files": "Dateien und Vorschauen",
+      "empty": "Keine offenen Tabs"
+    },
     "tabs": {
       "closeConversationTab": "Konversationstab schließen",
       "close": "Schließen",
@@ -4681,6 +4688,22 @@
       "directoryExists": "Zielverzeichnis existiert bereits",
       "commandFailed": "Projekterstellungsbefehl fehlgeschlagen."
     }
+  },
+  "WebAppInstall": {
+    "title": "Codeg installieren",
+    "description": "Codeg vom Startbildschirm oder Desktop in einem eigenen Fenster öffnen.",
+    "install": "App installieren",
+    "installing": "Warten auf den Browser…",
+    "standalone": "Im App-Modus geöffnet",
+    "installed": "Installiert. Codeg lässt sich über den Startbildschirm oder die App-Liste öffnen.",
+    "accepted": "Schließe die Installation im Browser ab und öffne Codeg über den Startbildschirm oder die App-Liste.",
+    "httpsRequired": "Öffne die HTTPS-Adresse dieses Servers, um die App zu installieren. Eine normale HTTP-Adresse im lokalen Netzwerk unterstützt keine App-Installation.",
+    "iosOpen": "Öffne diese Seite in Safari.",
+    "iosShare": "Öffne das Teilen-Menü und wähle „Zum Home-Bildschirm“.",
+    "iosAdd": "Aktiviere „Als Web-App öffnen“, falls angezeigt, und tippe auf „Hinzufügen“.",
+    "browserMenu": "Suche im Browsermenü nach „App installieren“ oder „Zum Startbildschirm hinzufügen“. Fehlen diese Optionen, versuche einen unterstützten Browser wie Chrome oder Edge.",
+    "failed": "Der Installationsdialog konnte nicht geöffnet werden. Nutze das Browsermenü oder lade die Seite neu.",
+    "connection": "Für Gespräche und Aufgaben muss dein Computer oder Server online bleiben. Die Installation überträgt keine Agenten oder Projektdateien auf dein Smartphone."
   },
   "WebServiceSettings": {
     "addressSwitchHint": "Das Umschalten ändert nur die hier angezeigte und geöffnete Adresse – der Dienst lauscht auf allen Schnittstellen und bleibt unter jeder Adresse erreichbar.",

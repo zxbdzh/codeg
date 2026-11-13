@@ -2781,6 +2781,13 @@
       "closeWindow": "關閉視窗",
       "close": "關閉"
     },
+    "mobileTabs": {
+      "title": "已開啟的分頁",
+      "open": "切換分頁（{count}）",
+      "conversations": "對話",
+      "files": "檔案與預覽",
+      "empty": "尚未開啟分頁"
+    },
     "tabs": {
       "closeConversationTab": "關閉會話分頁",
       "close": "關閉",
@@ -4681,6 +4688,22 @@
       "directoryExists": "目標目錄已存在",
       "commandFailed": "專案建立命令執行失敗。"
     }
+  },
+  "WebAppInstall": {
+    "title": "安裝 Codeg",
+    "description": "加入手機主畫面或電腦桌面，以獨立視窗開啟。",
+    "install": "安裝應用程式",
+    "installing": "等待瀏覽器確認…",
+    "standalone": "正在以應用程式模式執行",
+    "installed": "已安裝，可從主畫面或應用程式列表開啟 Codeg。",
+    "accepted": "請完成瀏覽器的安裝步驟，再從主畫面或應用程式列表開啟 Codeg。",
+    "httpsRequired": "請透過此伺服器的 HTTPS 位址開啟後再安裝。一般區域網路 HTTP 位址不支援安裝應用程式。",
+    "iosOpen": "使用 Safari 開啟目前頁面。",
+    "iosShare": "開啟「分享」，選擇「加入主畫面」。",
+    "iosAdd": "若顯示「以網頁 App 開啟」，請開啟此選項，再點「加入」。",
+    "browserMenu": "在瀏覽器選單中尋找「安裝應用程式」或「加入主畫面」。若沒有這些選項，請嘗試 Chrome、Edge 等支援安裝的瀏覽器。",
+    "failed": "無法開啟安裝提示，請使用瀏覽器選單中的安裝選項，或重新整理後再試。",
+    "connection": "對話和任務仍需連線至在線的電腦或伺服器。安裝不會將智慧體和專案檔案搬到手機上。"
   },
   "WebServiceSettings": {
     "addressSwitchHint": "切換只會改變這裡顯示與開啟的位址；服務會監聽所有網路介面，每個位址都可存取。",

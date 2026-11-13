@@ -195,7 +195,7 @@ function ScopedPromptStashControl({
             variant="ghost"
             // 与输入框左侧的「+」按钮保持同尺寸，避免底部操作行错位。
             size="icon-xs"
-            className="shrink-0 text-muted-foreground"
+            className="size-10 shrink-0 touch-manipulation text-muted-foreground md:size-6"
             aria-label={t("action")}
             title={t("action")}
             // 面板打开时不锁按钮，否则 Radix 会丢掉锚点导致面板错位。
@@ -213,7 +213,7 @@ function ScopedPromptStashControl({
           side="top"
           align="start"
           sideOffset={8}
-          className="max-h-80 w-80 overflow-y-auto p-2"
+          className="max-h-[min(20rem,60dvh)] w-80 max-w-[calc(100vw-1rem)] overflow-y-auto p-2"
         >
           <p className="mb-2 px-1 text-sm font-medium">{t("title")}</p>
           {busy && <p role="status">{t("loading")}</p>}

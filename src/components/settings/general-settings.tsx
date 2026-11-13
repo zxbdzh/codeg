@@ -47,6 +47,7 @@ import { DesktopNotificationSettingsSection } from "@/components/settings/deskto
 import { MentionPanelSettingsSection } from "@/components/settings/mention-panel-settings"
 import { NotificationSoundSettingsSection } from "@/components/settings/notification-sound-settings"
 import { WindowAttentionSettingsSection } from "@/components/settings/window-attention-settings"
+import { WebAppInstallSettings } from "@/components/settings/web-app-install-settings"
 
 const TERMINAL_SHELL_OPTION_SYSTEM = "system"
 const TERMINAL_SHELL_OPTION_CUSTOM = "custom"
@@ -355,6 +356,8 @@ export function GeneralSettings() {
             {t("loadFailed", { message: loadError })}
           </SettingsError>
         )}
+
+        <WebAppInstallSettings />
 
         {/* The section is the picker: heading, purpose and control on one line,
             with what the shell currently resolves to under them. A card holding

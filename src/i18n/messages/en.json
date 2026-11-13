@@ -2843,6 +2843,13 @@
       "closeWindow": "Close window",
       "close": "Close"
     },
+    "mobileTabs": {
+      "title": "Open tabs",
+      "open": "Switch tabs ({count})",
+      "conversations": "Conversations",
+      "files": "Files and previews",
+      "empty": "No open tabs"
+    },
     "tabs": {
       "closeConversationTab": "Close conversation tab",
       "close": "Close",
@@ -4743,6 +4750,22 @@
       "directoryExists": "Target directory already exists",
       "commandFailed": "Project creation command failed."
     }
+  },
+  "WebAppInstall": {
+    "title": "Install Codeg",
+    "description": "Open Codeg from your home screen or desktop in its own window.",
+    "install": "Install app",
+    "installing": "Waiting for browser…",
+    "standalone": "Running as an app",
+    "installed": "Installed — open Codeg from your home screen or app list.",
+    "accepted": "Finish the browser's installation steps, then open Codeg from your home screen or app list.",
+    "httpsRequired": "Open this server's HTTPS address to install. A regular HTTP address on your local network does not support app installation.",
+    "iosOpen": "Open this page in Safari.",
+    "iosShare": "Open Share, then choose Add to Home Screen.",
+    "iosAdd": "If shown, enable Open as Web App, then tap Add.",
+    "browserMenu": "In your browser menu, choose Install app or Add to Home Screen if available. If neither appears, try a supported browser such as Chrome or Edge.",
+    "failed": "The installation prompt could not open. Try the browser's installation menu or reload this page.",
+    "connection": "Your computer or server must stay online for conversations and tasks. Installing the app does not move agents or project files onto your phone."
   },
   "WebServiceSettings": {
     "addressSwitchHint": "Switching only changes the address shown and opened here — the service listens on all interfaces and stays reachable at every address.",
