@@ -155,6 +155,11 @@ function OpenSearchCommandDialog({
     query,
   })
 
+  useEffect(() => {
+    // 面板关闭后卸载；每次重开都要求新鲜索引，同时允许本轮输入复用同一快照。
+    resetFileTree(true)
+  }, [resetFileTree])
+
   // Compute which agent types exist in the selected project scope
   const availableAgents = Array.from(
     new Set(conversations.map((c) => c.agent_type))

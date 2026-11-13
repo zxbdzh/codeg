@@ -233,4 +233,48 @@ describe("bounded workspace file search", () => {
     unmount()
     expect(second.signal.aborted).toBe(true)
   })
+
+  it("isolates project consumers so native deduplication keeps every project's results", async () => {
+    const registered = new Map<string, number>()
+    api.search.mockImplementation(async (root, _query, { request }) => {
+      const previous = registered.get(request.consumerId)
+      if (previous !== undefined && request.generation <= previous) return []
+      registered.set(request.consumerId, request.generation)
+      return [file(`${root.slice(1)}.ts`)]
+    })
+    const { result, rerender, unmount } = renderHook(
+      (query: string) =>
+        useFileTree({ folderPaths: ["/one", "/two"], enabled: true, query }),
+      { initialProps: "ts" }
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150)
+    })
+    expect(result.current.allFiles.map((entry) => entry.relativePath)).toEqual([
+      "one.ts",
+      "two.ts",
+    ])
+    const first = api.search.mock.calls.slice(0, 2)
+    expect(first[0][2].request.consumerId).not.toBe(
+      first[1][2].request.consumerId
+    )
+
+    rerender(".ts")
+    expect(first.every((call) => call[2].signal.aborted)).toBe(true)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150)
+    })
+    const second = api.search.mock.calls.slice(2, 4)
+    for (const [index, call] of second.entries()) {
+      expect(call[2].request.consumerId).toBe(
+        first[index][2].request.consumerId
+      )
+      expect(call[2].request.generation).toBeGreaterThan(
+        first[index][2].request.generation
+      )
+    }
+    expect(result.current.allFiles).toHaveLength(2)
+    unmount()
+    expect(second.every((call) => call[2].signal.aborted)).toBe(true)
+  })
 })

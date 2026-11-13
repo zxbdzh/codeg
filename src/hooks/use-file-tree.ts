@@ -72,7 +72,7 @@ export function useFileTree({
   // moment. A window (not a per-request flag) lets later keystrokes reuse the
   // snapshot the first one built, even if that first response was aborted.
   const freshSince = useRef<number | null>(null)
-  const consumer = useRef<string | undefined>(undefined)
+  const consumers = useRef(new Map<string, string>())
   const scopeRef = useRef<string | null>(null)
   const cacheRef = useRef<{ key: string; files: FlatFileEntry[] } | null>(null)
 
@@ -85,6 +85,10 @@ export function useFileTree({
     if (scopeRef.current !== scope) {
       scopeRef.current = scope
       cacheRef.current = null
+      const activePaths = new Set(paths)
+      for (const root of consumers.current.keys()) {
+        if (!activePaths.has(root)) consumers.current.delete(root)
+      }
       setAllFiles(EMPTY_FILES)
       setLoadedKey(null)
       setFailedFolderCount(0)
@@ -130,6 +134,13 @@ export function useFileTree({
         ) {
           const index = nextIndex++
           const root = paths[index]
+          // 后端按 consumer + generation 去重；每个项目必须独立标识，
+          // 否则同一轮的其它项目会被当成重复请求直接丢弃。
+          let consumerId = consumers.current.get(root)
+          if (!consumerId) {
+            consumerId = randomUUID()
+            consumers.current.set(root, consumerId)
+          }
           try {
             const files: WorkspaceFileEntry[] = await searchWorkspaceFiles(
               root,
@@ -147,7 +158,7 @@ export function useFileTree({
                       ),
                     }),
                 request: {
-                  consumerId: (consumer.current ??= randomUUID()),
+                  consumerId,
                   generation: current,
                 },
                 signal: abort.signal,
