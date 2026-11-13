@@ -104,6 +104,7 @@ vi.mock("@/components/chat/composer/rich-composer", async () => {
             setDoc: () => {},
             insertTextAtCursor: () => {},
             insertReference: () => {},
+            fillPromptSuggestion: () => false,
           }),
           [text]
         )

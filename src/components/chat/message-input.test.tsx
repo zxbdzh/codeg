@@ -3403,6 +3403,44 @@ describe("MessageInput predicted follow-up prompt", () => {
       unmount()
     }
   })
+
+  it("offers a tappable fill control on touch devices, which have no Tab key", async () => {
+    // 手机断点由 matchMedia 决定；这里只把手机媒体查询改成匹配，
+    // 其余查询沿用 setup 的桌面答案，避免影响别的断言。
+    const desktop = window.matchMedia
+    vi.spyOn(window, "matchMedia").mockImplementation((query) =>
+      query.includes("max-width")
+        ? ({
+            media: query,
+            matches: true,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+          } as unknown as MediaQueryList)
+        : desktop(query)
+    )
+    try {
+      const { container } = await mounted({ promptSuggestion: "Run the tests" })
+      // 手机不再在占位符里提示 Tab：那段文字对没有 Tab 键的设备没有意义。
+      expect(
+        container.querySelector(
+          `[data-placeholder="${offered("Run the tests")}"]`
+        )
+      ).toBeNull()
+      const fill = container.querySelector<HTMLButtonElement>(
+        `button[title="Run the tests"]`
+      )
+      expect(fill).not.toBeNull()
+      expect(fill).toHaveTextContent(
+        enMessages.Folder.chat.messageInput.useSuggestion
+      )
+      await act(async () => {
+        fill!.click()
+      })
+      expect(composerHandle.current!.getText()).toBe("Run the tests")
+    } finally {
+      vi.mocked(window.matchMedia).mockRestore()
+    }
+  })
 })
 
 // The tab store closes a draft tab only when it holds nothing. What a saved

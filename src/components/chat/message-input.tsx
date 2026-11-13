@@ -14,6 +14,7 @@ import {
   MessageSquareText,
   Scissors,
   Send,
+  Sparkles,
   Square,
   TextSelect,
   X,
@@ -37,6 +38,7 @@ import {
 } from "@/components/ui/context-menu"
 import { cn, copyTextFromMenu } from "@/lib/utils"
 import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { imageFilesFromClipboardApi } from "@/lib/clipboard-images"
 import { toErrorMessage } from "@/lib/app-error"
 import { isNoActiveTurnRejection } from "@/lib/turn-busy"
@@ -422,6 +424,8 @@ export function MessageInput({
     knownInvocationsRef.current = knownInvocations
   }, [knownInvocations])
   const { shortcuts } = useShortcutSettings()
+  // 触屏没有 Tab 键，建议条只在手机上出现；桌面继续用占位符里的 Tab 提示。
+  const isMobile = useIsMobile()
   const effectiveDraftStorageKey = draftStorageKey ?? null
   const resolvedPlaceholder = placeholder ?? t("askAnything")
   // The predicted follow-up prompt, only where sending it could follow: never
@@ -432,7 +436,10 @@ export function MessageInput({
       ? promptSuggestion?.trim() || null
       : null
   const shownPlaceholder = offeredSuggestion
-    ? t("promptSuggestion", { suggestion: offeredSuggestion })
+    ? // 手机上建议改由下方可点条呈现，占位符不再重复这段文字，也不提 Tab。
+      isMobile
+      ? resolvedPlaceholder
+      : t("promptSuggestion", { suggestion: offeredSuggestion })
     : resolvedPlaceholder
   const editorRef = useRef<RichComposerHandle>(null)
   // Prompt-history navigation. `historyRef` is seeded from `getSentHistory`
@@ -2217,6 +2224,32 @@ export function MessageInput({
                 // (see above); RichComposer explains the basis.
                 className={cn("grow", editableMinHeight)}
               />
+              {/* 触屏设备没有 Tab 键，给预测提示一个可点的填入入口；
+                  桌面端仍用占位符里的 Tab 提示，不重复占用一行。 */}
+              {offeredSuggestion && isMobile && (
+                <div className="px-1 pb-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 max-w-full touch-manipulation justify-start gap-1.5 px-2 text-xs font-normal text-muted-foreground"
+                    onClick={() => {
+                      if (editorRef.current?.fillPromptSuggestion()) {
+                        syncComposerEmpty()
+                      }
+                    }}
+                    title={offeredSuggestion}
+                  >
+                    <Sparkles className="size-3.5 shrink-0" />
+                    <span className="min-w-0 truncate">
+                      {offeredSuggestion}
+                    </span>
+                    <span className="shrink-0 text-foreground">
+                      {t("useSuggestion")}
+                    </span>
+                  </Button>
+                </div>
+              )}
               <ComposerToolbar>
                 <div className="flex min-w-0 items-end gap-1">
                   <ComposerAddMenu
