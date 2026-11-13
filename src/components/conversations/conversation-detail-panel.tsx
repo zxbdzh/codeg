@@ -2718,6 +2718,7 @@ function SplitStripCornerReserve({ side }: { side: "left" | "right" }) {
 export function ConversationDetailPanel() {
   const t = useTranslations("Folder.conversation")
   const tDetails = useTranslations("Folder.sessionDetails")
+  const isMobile = useIsMobile()
   const {
     completeTurn: runtimeCompleteTurn,
     removeConversation: runtimeRemoveConversation,
@@ -3018,7 +3019,8 @@ export function ConversationDetailPanel() {
       ),
     }
   }, [visibleLayout, paneState])
-  const isSplit = leafIds(visibleLayout).length > 1
+  // 手机只投影当前会话；共享分屏树仍保留给桌面及其他连接端。
+  const isSplit = !isMobile && leafIds(visibleLayout).length > 1
   // Every tab sits in its own view's group shell (`shellGroupOfTab`): the
   // folder views not on screen keep their shells, hidden, so a folder switch
   // reparents nothing. Shells come in id order — a fixed order whatever view
@@ -3050,6 +3052,13 @@ export function ConversationDetailPanel() {
   const orderedGroupIds = useMemo(
     () => [...tabsByGroup.keys()].sort(),
     [tabsByGroup]
+  )
+  const mobileActiveTabId =
+    visibleTabs.find((tab) => tab.id === activeTabId)?.id ??
+    visibleTabs[0]?.id ??
+    null
+  const mobileActiveShellId = orderedGroupIds.find((shellId) =>
+    (tabsByGroup.get(shellId) ?? []).some((tab) => tab.id === mobileActiveTabId)
   )
 
   const tileTabRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
@@ -3092,7 +3101,7 @@ export function ConversationDetailPanel() {
     ]
   )
   useEffect(() => {
-    if (!tiledSelectionKey) return
+    if (isMobile || !tiledSelectionKey) return
     for (const selectedId of tiledSelectionKey.split("|")) {
       tileTabRefs.current.get(selectedId)?.scrollIntoView({
         behavior: "smooth",
@@ -3100,7 +3109,7 @@ export function ConversationDetailPanel() {
         block: "nearest",
       })
     }
-  }, [tiledSelectionKey])
+  }, [isMobile, tiledSelectionKey])
 
   // Safety valve: if the dragged tab vanishes mid-drag (a remote snapshot
   // closing it), the drag-end callback on its unmounted item never fires —
@@ -3123,14 +3132,16 @@ export function ConversationDetailPanel() {
     canTileG: boolean
   ) => {
     const inScope = visibleTabIds.has(tab.id)
-    const active = inScope && tab.id === activeTabId
+    const active =
+      inScope && tab.id === (isMobile ? mobileActiveTabId : activeTabId)
     // Visible = tiled (all group members shown) or the group's selected tab.
     const rawGroupId =
       paneState && groupId.startsWith(`${paneState.activePaneId}/`)
         ? groupId.slice(paneState.activePaneId.length + 1)
         : groupId
     const visible =
-      inScope && (canTileG || tab.id === groupSelection[rawGroupId])
+      inScope &&
+      (isMobile ? active : canTileG || tab.id === groupSelection[rawGroupId])
     const folderPath = allFolders.find((f) => f.id === tab.folderId)?.path
     const view = (
       <ConversationTabView
@@ -3197,17 +3208,22 @@ export function ConversationDetailPanel() {
   // Plain function (NOT a component defined in render — that type identity
   // would change every render and remount the whole shell subtree).
   const renderGroupShell = (shellId: string) => {
-    const inScope = groupRects.has(shellId)
+    const inScope =
+      groupRects.has(shellId) && (!isMobile || shellId === mobileActiveShellId)
     const groupId =
-      paneState && inScope
+      paneState && shellId.startsWith(`${paneState.activePaneId}/`)
         ? shellId.slice(paneState.activePaneId.length + 1)
         : shellId
-    const rect = groupRects.get(shellId) ?? { x: 0, y: 0, w: 100, h: 100 }
+    const rect =
+      isMobile && inScope
+        ? { x: 0, y: 0, w: 100, h: 100 }
+        : (groupRects.get(shellId) ?? { x: 0, y: 0, w: 100, h: 100 })
     const groupTabs = tabsByGroup.get(shellId) ?? []
     const visibleGroupTabs = groupTabs.filter((tab) =>
       visibleTabIds.has(tab.id)
     )
-    const canTileG = !!tileByGroup[groupId] && visibleGroupTabs.length > 1
+    const canTileG =
+      !isMobile && !!tileByGroup[groupId] && visibleGroupTabs.length > 1
     // Only the TOP-edge strips sit under the fixed corner overlays (the split
     // layout has no title-bar row above them) — the leftmost/rightmost of that
     // row carry the corner reserves the unsplit strip row normally provides.
@@ -3232,6 +3248,8 @@ export function ConversationDetailPanel() {
       <div
         key={shellId}
         data-conv-group-shell={groupId}
+        aria-hidden={!inScope || undefined}
+        inert={!inScope || undefined}
         className="absolute flex min-h-0 flex-col overflow-hidden"
         style={{
           left: `${rect.x}%`,
@@ -3310,7 +3328,10 @@ export function ConversationDetailPanel() {
   // there's no tile row — it's simply the sole conversation's header. While
   // SPLIT, every group shell renders its own header under its strip (the
   // "tabs + title bar" pairing per group), so the global one steps aside.
-  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null
+  const activeTab =
+    tabs.find(
+      (tab) => tab.id === (isMobile ? mobileActiveTabId : activeTabId)
+    ) ?? null
   const activeTabFolder = activeTab
     ? allFolders.find((f) => f.id === activeTab.folderId)
     : undefined

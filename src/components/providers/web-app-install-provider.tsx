@@ -20,6 +20,7 @@ interface InstallPromptEvent extends Event {
 interface InstallEnvironment {
   secure: boolean
   ios: boolean
+  android: boolean
   standalone: boolean
 }
 
@@ -53,12 +54,13 @@ export function WebAppInstallProvider({ children }: { children: ReactNode }) {
       setEnvironment({
         secure: window.isSecureContext,
         ios,
+        android: /Android/i.test(navigator.userAgent),
         standalone: display.matches || appleNavigator.standalone === true,
       })
     }
     const capturePrompt = (event: Event) => {
-      if (!window.isSecureContext) return
       if (!("prompt" in event) || typeof event.prompt !== "function") return
+      // 以浏览器实际发出的安装能力为准；HTTP 的手动添加入口另行引导。
       event.preventDefault()
       promptRef.current = event as InstallPromptEvent
       setCanInstall(true)

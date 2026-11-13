@@ -110,14 +110,51 @@ describe("Web App installation", () => {
     expect(screen.queryByRole("button", { name: "Install app" })).toBeNull()
   })
 
-  it("explains HTTPS on an insecure LAN page without suppressing browser UI", () => {
+  it("keeps manual installation instructions available over HTTP", () => {
+    vi.stubGlobal("isSecureContext", false)
+    mount()
+    expect(screen.getByText(en.WebAppInstall.httpHint)).toBeInTheDocument()
+    expect(screen.getByText(en.WebAppInstall.browserMenu)).toBeInTheDocument()
+    expect(screen.queryByText(en.WebAppInstall.description)).toBeNull()
+    expect(screen.queryByRole("button", { name: "Install app" })).toBeNull()
+  })
+
+  it("shows Android home-screen steps over HTTP without claiming installation", () => {
+    vi.stubGlobal("isSecureContext", false)
+    vi.stubGlobal("navigator", {
+      userAgent: "Android EdgA",
+      platform: "Linux",
+      maxTouchPoints: 5,
+    })
+    mount()
+    expect(screen.getAllByRole("listitem")).toHaveLength(3)
+    expect(screen.getByText(en.WebAppInstall.androidAdd)).toBeInTheDocument()
+    expect(screen.queryByText(en.WebAppInstall.installed)).toBeNull()
+  })
+
+  it("keeps Safari home-screen instructions available over HTTP", () => {
+    vi.stubGlobal("isSecureContext", false)
+    vi.stubGlobal("navigator", {
+      userAgent: "iPhone Safari",
+      platform: "iPhone",
+      maxTouchPoints: 5,
+    })
+    mount()
+    expect(screen.getByText(en.WebAppInstall.httpHint)).toBeInTheDocument()
+    expect(screen.getByText(en.WebAppInstall.iosShare)).toBeInTheDocument()
+  })
+
+  it("uses an installation prompt if the browser actually offers it over HTTP", async () => {
     vi.stubGlobal("isSecureContext", false)
     mount()
     const event = installEvent()
     act(() => window.dispatchEvent(event))
-    expect(event.defaultPrevented).toBe(false)
-    expect(screen.getByText(en.WebAppInstall.httpsRequired)).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Install app" })).toBeNull()
+    expect(event.defaultPrevented).toBe(true)
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Install app" }))
+    })
+    expect(event.prompt).toHaveBeenCalledOnce()
+    expect(screen.queryByText(en.WebAppInstall.installed)).toBeNull()
   })
 
   it("recognizes standalone launch and live display-mode changes", () => {

@@ -15,7 +15,7 @@ export function WebAppInstallSettings() {
     <SettingsSection
       icon={Smartphone}
       title={t("title")}
-      description={t("description")}
+      description={app.secure ? t("description") : undefined}
     >
       <div className="space-y-3 text-xs leading-5 text-muted-foreground">
         {app.installed ? (
@@ -23,14 +23,13 @@ export function WebAppInstallSettings() {
             <Check className="size-4" aria-hidden />
             {t(app.standalone ? "standalone" : "installed")}
           </p>
-        ) : !app.secure ? (
-          <p>{t("httpsRequired")}</p>
         ) : (
           <>
+            {!app.secure && !app.canInstall && <p>{t("httpHint")}</p>}
             {(app.canInstall || app.status === "prompting") && (
               <Button
                 variant="outline"
-                className="h-10"
+                className="min-h-11"
                 disabled={app.status === "prompting"}
                 onClick={() => void app.install()}
               >
@@ -47,6 +46,12 @@ export function WebAppInstallSettings() {
                   <li>{t("iosOpen")}</li>
                   <li>{t("iosShare")}</li>
                   <li>{t("iosAdd")}</li>
+                </ol>
+              ) : app.android ? (
+                <ol className="list-decimal space-y-1 pl-4">
+                  <li>{t("androidMenu")}</li>
+                  <li>{t("androidAdd")}</li>
+                  <li>{t("androidConfirm")}</li>
                 </ol>
               ) : (
                 <p>{t("browserMenu")}</p>
