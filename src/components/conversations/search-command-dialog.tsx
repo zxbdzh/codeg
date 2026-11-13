@@ -152,6 +152,7 @@ function OpenSearchCommandDialog({
   } = useFileTree({
     folderPaths: searchFolders.map((item) => item.path),
     enabled: activeTab !== "conversations",
+    query,
   })
 
   // Compute which agent types exist in the selected project scope
@@ -179,6 +180,7 @@ function OpenSearchCommandDialog({
     }
     return entries
   }, [allFiles, searchFolders, searchAllProjects, folderPath, filesLoaded])
+  // 后端已按整工作区排序并限制返回量，深层命中不会因前端只保留部分索引而丢失。
   const filteredFiles = useMemo(
     () => rankFileMatches(query, projectFiles, 100),
     [query, projectFiles]

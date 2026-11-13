@@ -86,6 +86,11 @@ pub struct WorkTaskInfo {
     /// forge-sourced task — that one's pull request is `source_meta.result_pr`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delivery: Option<serde_json::Value>,
+    /// The reply drafted for each thread of a forge-sourced task, keyed by
+    /// item number — what the write-back posts once the task is accepted.
+    /// `None` = no draft (the comment is then the outcome line alone).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writeback_drafts: Option<std::collections::BTreeMap<i64, String>>,
     /// Latest `agent_progress` milestone OF THIS GENERATION (filled by `list`
     /// for live tasks only — the card's realtime progress line). Scoped by
     /// `run_seq`: a retry, a follow-up and a merge each start a new one, and
@@ -533,6 +538,15 @@ pub struct WorkTaskChangedFile {
     pub file: String,
     pub additions: i32,
     pub deletions: i32,
+}
+
+/// A file a task worktree holds uncommitted (`git status`): what committing
+/// the leftovers before a delivery would add. `status` is one letter — `A`
+/// added or untracked, `M` modified, `D` deleted, `R` renamed or copied.
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkTaskUncommittedFile {
+    pub file: String,
+    pub status: String,
 }
 
 #[cfg(test)]

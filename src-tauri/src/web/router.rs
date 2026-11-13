@@ -296,6 +296,10 @@ pub fn build_router_with_proxy_auth(
             "/delete_conversation",
             post(handlers::conversations::delete_conversation),
         )
+        .route(
+            "/move_conversations",
+            post(handlers::conversations::move_conversations),
+        )
         // ─── Folders ───
         .route(
             "/load_folder_history",
@@ -612,6 +616,18 @@ pub fn build_router_with_proxy_auth(
         .route(
             "/list_workspace_files",
             post(handlers::folders::list_workspace_files),
+        )
+        .route(
+            "/search_workspace_files",
+            post(handlers::folders::search_workspace_files),
+        )
+        .route(
+            "/cancel_workspace_file_search",
+            post(handlers::folders::cancel_workspace_file_search),
+        )
+        .route(
+            "/prepare_workspace_file_search",
+            post(handlers::folders::prepare_workspace_file_search),
         )
         .route(
             "/start_workspace_state_stream",
@@ -1960,6 +1976,14 @@ pub fn build_router_with_proxy_auth(
             post(handlers::forge::forge_change_detail),
         )
         .route(
+            "/forge_check_summaries",
+            post(handlers::forge::forge_check_summaries),
+        )
+        .route(
+            "/forge_approve_workflows",
+            post(handlers::forge::forge_approve_workflows),
+        )
+        .route(
             "/forge_change_files",
             post(handlers::forge::forge_change_files),
         )
@@ -2029,6 +2053,10 @@ pub fn build_router_with_proxy_auth(
             post(handlers::work_task::work_task_defer),
         )
         .route(
+            "/work_task_set_writeback",
+            post(handlers::work_task::work_task_set_writeback),
+        )
+        .route(
             "/work_task_cleanup",
             post(handlers::work_task::work_task_cleanup),
         )
@@ -2036,6 +2064,10 @@ pub fn build_router_with_proxy_auth(
         .route(
             "/work_task_changed_files",
             post(handlers::work_task::work_task_changed_files),
+        )
+        .route(
+            "/work_task_uncommitted_files",
+            post(handlers::work_task::work_task_uncommitted_files),
         )
         .route(
             "/work_task_settings_get",

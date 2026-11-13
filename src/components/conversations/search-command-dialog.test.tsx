@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { SearchCommandDialog } from "./search-command-dialog"
 import enMessages from "@/i18n/messages/en.json"
-import { listAllConversations, listWorkspaceFiles } from "@/lib/api"
+import { listAllConversations, searchWorkspaceFiles } from "@/lib/api"
 import { useFolderTabsStore } from "@/stores/folder-tabs-store"
 import type {
   ConversationTagDetail,
@@ -41,7 +41,7 @@ vi.mock("@/components/agent-icon", () => ({ AgentIcon: () => null }))
 
 vi.mock("@/lib/api", () => ({
   listAllConversations: vi.fn(async () => []),
-  listWorkspaceFiles: vi.fn(),
+  searchWorkspaceFiles: vi.fn(),
 }))
 
 vi.mock("@/contexts/tab-context", () => ({
@@ -152,7 +152,7 @@ beforeEach(() => {
   workspace.files = []
   workspace.filesLoaded = true
   vi.mocked(listAllConversations).mockReset().mockResolvedValue([])
-  vi.mocked(listWorkspaceFiles)
+  vi.mocked(searchWorkspaceFiles)
     .mockReset()
     .mockImplementation(async (path) => {
       if (!workspace.filesLoaded) return new Promise(() => {})
@@ -416,6 +416,7 @@ describe("SearchCommandDialog focus", () => {
       composer.remove()
     }
   })
+
 })
 
 describe("SearchCommandDialog global search tab", () => {
@@ -452,7 +453,9 @@ describe("SearchCommandDialog global search tab", () => {
       await screen.findByRole("option", { name: /auth flow/ })
     ).toBeVisible()
     expect(screen.getByRole("option", { name: /auth style/ })).toBeVisible()
-    expect(screen.getByRole("option", { name: /auth.ts/ })).toBeVisible()
+    expect(
+      await screen.findByRole("option", { name: /auth.ts/ })
+    ).toBeVisible()
     // 别的项目文件夹里的会话不进入当前项目的全局搜索结果。
     expect(screen.queryByRole("option", { name: /auth elsewhere/ })).toBeNull()
   })
@@ -551,8 +554,16 @@ describe("SearchCommandDialog project scope", () => {
       target: { value: "auth.ts" },
     })
     await screen.findByRole("option", { name: /auth.ts/ })
-    expect(listWorkspaceFiles).toHaveBeenCalledWith("/repo-1")
-    expect(listWorkspaceFiles).not.toHaveBeenCalledWith("/repo-2")
+    expect(searchWorkspaceFiles).toHaveBeenCalledWith(
+      "/repo-1",
+      expect.any(String),
+      expect.anything()
+    )
+    expect(
+      vi
+        .mocked(searchWorkspaceFiles)
+        .mock.calls.some(([path]) => path === "/repo-2")
+    ).toBe(false)
 
     await userEvent.click(screen.getByRole("button", { name: "All projects" }))
     const otherFile = await screen.findByRole("option", {
@@ -590,7 +601,7 @@ describe("SearchCommandDialog project scope", () => {
       target: { value: "auth" },
     })
     expect(listAllConversations).not.toHaveBeenCalled()
-    expect(listWorkspaceFiles).not.toHaveBeenCalled()
+    expect(searchWorkspaceFiles).not.toHaveBeenCalled()
     await userEvent.click(screen.getByRole("button", { name: "All projects" }))
     expect(
       await screen.findByRole("option", { name: /auth other/ })
@@ -620,7 +631,11 @@ describe("SearchCommandDialog project scope", () => {
     expect(listAllConversations).toHaveBeenLastCalledWith({
       folder_ids: [1, 2],
     })
-    expect(listWorkspaceFiles).not.toHaveBeenCalledWith("/chat")
+    expect(
+      vi
+        .mocked(searchWorkspaceFiles)
+        .mock.calls.some(([path]) => path === "/chat")
+    ).toBe(false)
   })
 
   it("never sends an unrestricted query when no projects are registered", async () => {
@@ -632,7 +647,7 @@ describe("SearchCommandDialog project scope", () => {
       target: { value: "auth" },
     })
     expect(listAllConversations).not.toHaveBeenCalled()
-    expect(listWorkspaceFiles).not.toHaveBeenCalled()
+    expect(searchWorkspaceFiles).not.toHaveBeenCalled()
     expect(screen.queryAllByRole("option")).toHaveLength(0)
   })
 
@@ -663,7 +678,9 @@ describe("SearchCommandDialog project scope", () => {
     })
     await screen.findByRole("option", { name: /auth current/ })
     expect(screen.queryByRole("option", { name: /auth other/ })).toBeNull()
-    expect(screen.getAllByRole("option", { name: /auth.ts/ })).toHaveLength(1)
+    expect(
+      await screen.findAllByRole("option", { name: /auth.ts/ })
+    ).toHaveLength(1)
   })
 
   it("ignores a late all-project response after narrowing back to the current project", async () => {
@@ -696,7 +713,7 @@ describe("SearchCommandDialog project scope", () => {
   })
 
   it("shows successful project files when another project fails to load", async () => {
-    vi.mocked(listWorkspaceFiles).mockImplementation(async (path) => {
+    vi.mocked(searchWorkspaceFiles).mockImplementation(async (path) => {
       if (path === "/repo-2") throw new Error("unavailable")
       return [{ name: "auth.ts", path: "src/auth.ts", kind: "file" }]
     })
@@ -717,7 +734,7 @@ describe("SearchCommandDialog project scope", () => {
     let resolveOther!: (
       files: { name: string; path: string; kind: "file" }[]
     ) => void
-    vi.mocked(listWorkspaceFiles).mockImplementation(async (path) => {
+    vi.mocked(searchWorkspaceFiles).mockImplementation(async (path) => {
       if (path === "/repo-2")
         return new Promise((resolve) => {
           resolveOther = resolve
@@ -731,7 +748,11 @@ describe("SearchCommandDialog project scope", () => {
     await screen.findByRole("option", { name: /auth.ts/ })
     await userEvent.click(screen.getByRole("button", { name: "All projects" }))
     await waitFor(() =>
-      expect(listWorkspaceFiles).toHaveBeenCalledWith("/repo-2")
+      expect(
+        vi
+          .mocked(searchWorkspaceFiles)
+          .mock.calls.some(([path]) => path === "/repo-2")
+      ).toBe(true)
     )
     await userEvent.click(
       screen.getByRole("button", { name: "Current project" })
@@ -756,7 +777,7 @@ describe("SearchCommandDialog project scope", () => {
     const scans: (() => void)[] = []
     let activeScans = 0
     let peakScans = 0
-    vi.mocked(listWorkspaceFiles).mockImplementation(() => {
+    vi.mocked(searchWorkspaceFiles).mockImplementation(() => {
       activeScans++
       peakScans = Math.max(peakScans, activeScans)
       return new Promise((resolve) => {
@@ -815,6 +836,6 @@ describe("SearchCommandDialog project scope", () => {
     await userEvent.click(screen.getByRole("button", { name: "Conversations" }))
     await userEvent.click(screen.getByRole("button", { name: "Files" }))
     await screen.findByRole("option", { name: /auth.ts/ })
-    expect(listWorkspaceFiles).toHaveBeenCalledTimes(1)
+    expect(searchWorkspaceFiles).toHaveBeenCalledTimes(1)
   })
 })
