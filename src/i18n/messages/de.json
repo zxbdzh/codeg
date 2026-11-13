@@ -1,4 +1,18 @@
 {
+  "ConversationPanes": {
+    "label": "Pane",
+    "create": "Neues Pane",
+    "rename": "Umbenennen",
+    "remove": "Pane entfernen",
+    "move": "In Pane verschieben",
+    "name": "Pane-Name",
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "removeDraftTitle": "Pane mit ungesendeten Inhalten entfernen?",
+    "removeDraftDescription": "Ungesendete Inhalte werden nicht mehr angezeigt. Der Gesprächsverlauf bleibt erhalten und laufende Aufgaben werden fortgesetzt.",
+    "empty": "Keine Gespräche in diesem Pane geöffnet",
+    "emptyHint": "Öffnen Sie ein Gespräch in der Seitenleiste oder beginnen Sie ein neues."
+  },
   "FileCheckpoint": {
     "title": "Datei-Prüfpunkte",
     "description": "Dateiversionen speichern, Änderungen prüfen und ausgewählte Dateien wiederherstellen.",

@@ -76,6 +76,11 @@ export function TabProvider({ children }: TabProviderProps) {
   const previewReplacedTabIds = useTabStore((s) => s.previewReplacedTabIds)
   const draftRetargetRequests = useTabStore((s) => s.draftRetargetRequests)
   const tabsHydrated = useTabStore((s) => s.tabsHydrated)
+  const paneState = useTabStore((s) => s.paneState)
+  const groupLayout = useTabStore((s) => s.groupLayout)
+  const groupOf = useTabStore((s) => s.groupOf)
+  const groupSelection = useTabStore((s) => s.groupSelection)
+  const tileByGroup = useTabStore((s) => s.tileByGroup)
   const saveReconcileTick = useTabStore((s) => s.saveReconcileTick)
   const reseedTick = useTabStore((s) => s.reseedTick)
 
@@ -140,7 +145,17 @@ export function TabProvider({ children }: TabProviderProps) {
   // Debounced compare-and-set save + broadcast.
   useEffect(() => {
     useTabStore.getState().runSaveEffect()
-  }, [rawTabs, activeTabId, tabsHydrated, saveReconcileTick])
+  }, [
+    rawTabs,
+    activeTabId,
+    tabsHydrated,
+    saveReconcileTick,
+    paneState,
+    groupLayout,
+    groupOf,
+    groupSelection,
+    tileByGroup,
+  ])
 
   // Clear a pending save only on unmount — NOT on every effect re-run.
   useEffect(() => () => useTabStore.getState().clearSaveTimer(), [])
@@ -218,6 +233,7 @@ export function TabProvider({ children }: TabProviderProps) {
   useEffect(() => {
     if (!tabsHydrated || !foldersHydrated) return
     pruneOrphanDraftsOnce()
+    if (useTabStore.getState().paneState) return
     if (
       !shouldSeedConversation(
         useFolderTabsStore.getState().enabled,

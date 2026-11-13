@@ -76,6 +76,7 @@ import { useWorkspaceBackground, useZoomLevel } from "@/hooks/use-appearance"
 import { useHistoryBackDismiss } from "@/hooks/use-history-back-dismiss"
 import { FILL_MODE_STYLE } from "@/lib/workspace-background"
 import { TabBar } from "@/components/tabs/tab-bar"
+import { ConversationPaneSwitcher } from "@/components/layout/conversation-pane-switcher"
 import { TerminalPanel } from "@/components/terminal/terminal-panel"
 import { AuxPanel } from "@/components/layout/aux-panel"
 import { ChromeReserve } from "@/components/layout/chrome-reserve"
@@ -355,7 +356,8 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
   const hasConvTabs = useVisibleConversationTabs().length > 0
   // Tabs following the folder keep the strip (and its "+") for an empty one.
   const tabsFollowFolder = useFolderTabsStore((s) => s.enabled)
-  const showConvStrip = hasConvTabs || tabsFollowFolder
+  const hasPanes = useTabStore((state) => state.paneState != null)
+  const showConvStrip = hasConvTabs || tabsFollowFolder || hasPanes
   const isConvSplit = leafIds(useVisibleConversationLayout()).length > 1
   const winLinuxControls = isDesktop() && (isWindows || isLinux)
   // The window chrome (toggle/search left, terminal/aux/settings right) now
@@ -426,7 +428,11 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
                   filesMaximized && "conversation-tab-hidden invisible"
                 )}
                 inert={filesMaximized || undefined}
+                style={{
+                  position: conversationFillsArea ? "absolute" : "relative",
+                }}
               >
+                <ConversationPaneSwitcher />
                 {/* Conversation column top bar (UNSPLIT only): the tab strip,
                   plus a left reserve (this column always holds the window's
                   left corner; it is 0 wide while the sidebar covers it) and a

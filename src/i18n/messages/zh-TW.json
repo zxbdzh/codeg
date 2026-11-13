@@ -1,4 +1,18 @@
 {
+  "ConversationPanes": {
+    "label": "Pane",
+    "create": "新增 Pane",
+    "rename": "重新命名",
+    "remove": "移除 Pane",
+    "move": "移動到 Pane",
+    "name": "Pane 名稱",
+    "save": "儲存",
+    "cancel": "取消",
+    "removeDraftTitle": "移除包含未傳送內容的 Pane？",
+    "removeDraftDescription": "此 Pane 中的未傳送內容將不再顯示。歷史對話會保留，執行中的工作繼續執行。",
+    "empty": "此 Pane 尚未開啟對話",
+    "emptyHint": "從左側開啟對話，或新增對話。"
+  },
   "FileCheckpoint": {
     "title": "檔案檢查點",
     "description": "儲存工作區的檔案版本，預覽差異後還原所選檔案。",

@@ -1,4 +1,18 @@
 {
+  "ConversationPanes": {
+    "label": "Pane",
+    "create": "Pane を作成",
+    "rename": "名前を変更",
+    "remove": "Pane を削除",
+    "move": "Pane に移動",
+    "name": "Pane 名",
+    "save": "保存",
+    "cancel": "キャンセル",
+    "removeDraftTitle": "未送信の内容がある Pane を削除しますか？",
+    "removeDraftDescription": "この Pane の未送信内容は表示されなくなります。会話履歴は保持され、実行中のタスクは続行します。",
+    "empty": "この Pane に開いている会話はありません",
+    "emptyHint": "サイドバーから会話を開くか、新しい会話を開始してください。"
+  },
   "FileCheckpoint": {
     "title": "ファイルチェックポイント",
     "description": "ワークスペースのファイルを保存し、差分を確認して選択したファイルを復元します。",

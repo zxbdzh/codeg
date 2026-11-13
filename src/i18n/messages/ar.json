@@ -1,4 +1,18 @@
 {
+  "ConversationPanes": {
+    "label": "Pane",
+    "create": "Pane جديد",
+    "rename": "إعادة تسمية",
+    "remove": "إزالة Pane",
+    "move": "نقل إلى Pane",
+    "name": "اسم Pane",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "removeDraftTitle": "إزالة Pane يحتوي على محتوى غير مرسل؟",
+    "removeDraftDescription": "لن يظهر المحتوى غير المرسل. سيبقى سجل المحادثة وستستمر المهام قيد التشغيل.",
+    "empty": "لا توجد محادثات مفتوحة في هذا Pane",
+    "emptyHint": "افتح محادثة من الشريط الجانبي أو ابدأ محادثة جديدة."
+  },
   "FileCheckpoint": {
     "title": "نقاط حفظ الملفات",
     "description": "احفظ نسخ الملفات وعاين التغييرات ثم استعد الملفات المحددة.",

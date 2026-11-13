@@ -1,4 +1,18 @@
 {
+  "ConversationPanes": {
+    "label": "Pane",
+    "create": "New Pane",
+    "rename": "Rename",
+    "remove": "Remove Pane",
+    "move": "Move to Pane",
+    "name": "Pane name",
+    "save": "Save",
+    "cancel": "Cancel",
+    "removeDraftTitle": "Remove a Pane with unsent content?",
+    "removeDraftDescription": "Unsent content in this Pane will no longer be shown. Conversation history is kept and running tasks continue.",
+    "empty": "No conversations open in this Pane",
+    "emptyHint": "Open a conversation from the sidebar or start a new one."
+  },
   "FileCheckpoint": {
     "title": "File checkpoints",
     "description": "Save workspace file versions, preview changes, and restore selected files.",

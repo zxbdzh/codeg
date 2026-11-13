@@ -1,3 +1,5 @@
+import type { ConversationPaneState } from "@/lib/conversation-panes"
+
 /** The built-in agents codeg ships hand-written support for. */
 export type BuiltinAgentType =
   | "claude_code"
@@ -730,6 +732,7 @@ export interface TabsChanged {
   version: number
   origin: string
   tabs: OpenedTab[]
+  pane_state?: ConversationPaneState | null
 }
 
 export const TABS_CHANGED_EVENT = "tabs://changed"
@@ -739,6 +742,7 @@ export const TABS_CHANGED_EVENT = "tabs://changed"
 export interface OpenedTabsSnapshot {
   items: OpenedTab[]
   version: number
+  pane_state?: ConversationPaneState | null
 }
 
 /** Response of the `save_opened_tabs` compare-and-set. When `accepted` is false
@@ -748,6 +752,7 @@ export interface SaveTabsOutcome {
   accepted: boolean
   version: number
   tabs: OpenedTab[]
+  pane_state?: ConversationPaneState | null
 }
 
 export interface ImportResult {

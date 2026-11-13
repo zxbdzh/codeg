@@ -1,4 +1,18 @@
 {
+  "ConversationPanes": {
+    "label": "Pane",
+    "create": "新建 Pane",
+    "rename": "重命名",
+    "remove": "移除 Pane",
+    "move": "移动到 Pane",
+    "name": "Pane 名称",
+    "save": "保存",
+    "cancel": "取消",
+    "removeDraftTitle": "移除包含未发送内容的 Pane？",
+    "removeDraftDescription": "此 Pane 中的未发送内容将不再显示。历史会话会保留，正在运行的任务继续执行。",
+    "empty": "此 Pane 尚未打开会话",
+    "emptyHint": "从左侧打开会话，或新建一条会话。"
+  },
   "FileCheckpoint": {
     "title": "文件检查点",
     "description": "保存工作区的文件版本，预览差异后恢复所选文件。",

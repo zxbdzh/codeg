@@ -1,4 +1,18 @@
 {
+  "ConversationPanes": {
+    "label": "Pane",
+    "create": "Nuevo Pane",
+    "rename": "Cambiar nombre",
+    "remove": "Eliminar Pane",
+    "move": "Mover a Pane",
+    "name": "Nombre del Pane",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "removeDraftTitle": "¿Eliminar un Pane con contenido sin enviar?",
+    "removeDraftDescription": "El contenido sin enviar dejará de mostrarse. Se conserva el historial y las tareas en curso continúan.",
+    "empty": "No hay conversaciones abiertas en este Pane",
+    "emptyHint": "Abre una conversación en la barra lateral o inicia una nueva."
+  },
   "FileCheckpoint": {
     "title": "Puntos de archivos",
     "description": "Guarda versiones de archivos, revisa cambios y restaura los archivos seleccionados.",

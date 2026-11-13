@@ -2726,6 +2726,7 @@ export function ConversationDetailPanel() {
   const conversations = useAppWorkspaceStore((s) => s.conversations)
   const allFolders = useAppWorkspaceStore((s) => s.allFolders)
   const tabs = useTabStore((s) => s.tabs)
+  const paneState = useTabStore((s) => s.paneState)
   const tabsFollowFolder = useFolderTabsStore((s) => s.enabled)
   const visibleTabs = useVisibleConversationTabs()
   const visibleLayout = useVisibleConversationLayout()
@@ -2981,6 +2982,7 @@ export function ConversationDetailPanel() {
   // Ensure no-tab state is immediately bridged to a real new-conversation tab.
   useEffect(() => {
     if (!folder) return
+    if (useTabStore.getState().paneState) return
 
     if (
       shouldSeedConversation(useFolderTabsStore.getState().enabled, hasNoTabs)
@@ -3003,10 +3005,19 @@ export function ConversationDetailPanel() {
   // stable group id, so splits/merges/orientation flips/divider drags are pure
   // style changes and a tab that stays in its group is never reparented (a
   // reparent would remount the view and tear down a live streaming response).
-  const { groups: groupRects, handles: groupHandles } = useMemo(
-    () => computeRects(visibleLayout),
-    [visibleLayout]
-  )
+  const { groups: groupRects, handles: groupHandles } = useMemo(() => {
+    const rects = computeRects(visibleLayout)
+    if (!paneState) return rects
+    return {
+      ...rects,
+      groups: new Map(
+        [...rects.groups].map(([groupId, rect]) => [
+          `${paneState.activePaneId}/${groupId}`,
+          rect,
+        ])
+      ),
+    }
+  }, [visibleLayout, paneState])
   const isSplit = leafIds(visibleLayout).length > 1
   // Every tab sits in its own view's group shell (`shellGroupOfTab`): the
   // folder views not on screen keep their shells, hidden, so a folder switch
@@ -3015,12 +3026,18 @@ export function ConversationDetailPanel() {
   // transcript inside it); new shells only ever insert.
   const tabsByGroup = useMemo(() => {
     const byGroup = new Map<string, typeof tabs>()
-    for (const groupId of leafIds(groupLayout)) byGroup.set(groupId, [])
-    const state = { rawTabs: tabs, groupOf, groupLayout, groupViews }
+    for (const groupId of leafIds(groupLayout)) {
+      byGroup.set(
+        paneState ? `${paneState.activePaneId}/${groupId}` : groupId,
+        []
+      )
+    }
+    const state = { rawTabs: tabs, groupOf, groupLayout, groupViews, paneState }
     for (const tab of tabs) {
-      const groupId = visibleTabIds.has(tab.id)
-        ? groupOfTab(groupOf, groupLayout, tab.id)
-        : shellGroupOfTab(state, tab.id)
+      const groupId =
+        !paneState && visibleTabIds.has(tab.id)
+          ? groupOfTab(groupOf, groupLayout, tab.id)
+          : shellGroupOfTab(state, tab.id)
       const bucket = byGroup.get(groupId)
       if (bucket) {
         bucket.push(tab)
@@ -3029,7 +3046,7 @@ export function ConversationDetailPanel() {
       }
     }
     return byGroup
-  }, [tabs, groupOf, groupLayout, groupViews, visibleTabIds])
+  }, [tabs, groupOf, groupLayout, groupViews, visibleTabIds, paneState])
   const orderedGroupIds = useMemo(
     () => [...tabsByGroup.keys()].sort(),
     [tabsByGroup]
@@ -3044,17 +3061,35 @@ export function ConversationDetailPanel() {
   const tiledSelectionKey = useMemo(
     () =>
       orderedGroupIds
-        .filter(
-          (groupId) =>
+        .filter((shellId) => {
+          const groupId = paneState
+            ? shellId.slice(paneState.activePaneId.length + 1)
+            : shellId
+          return (
             tileByGroup[groupId] &&
-            (tabsByGroup.get(groupId) ?? []).filter((tab) =>
+            (tabsByGroup.get(shellId) ?? []).filter((tab) =>
               visibleTabIds.has(tab.id)
             ).length > 1 &&
             groupSelection[groupId] != null
+          )
+        })
+        .map(
+          (shellId) =>
+            groupSelection[
+              paneState
+                ? shellId.slice(paneState.activePaneId.length + 1)
+                : shellId
+            ]
         )
-        .map((groupId) => groupSelection[groupId])
         .join("|"),
-    [orderedGroupIds, tileByGroup, tabsByGroup, groupSelection, visibleTabIds]
+    [
+      orderedGroupIds,
+      tileByGroup,
+      tabsByGroup,
+      groupSelection,
+      visibleTabIds,
+      paneState,
+    ]
   )
   useEffect(() => {
     if (!tiledSelectionKey) return
@@ -3078,7 +3113,7 @@ export function ConversationDetailPanel() {
   }, [tabs])
 
   if (hasNoTabs) {
-    return tabsFollowFolder ? <FolderTabsEmptyState /> : null
+    return tabsFollowFolder || paneState ? <FolderTabsEmptyState /> : null
   }
 
   const renderTabWrapper = (
@@ -3090,7 +3125,12 @@ export function ConversationDetailPanel() {
     const inScope = visibleTabIds.has(tab.id)
     const active = inScope && tab.id === activeTabId
     // Visible = tiled (all group members shown) or the group's selected tab.
-    const visible = inScope && (canTileG || tab.id === groupSelection[groupId])
+    const rawGroupId =
+      paneState && groupId.startsWith(`${paneState.activePaneId}/`)
+        ? groupId.slice(paneState.activePaneId.length + 1)
+        : groupId
+    const visible =
+      inScope && (canTileG || tab.id === groupSelection[rawGroupId])
     const folderPath = allFolders.find((f) => f.id === tab.folderId)?.path
     const view = (
       <ConversationTabView
@@ -3156,10 +3196,14 @@ export function ConversationDetailPanel() {
 
   // Plain function (NOT a component defined in render — that type identity
   // would change every render and remount the whole shell subtree).
-  const renderGroupShell = (groupId: string) => {
-    const inScope = groupRects.has(groupId)
-    const rect = groupRects.get(groupId) ?? { x: 0, y: 0, w: 100, h: 100 }
-    const groupTabs = tabsByGroup.get(groupId) ?? []
+  const renderGroupShell = (shellId: string) => {
+    const inScope = groupRects.has(shellId)
+    const groupId =
+      paneState && inScope
+        ? shellId.slice(paneState.activePaneId.length + 1)
+        : shellId
+    const rect = groupRects.get(shellId) ?? { x: 0, y: 0, w: 100, h: 100 }
+    const groupTabs = tabsByGroup.get(shellId) ?? []
     const visibleGroupTabs = groupTabs.filter((tab) =>
       visibleTabIds.has(tab.id)
     )
@@ -3186,7 +3230,7 @@ export function ConversationDetailPanel() {
     // remount every live view (see group-shell-reconciliation.test.tsx).
     return (
       <div
-        key={groupId}
+        key={shellId}
         data-conv-group-shell={groupId}
         className="absolute flex min-h-0 flex-col overflow-hidden"
         style={{
@@ -3247,7 +3291,7 @@ export function ConversationDetailPanel() {
                   transcript's scroll offset and blank it (see
                   stableTabViewOrder). */}
               {stableTabViewOrder(groupTabs).map(({ tab, visualIndex }) =>
-                renderTabWrapper(tab, visualIndex, groupId, canTileG)
+                renderTabWrapper(tab, visualIndex, shellId, canTileG)
               )}
             </div>
           </TileScrollContainer>
@@ -3311,7 +3355,7 @@ export function ConversationDetailPanel() {
                 ))}
               {/* The selected folder has nothing open: every shell above is
                   hidden, other folders' live tabs included. */}
-              {tabsFollowFolder && visibleTabs.length === 0 && (
+              {(tabsFollowFolder || paneState) && visibleTabs.length === 0 && (
                 <div className="absolute inset-0">
                   <FolderTabsEmptyState />
                 </div>
