@@ -14,7 +14,6 @@ import {
   MessageSquareText,
   Scissors,
   Send,
-  Sparkles,
   Square,
   TextSelect,
   X,
@@ -436,9 +435,10 @@ export function MessageInput({
       ? promptSuggestion?.trim() || null
       : null
   const shownPlaceholder = offeredSuggestion
-    ? // 手机上建议改由下方可点条呈现，占位符不再重复这段文字，也不提 Tab。
+    ? // 手机与桌面共用同一句建议；手机另有右上角的可点 Tab 按钮，
+      // 因此这里只显示建议本身，不再提示「按 Tab 填入」。
       isMobile
-      ? resolvedPlaceholder
+      ? offeredSuggestion
       : t("promptSuggestion", { suggestion: offeredSuggestion })
     : resolvedPlaceholder
   const editorRef = useRef<RichComposerHandle>(null)
@@ -2224,31 +2224,24 @@ export function MessageInput({
                 // (see above); RichComposer explains the basis.
                 className={cn("grow", editableMinHeight)}
               />
-              {/* 触屏设备没有 Tab 键，给预测提示一个可点的填入入口；
-                  桌面端仍用占位符里的 Tab 提示，不重复占用一行。 */}
+              {/* 触屏没有 Tab 键：在输入框右上角浮一个 Tab 按钮，
+                  点它就等价于桌面按 Tab 填入。只在有建议时出现。 */}
               {offeredSuggestion && isMobile && (
-                <div className="px-1 pb-1">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 max-w-full touch-manipulation justify-start gap-1.5 px-2 text-xs font-normal text-muted-foreground"
-                    onClick={() => {
-                      if (editorRef.current?.fillPromptSuggestion()) {
-                        syncComposerEmpty()
-                      }
-                    }}
-                    title={offeredSuggestion}
-                  >
-                    <Sparkles className="size-3.5 shrink-0" />
-                    <span className="min-w-0 truncate">
-                      {offeredSuggestion}
-                    </span>
-                    <span className="shrink-0 text-foreground">
-                      {t("useSuggestion")}
-                    </span>
-                  </Button>
-                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="absolute right-1.5 top-1.5 z-10 h-6 touch-manipulation rounded-md px-1.5 font-mono text-[11px] leading-none"
+                  aria-label={t("useSuggestion")}
+                  title={t("useSuggestion")}
+                  onClick={() => {
+                    if (editorRef.current?.fillPromptSuggestion()) {
+                      syncComposerEmpty()
+                    }
+                  }}
+                >
+                  Tab
+                </Button>
               )}
               <ComposerToolbar>
                 <div className="flex min-w-0 items-end gap-1">

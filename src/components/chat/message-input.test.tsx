@@ -3404,7 +3404,7 @@ describe("MessageInput predicted follow-up prompt", () => {
     }
   })
 
-  it("offers a tappable fill control on touch devices, which have no Tab key", async () => {
+  it("offers a tappable Tab control on touch devices, which have no Tab key", async () => {
     // 手机断点由 matchMedia 决定；这里只把手机媒体查询改成匹配，
     // 其余查询沿用 setup 的桌面答案，避免影响别的断言。
     const desktop = window.matchMedia
@@ -3420,21 +3420,23 @@ describe("MessageInput predicted follow-up prompt", () => {
     )
     try {
       const { container } = await mounted({ promptSuggestion: "Run the tests" })
-      // 手机不再在占位符里提示 Tab：那段文字对没有 Tab 键的设备没有意义。
+      // 手机与桌面显示同一句建议；「按 Tab 填入」只对桌面有意义，这里不出现。
       expect(
         container.querySelector(
           `[data-placeholder="${offered("Run the tests")}"]`
         )
       ).toBeNull()
-      const fill = container.querySelector<HTMLButtonElement>(
-        `button[title="Run the tests"]`
+      expect(
+        container.querySelector('[data-placeholder="Run the tests"]')
+      ).not.toBeNull()
+      // 占位符里只有建议本身，不再带「(Tab to use)」后缀。
+      const tabButton = container.querySelector<HTMLButtonElement>(
+        `button[aria-label="${enMessages.Folder.chat.messageInput.useSuggestion}"]`
       )
-      expect(fill).not.toBeNull()
-      expect(fill).toHaveTextContent(
-        enMessages.Folder.chat.messageInput.useSuggestion
-      )
+      expect(tabButton).not.toBeNull()
+      expect(tabButton).toHaveTextContent("Tab")
       await act(async () => {
-        fill!.click()
+        tabButton!.click()
       })
       expect(composerHandle.current!.getText()).toBe("Run the tests")
     } finally {
