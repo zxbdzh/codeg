@@ -7,6 +7,11 @@ import {
   useWorkspaceFileTabs,
 } from "@/contexts/workspace-context"
 import { browserCapabilities } from "@/lib/browser/browser-api"
+import { egoRequest, type EgoConfig } from "@/lib/browser/ego-api"
+import {
+  getEgoWorkspacePage,
+  subscribeEgoWorkspacePages,
+} from "@/lib/browser/ego-workspace"
 import { browserDeviceKey } from "@/lib/browser/browser-device"
 import {
   DEFAULT_BROWSER_PROFILE_ID,
@@ -67,27 +72,47 @@ export function BrowserTabsPersistence() {
   // Restore once per document, then open the gate for writes.
   useEffect(() => {
     let cancelled = false
-    void browserCapabilities().then((caps) => {
-      if (cancelled || !caps.available) return
-      const label = getCurrentWindowLabel()
-      if (!restoredWindows.has(label)) {
-        restoredWindows.add(label)
-        const entries = readPersistedBrowserTabs(label)
-        lastWrittenRef.current = entries
-        // A profile deleted since the last run has no store any more; its
-        // tabs come back in the default one rather than not at all.
-        const prefs = getBrowserPrefs()
-        const restorable = entries.map((entry) =>
-          browserProfileExists(prefs, entry.profile)
-            ? entry
-            : { ...entry, profile: DEFAULT_BROWSER_PROFILE_ID }
-        )
-        if (restorable.length > 0) restoreBrowserTabs(restorable)
-      }
-      setReady(true)
-    })
+    let timer: ReturnType<typeof setTimeout>
+    let restored = false
+    const restore = () => {
+      if (cancelled || restored) return
+      clearTimeout(timer)
+      void Promise.all([
+        browserCapabilities(),
+        Promise.resolve()
+          .then(() => egoRequest<{ config: EgoConfig }>({ method: "config" }))
+          .catch(() => null),
+      ]).then(([caps, ego]) => {
+        if (cancelled || restored) return
+        if (!caps.available && !ego?.config.enabled) {
+          timer = setTimeout(restore, 2000)
+          return
+        }
+        restored = true
+        const label = getCurrentWindowLabel()
+        if (!restoredWindows.has(label)) {
+          restoredWindows.add(label)
+          const entries = readPersistedBrowserTabs(label)
+          lastWrittenRef.current = entries
+          // A profile deleted since the last run has no store any more; its
+          // tabs come back in the default one rather than not at all.
+          const prefs = getBrowserPrefs()
+          const restorable = entries.map((entry) =>
+            browserProfileExists(prefs, entry.profile)
+              ? entry
+              : { ...entry, profile: DEFAULT_BROWSER_PROFILE_ID }
+          )
+          if (restorable.length > 0) restoreBrowserTabs(restorable)
+        }
+        setReady(true)
+      })
+    }
+    restore()
+    window.addEventListener("codeg:ego-config-changed", restore)
     return () => {
       cancelled = true
+      clearTimeout(timer)
+      window.removeEventListener("codeg:ego-config-changed", restore)
     }
   }, [restoreBrowserTabs])
 
@@ -101,7 +126,7 @@ export function BrowserTabsPersistence() {
         .filter((tab) => tab.kind === "browser")
         .map(
           (tab) =>
-            `${tab.id}\u0000${tab.browser.profile}\u0000${tab.browser.initialUrl}\u0000${tab.title}\u0000${browserDeviceKey(tab.browser.device)}`
+            `${tab.id}\u0000${tab.browser.conversationId ?? ""}\u0000${tab.browser.profile}\u0000${tab.browser.initialUrl}\u0000${tab.title}\u0000${browserDeviceKey(tab.browser.device)}`
         )
         .join("\u0001"),
     [fileTabs]
@@ -113,7 +138,7 @@ export function BrowserTabsPersistence() {
     const save = () => {
       const snapshot = snapshotBrowserTabs(
         fileTabsRef.current,
-        getBrowserTabState
+        (id) => getEgoWorkspacePage(id) ?? getBrowserTabState(id)
       )
       if (
         lastWrittenRef.current &&
@@ -141,9 +166,11 @@ export function BrowserTabsPersistence() {
     schedule()
     // Live URL / title changes arrive through the tab store, not the records.
     const unsubscribe = subscribeBrowserTabs(schedule)
+    const unsubscribeEgo = subscribeEgoWorkspacePages(schedule)
     window.addEventListener("pagehide", flush)
     return () => {
       unsubscribe()
+      unsubscribeEgo()
       window.removeEventListener("pagehide", flush)
       // A pending write must not be lost to a re-run (signature change) or
       // an unmount; the refs hold the latest inputs either way.

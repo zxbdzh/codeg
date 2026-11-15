@@ -111,6 +111,12 @@ import {
   remoteConnectionOfProfile,
 } from "@/lib/browser/remote-host"
 import { randomUUID } from "@/lib/utils"
+import { toast } from "sonner"
+import { egoError } from "@/lib/browser/ego-api"
+import {
+  guardEgoWorkspaceClose,
+  subscribeEgoClosedViews,
+} from "@/lib/browser/ego-workspace"
 
 export type WorkspaceMode = "conversation" | "fusion"
 
@@ -139,6 +145,7 @@ type LineEnding = "lf" | "crlf" | "mixed" | "none"
  *  lives in `lib/browser/browser-tab-store`, keyed by the tab id, so page
  *  activity never churns the `fileTabs` slice. */
 export interface BrowserTabSeed {
+  conversationId?: number
   /** The URL the tab was opened with; the surface navigates to it once. */
   initialUrl: string
   /** Set on a tab adopted from another tab's `window.open` (popup). */
@@ -325,6 +332,9 @@ export interface WorkspaceActionsValue {
   // most one at a time: maximizing one releases the other.
   toggleFilesMaximized: () => void
   toggleConversationMaximized: () => void
+  // 单标签聚焦是“原地 zoom”：不复制 DOM，只隐藏其他表面，退出时恢复布局。
+  focusTab: (tabId: string) => void
+  exitFocusedTab: () => void
   // Open (or re-activate) a built-in browser tab for an http(s) URL. One tab
   // per URL (fragment ignored): a second open activates the existing tab.
   // Returns the tab id, or null when the URL does not parse. The native
@@ -393,6 +403,8 @@ export interface WorkspaceActionsValue {
 /** What a browser tab needs to come back after a restart (see
  *  `lib/browser/browser-tab-persistence`). */
 export interface RestorableBrowserTab {
+  viewId?: string
+  conversationId?: number
   url: string
   title: string | null
   folderId: number | null
@@ -411,6 +423,10 @@ interface WorkspaceViewValue {
   filesMaximized: boolean
   /** The conversation column covers the file column. */
   conversationMaximized: boolean
+  /** 当前聚焦的标签，可能属于会话列或文件列。 */
+  focusedTabId: string | null
+  /** 区分两列中可能同名的 ID；失效的聚焦不会被当作文件聚焦。 */
+  focusedTabPane: "conversation" | "files" | null
 }
 
 interface WorkspaceFileTabsValue {
@@ -642,6 +658,18 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const [activePane, setActivePaneState] =
     useState<WorkspacePane>("conversation")
   const [fileTabs, setFileTabs] = useState<FileWorkspaceTab[]>([])
+  // 聚焦状态在作用域订阅之前声明，供切换项目时同步清理。
+  const [focusedTabId, setFocusedTabId] = useState<string | null>(null)
+  const [focusedTabPane, setFocusedTabPane] = useState<
+    "conversation" | "files" | null
+  >(null)
+  const focusedTabIdRef = useRef<string | null>(null)
+  const exitFocusedTab = useCallback(() => {
+    focusedTabIdRef.current = null
+    setFocusedTabId(null)
+    setFocusedTabPane(null)
+  }, [])
+  const switchFileTabRef = useRef<(tabId: string) => void>(() => {})
   const [normalActiveFileTabId, setNormalActiveFileTabId] = useState<
     string | null
   >(null)
@@ -735,6 +763,12 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   useEffect(
     () =>
       useFolderTabsStore.subscribe((next, previous) => {
+        if (
+          focusedTabIdRef.current !== null &&
+          (next.scope !== previous.scope || next.enabled !== previous.enabled)
+        ) {
+          exitFocusedTab()
+        }
         if (next.enabled === previous.enabled) return
         const current = selectedFileIdRef.current
         if (!next.enabled) {
@@ -745,7 +779,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
           useFolderTabsStore.getState().selectFile(current)
         }
       }),
-    []
+    [exitFocusedTab]
   )
   const [pendingFileReveal, setPendingFileReveal] = useState<{
     requestId: number
@@ -759,6 +793,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   // conversation, or the conversation overlays the files. One slot, so the
   // two can never both be on.
   const [maximizedPane, setMaximizedPane] = useState<WorkspacePane | null>(null)
+  // 聚焦态只在当前窗口内存中存在；关闭标签、切换路由或按 Esc 都要立刻还原。
   // FIFO queue of unresolved disk-vs-buffer divergences (head is shown by
   // the always-mounted conflict dialog). Isolated state: never flows into
   // the fileTabs slice, so idle cost is zero.
@@ -970,6 +1005,25 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     )
   }, [])
 
+  const hasFocusedConversationTab = useTabStore((state) =>
+    focusedTabPane === "conversation" && focusedTabId !== null
+      ? state.rawTabs.some((tab) => tab.id === focusedTabId)
+      : true
+  )
+  const focusedTabExists =
+    focusedTabId !== null &&
+    (focusedTabPane === "conversation"
+      ? hasFocusedConversationTab
+      : focusedTabPane === "files" &&
+        fileTabs.some((tab) => tab.id === focusedTabId))
+
+  // 聚焦态从真实标签派生，关闭标签的同一次渲染就退出；内部状态延后清理，
+  // 避免在 effect 内同步 setState 造成级联渲染。
+  useEffect(() => {
+    if (focusedTabId === null || focusedTabExists) return
+    queueMicrotask(exitFocusedTab)
+  }, [exitFocusedTab, focusedTabExists, focusedTabId])
+
   const setActivePane = useCallback((nextPane: WorkspacePane) => {
     setActivePaneState((prev) => (prev === nextPane ? prev : nextPane))
   }, [])
@@ -1138,9 +1192,18 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       const normalized = normalizeUrlForDedupe(url)
       if (!normalized) return null
       const activate = options?.activate ?? true
+      const conversations = useTabStore.getState()
+      const activeConversationId =
+        conversations.rawTabs.find(
+          (entry) => entry.id === conversations.activeTabId
+        )?.conversationId ?? undefined
       const opener = options?.openerTabId
         ? fileTabsRef.current.find((tab) => tab.id === options.openerTabId)
         : undefined
+      const conversationId =
+        (opener?.kind === "browser"
+          ? opener.browser.conversationId
+          : undefined) ?? activeConversationId
       const state = useFolderTabsStore.getState()
       const targetScope =
         options?.folderId != null
@@ -1195,6 +1258,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
           : fileTabsRef.current.find(
               (tab) =>
                 tab.kind === "browser" &&
+                tab.browser.conversationId === conversationId &&
                 tab.browser.profile === profile &&
                 (tab.browser.remote === true) === remote &&
                 normalizeUrlForDedupe(tab.browser.initialUrl) === normalized
@@ -1223,6 +1287,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
         remote,
         options?.device
       )
+      if (conversationId) record.browser.conversationId = conversationId
       useFolderTabsStore
         .getState()
         .addFile(record.id, targetScope, activate !== false)
@@ -1333,7 +1398,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       // is not duplicated.
       const keyOf = (tab: FileWorkspaceTab) =>
         tab.kind === "browser"
-          ? `${tab.browser.remote === true ? "remote" : tab.browser.profile} ${normalizeUrlForDedupe(tab.browser.initialUrl) ?? ""}`
+          ? `${tab.browser.conversationId ?? ""} ${tab.browser.remote === true ? "remote" : tab.browser.profile} ${normalizeUrlForDedupe(tab.browser.initialUrl) ?? ""}`
           : null
       // Records are built once, outside the updater, so a replayed updater
       // inserts the same ids.
@@ -1351,9 +1416,9 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
             ? entry.profile
             : DEFAULT_BROWSER_PROFILE_ID
         candidates.push({
-          key: `${remote ? "remote" : profile} ${normalized}`,
+          key: `${entry.conversationId ?? ""} ${remote ? "remote" : profile} ${normalized}`,
           record: browserTabRecord(
-            randomUUID(),
+            entry.viewId && /^browser:[0-9a-f-]{36}$/i.test(entry.viewId) ? entry.viewId.slice(8) : randomUUID(),
             entry.url,
             entry.folderId,
             null,
@@ -1363,6 +1428,11 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
             entry.device
           ),
         })
+        if (entry.conversationId) {
+          const candidate = candidates[candidates.length - 1].record
+          if (candidate.kind === "browser")
+            candidate.browser.conversationId = entry.conversationId
+        }
       }
       if (candidates.length === 0) return
       // No scope registration here: the updater must not write the store
@@ -3233,9 +3303,11 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     },
     [setActiveFileTabId, activateFilePane, saveFileTab]
   )
-
+  useEffect(() => {
+    switchFileTabRef.current = switchFileTab
+  }, [switchFileTab])
   const closeFileTab = useCallback(
-    (tabId: string, options?: { allScopes?: boolean }) => {
+    function closeFileTab(tabId: string, options?: { allScopes?: boolean }) {
       const folderTabs = useFolderTabsStore.getState()
       if (
         folderTabs.enabled &&
@@ -3251,6 +3323,14 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
           return
         }
       }
+      if (
+        guardEgoWorkspaceClose(
+          [tabId],
+          () => closeFileTab(tabId, options),
+          (error) => toast.error(egoError(error))
+        )
+      )
+        return
       // Folder-tabs selection is per scope and lives in the store, which the
       // updater below must not write: it is derived from the scope's
       // references until the committed close drops them (`pendingForgetRef`).
@@ -3332,13 +3412,19 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     [setActiveFileTabId, activateConversationPane, activateFilePane, t]
   )
 
+  useEffect(
+    () =>
+      subscribeEgoClosedViews((id) => closeFileTab(id, { allScopes: true })),
+    [closeFileTab]
+  )
+
   // Folder-tabs "close others" / "close all": ONE operation over the active
   // scope's references, decided before any state changes. A buffer another
   // folder still references only leaves this scope (nothing is lost, so it
   // asks nothing); the rest close behind a single confirmation when any of
   // them has unsaved edits — cancelling closes nothing, as in normal mode.
   const closeScopeFileTabs = useCallback(
-    (keepId: string | null) => {
+    function closeScopeFileTabs(keepId: string | null, confirmed = false) {
       const folderTabs = useFolderTabsStore.getState()
       const scope = folderTabs.scope
       const ids = (folderTabs.fileRefs[scope] ?? []).filter(
@@ -3351,6 +3437,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
         )
       const closing = new Set(ids.filter((id) => !elsewhere(id)))
       if (
+        !confirmed &&
         fileTabsRef.current.some(
           (tab) => closing.has(tab.id) && isDirtyFileTab(tab)
         ) &&
@@ -3364,6 +3451,14 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       ) {
         return
       }
+      if (
+        guardEgoWorkspaceClose(
+          [...closing],
+          () => closeScopeFileTabs(keepId, true),
+          (error) => toast.error(egoError(error))
+        )
+      )
+        return
       for (const id of ids) {
         if (!closing.has(id)) folderTabs.removeFile(id, scope)
       }
@@ -3403,7 +3498,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   )
 
   const closeOtherFileTabs = useCallback(
-    (tabId: string) => {
+    function closeOtherFileTabs(tabId: string, confirmed = false) {
       if (useFolderTabsStore.getState().enabled) {
         closeScopeFileTabs(tabId)
         return
@@ -3413,10 +3508,18 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
         if (remaining.length === 0) return prev
 
         const closingTabs = prev.filter((tab) => tab.id !== tabId)
-        if (closingTabs.some(isDirtyFileTab)) {
+        if (!confirmed && closingTabs.some(isDirtyFileTab)) {
           const confirmed = window.confirm(t("confirmCloseOtherDirtyTabs"))
           if (!confirmed) return prev
         }
+        if (
+          guardEgoWorkspaceClose(
+            closingTabs.map((tab) => tab.id),
+            () => closeOtherFileTabs(tabId, true),
+            (error) => toast.error(egoError(error))
+          )
+        )
+          return prev
 
         // `pushClosedTab` is idempotent per tab id, which is what makes this
         // safe inside an updater React may invoke more than once.
@@ -3440,34 +3543,45 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     [setActiveFileTabId, activateFilePane, closeScopeFileTabs, t]
   )
 
-  const closeAllFileTabs = useCallback(() => {
-    if (useFolderTabsStore.getState().enabled) {
-      closeScopeFileTabs(null)
-      return
-    }
-    setFileTabs((prev) => {
-      if (prev.some(isDirtyFileTab)) {
-        const confirmed = window.confirm(t("confirmCloseAllDirtyTabs"))
-        if (!confirmed) return prev
+  const closeAllFileTabs = useCallback(
+    function closeAllFileTabs(confirmed = false) {
+      if (useFolderTabsStore.getState().enabled) {
+        closeScopeFileTabs(null)
+        return
       }
-
-      for (const [tab, slot] of batchCloseSlots(prev)) {
-        const closed = snapshotFileTab(tab, slot)
-        if (closed) pushClosedTab(closed)
-        if (tab.kind === "browser") {
-          pushClosedTab(closedBrowserTab(tab, slot))
-          releaseBrowserTab(tab.id)
+      setFileTabs((prev) => {
+        if (!confirmed && prev.some(isDirtyFileTab)) {
+          const confirmed = window.confirm(t("confirmCloseAllDirtyTabs"))
+          if (!confirmed) return prev
         }
-      }
+        if (
+          guardEgoWorkspaceClose(
+            prev.map((tab) => tab.id),
+            () => closeAllFileTabs(true),
+            (error) => toast.error(egoError(error))
+          )
+        )
+          return prev
 
-      for (const tab of prev) pendingForgetRef.current.add(tab.id)
-      inFlightLoadsRef.current.clear()
-      setActiveFileTabId(null)
-      setPreviewFileTabIds(new Set())
-      activateConversationPane()
-      return []
-    })
-  }, [setActiveFileTabId, activateConversationPane, closeScopeFileTabs, t])
+        for (const [tab, slot] of batchCloseSlots(prev)) {
+          const closed = snapshotFileTab(tab, slot)
+          if (closed) pushClosedTab(closed)
+          if (tab.kind === "browser") {
+            pushClosedTab(closedBrowserTab(tab, slot))
+            releaseBrowserTab(tab.id)
+          }
+        }
+
+        for (const tab of prev) pendingForgetRef.current.add(tab.id)
+        inFlightLoadsRef.current.clear()
+        setActiveFileTabId(null)
+        setPreviewFileTabIds(new Set())
+        activateConversationPane()
+        return []
+      })
+    },
+    [setActiveFileTabId, activateConversationPane, closeScopeFileTabs, t]
+  )
 
   const reorderFileTabs = useCallback((tabs: FileWorkspaceTab[]) => {
     const folderTabs = useFolderTabsStore.getState()
@@ -3607,6 +3721,24 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   // through refs or functional updaters, never through render-scoped
   // closures, so this memo's inputs only change if a callback identity
   // changes (which none do after mount).
+  const focusTab = useCallback((tabId: string) => {
+    if (!tabId) return
+    const tabs = useTabStore.getState()
+    const pane = tabs.rawTabs.some((tab) => tab.id === tabId)
+      ? "conversation"
+      : fileTabsRef.current.some((tab) => tab.id === tabId)
+        ? "files"
+        : null
+    if (pane === null) return
+    // 聚焦铺满整个工作区，直接释放列最大化，不能用 toggle 反转状态。
+    setMaximizedPane(null)
+    if (pane === "conversation") tabs.switchTab(tabId)
+    else switchFileTabRef.current(tabId)
+    focusedTabIdRef.current = tabId
+    setFocusedTabPane(pane)
+    setFocusedTabId(tabId)
+  }, [])
+
   const actions = useMemo<WorkspaceActionsValue>(
     () => ({
       setActivePane,
@@ -3636,6 +3768,8 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       toggleFileTabPreview,
       toggleFilesMaximized,
       toggleConversationMaximized,
+      focusTab,
+      exitFocusedTab,
       openBrowserTab,
       adoptBrowserTab,
       restoreBrowserTabs,
@@ -3670,6 +3804,8 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       toggleFileTabPreview,
       toggleFilesMaximized,
       toggleConversationMaximized,
+      focusTab,
+      exitFocusedTab,
       openBrowserTab,
       adoptBrowserTab,
       restoreBrowserTabs,
@@ -3684,8 +3820,18 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       activePane,
       filesMaximized: effectiveFilesMaximized,
       conversationMaximized: effectiveConversationMaximized,
+      focusedTabId: focusedTabExists ? focusedTabId : null,
+      focusedTabPane: focusedTabExists ? focusedTabPane : null,
     }),
-    [mode, activePane, effectiveFilesMaximized, effectiveConversationMaximized]
+    [
+      mode,
+      activePane,
+      effectiveFilesMaximized,
+      effectiveConversationMaximized,
+      focusedTabId,
+      focusedTabPane,
+      focusedTabExists,
+    ]
   )
 
   const fileTabsValue = useMemo<WorkspaceFileTabsValue>(

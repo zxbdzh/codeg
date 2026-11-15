@@ -6,6 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { BrowserWorkspaceTab } from "@/contexts/workspace-context"
 import type { BridgeGrant } from "@/lib/browser/browser-bridge"
 
+vi.mock("./ego-browser-view", () => ({
+  EgoBrowserGateway: ({ children }: { children: React.ReactNode }) => children,
+}))
+
 const api = vi.hoisted(() => ({
   bridgeOpen: vi.fn(),
   bridgeClose: vi.fn(() => Promise.resolve()),

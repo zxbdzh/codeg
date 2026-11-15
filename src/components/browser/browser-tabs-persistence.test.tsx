@@ -25,8 +25,11 @@ const mocks = vi.hoisted(() => ({
       })
   ),
   restoreBrowserTabs: vi.fn(),
+  ego: vi.fn(),
   fileTabs: [] as FileWorkspaceTab[],
 }))
+
+vi.mock("@/lib/browser/ego-api", () => ({ egoRequest: mocks.ego }))
 
 vi.mock("@/lib/browser/browser-api", () => ({
   browserCapabilities: mocks.capabilities,
@@ -80,6 +83,7 @@ describe("BrowserTabsPersistence", () => {
     mocks.restoreBrowserTabs.mockClear()
     mocks.capabilities.mockClear()
     mocks.fileTabs = []
+    mocks.ego.mockResolvedValue({ config: { enabled: false } })
     resetBrowserTabsPersistenceForTests()
     resetBrowserTabStoreForTests()
   })
@@ -87,6 +91,36 @@ describe("BrowserTabsPersistence", () => {
     vi.useRealTimers()
     resetBrowserTabsPersistenceForTests()
     resetBrowserTabStoreForTests()
+  })
+
+  it("Web 首次连接 Ego 后无需刷新即可恢复并保存标签", async () => {
+    const caps = await mocks.capabilities()
+    mocks.capabilities
+      .mockResolvedValueOnce({ ...caps, available: false })
+      .mockResolvedValueOnce({ ...caps, available: false })
+    writePersistedBrowserTabs([
+      {
+        url: "https://example.com/a",
+        title: "A",
+        folderId: 1,
+        profile: "default",
+      },
+    ])
+    const mounted = render(<BrowserTabsPersistence />)
+    await flush()
+    expect(mocks.restoreBrowserTabs).not.toHaveBeenCalled()
+    mocks.ego.mockResolvedValue({ config: { enabled: true } })
+    await act(async () => {
+      window.dispatchEvent(new Event("codeg:ego-config-changed"))
+    })
+    await flush()
+    expect(mocks.restoreBrowserTabs).toHaveBeenCalledTimes(1)
+    mocks.fileTabs = [browserTab("new", "https://example.com/new")]
+    mounted.rerender(<BrowserTabsPersistence />)
+    await act(async () => {
+      vi.advanceTimersByTime(500)
+    })
+    expect(readPersistedBrowserTabs()[0].url).toBe("https://example.com/new")
   })
 
   it("restores the stored tabs once, then persists what the strip shows", async () => {

@@ -12,6 +12,10 @@ import {
 
 type SurfaceHostProps = { zoom?: number | null; layoutKey?: string }
 
+vi.mock("./ego-browser-view", () => ({
+  EgoBrowserGateway: ({ children }: { children: React.ReactNode }) => children,
+}))
+
 const mocks = vi.hoisted(() => ({
   state: null as null | {
     tabId: string

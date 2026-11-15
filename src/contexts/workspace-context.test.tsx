@@ -605,6 +605,10 @@ function MaximizeProbe() {
     activeFileTabId,
     filesMaximized,
     conversationMaximized,
+    focusedTabId,
+    focusedTabPane,
+    focusTab,
+    exitFocusedTab,
     openSessionFileDiff,
     closeFileTab,
     closeAllFileTabs,
@@ -625,6 +629,8 @@ function MaximizeProbe() {
       <output data-testid="conversation-maximized">
         {String(conversationMaximized)}
       </output>
+      <output data-testid="focused-tab">{focusedTabId ?? "none"}</output>
+      <output data-testid="focused-pane">{focusedTabPane ?? "none"}</output>
       <button
         type="button"
         onClick={() =>
@@ -665,6 +671,13 @@ function MaximizeProbe() {
       <button type="button" onClick={activateConversationPane}>
         Activate conversation
       </button>
+      <button onClick={() => focusTab(seededConversationTab.id)}>
+        Focus conversation
+      </button>
+      <button onClick={() => activeFileTabId && focusTab(activeFileTabId)}>
+        Focus file
+      </button>
+      <button onClick={exitFocusedTab}>Exit focus</button>
       {/* A local server coming up: its page is selected in the strip without
           bringing the files pane forward. */}
       <button
@@ -737,6 +750,27 @@ describe("WorkspaceProvider conversation-maximized", () => {
     click("Toggle files maximize")
     expect(screen.getByTestId("files-maximized")).toHaveTextContent("true")
     expect(conversationMaximized()).toBe("false")
+  })
+
+  it("原地聚焦会话、文件，并在关闭聚焦标签时退出", async () => {
+    renderMaximizeProbe()
+    click("Focus conversation")
+    expect(screen.getByTestId("focused-pane")).toHaveTextContent("conversation")
+    expect(useTabStore.getState().activeTabId).toBe(seededConversationTab.id)
+    click("Exit focus")
+    expect(screen.getByTestId("focused-tab")).toHaveTextContent("none")
+
+    click("Open diff")
+    click("Focus file")
+    expect(screen.getByTestId("focused-pane")).toHaveTextContent("files")
+    click("Close active")
+    expect(screen.getByTestId("focused-tab")).toHaveTextContent("none")
+
+    click("Focus conversation")
+    act(() => {
+      useTabStore.getState().closeTab(seededConversationTab.id)
+    })
+    expect(screen.getByTestId("focused-tab")).toHaveTextContent("none")
   })
 
   it("leaves the active pane alone on toggle", () => {

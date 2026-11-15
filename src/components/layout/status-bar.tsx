@@ -10,6 +10,7 @@ import { StatusBarWebService } from "@/components/layout/status-bar-web-service"
 import { CommandDropdown } from "@/components/layout/command-dropdown"
 import { QuickActionsDropdown } from "@/components/layout/quick-actions-dropdown"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { EgoSessionLauncher } from "@/components/browser/ego-session-launcher"
 
 export function StatusBar() {
   const isMobile = useIsMobile()
@@ -26,12 +27,15 @@ export function StatusBar() {
           <StatusBarStats />
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <EgoSessionLauncher />
           <StatusBarUpdate />
           <CommandDropdown />
           {/* Narrow is a viewport width, not a browser: a desktop window
               shrunk below the breakpoint must still say the web service is
               listening. Renders nothing outside the local desktop. */}
           <StatusBarWebService />
+          {/* 窄屏 Web 同样需要选择和停止执行端窗口，不能依赖宽屏状态栏入口。 */}
+          <StatusBarComputer />
           <StatusBarMcp />
           <StatusBarAlerts />
         </div>
@@ -65,6 +69,7 @@ export function StatusBar() {
         <StatusBarStats />
       </div>
       <div className="flex items-center gap-4">
+        <EgoSessionLauncher />
         <StatusBarUpdate />
         <StatusBarTasks />
         {/* Command launcher (moved from the aux "session details" tab), taking

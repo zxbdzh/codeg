@@ -16,7 +16,10 @@ vi.mock("@/components/layout/status-bar-mcp", () => ({
   StatusBarMcp: () => null,
 }))
 vi.mock("@/components/layout/status-bar-computer", () => ({
-  StatusBarComputer: () => null,
+  StatusBarComputer: () => <span data-testid="computer-use" />,
+}))
+vi.mock("@/components/browser/ego-session-launcher", () => ({
+  EgoSessionLauncher: () => null,
 }))
 vi.mock("@/components/layout/status-bar-update", () => ({
   StatusBarUpdate: () => null,
@@ -44,9 +47,10 @@ describe("StatusBar", () => {
   it.each([
     ["wide", false],
     ["narrow", true],
-  ])("carries the web-service item in the %s layout", (_label, mobile) => {
+  ])("keeps remote service controls in the %s layout", (_label, mobile) => {
     viewport.mobile = mobile
     render(<StatusBar />)
     expect(screen.getByTestId("web-service")).toBeInTheDocument()
+    expect(screen.getByTestId("computer-use")).toBeInTheDocument()
   })
 })
