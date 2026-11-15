@@ -8,6 +8,18 @@
     "name": "Pane 이름",
     "save": "저장",
     "cancel": "취소",
+    "resetPosition": "Pane 위치 초기화",
+    "dragHint": "끌어서 위치 이동",
+    "status": {
+      "running": "실행 중",
+      "runningMany": "{count}개 실행 중",
+      "waiting": "확인 필요",
+      "waitingMany": "{count}개 확인 필요",
+      "completed": "완료됨",
+      "completedMany": "{count}개 완료됨",
+      "error": "오류",
+      "errorMany": "{count}개 오류"
+    },
     "removeDraftTitle": "보내지 않은 내용이 있는 Pane을 제거할까요?",
     "removeDraftDescription": "이 Pane의 보내지 않은 내용은 더 이상 표시되지 않습니다. 대화 기록은 유지되며 실행 중인 작업은 계속됩니다.",
     "empty": "이 Pane에 열린 대화가 없습니다",
@@ -2818,6 +2830,8 @@
       "unsplitAll": "모든 분할 해제",
       "closeAll": "모두 닫기",
       "tileDisplay": "타일 표시",
+      "focusTab": "탭에 집중",
+      "exitFocus": "집중 해제",
       "untileDisplay": "타일 해제"
     },
     "fileWorkspace": {
@@ -2838,7 +2852,9 @@
       "more": "더 보기",
       "maximize": "최대화",
       "restore": "복원",
-      "emptyDirectory": "빈 폴더"
+      "emptyDirectory": "빈 폴더",
+      "focusTab": "탭에 집중",
+      "exitFocus": "집중 해제"
     },
     "terminal": {
       "rename": "이름 변경",

@@ -8,6 +8,18 @@
     "name": "Nome do Pane",
     "save": "Salvar",
     "cancel": "Cancelar",
+    "resetPosition": "Redefinir posição do Pane",
+    "dragHint": "Arraste para reposicionar",
+    "status": {
+      "running": "Em execução",
+      "runningMany": "{count} em execução",
+      "waiting": "Requer atenção",
+      "waitingMany": "{count} requerem atenção",
+      "completed": "Concluído",
+      "completedMany": "{count} concluídos",
+      "error": "Erro",
+      "errorMany": "{count} erros"
+    },
     "removeDraftTitle": "Remover Pane com conteúdo não enviado?",
     "removeDraftDescription": "O conteúdo não enviado deixará de ser exibido. O histórico é mantido e as tarefas em execução continuam.",
     "empty": "Nenhuma conversa aberta neste Pane",
@@ -2818,6 +2830,8 @@
       "unsplitAll": "Desfazer todas as divisões",
       "closeAll": "Fechar tudo",
       "tileDisplay": "Exibição em mosaico",
+      "focusTab": "Focar aba",
+      "exitFocus": "Sair do foco",
       "untileDisplay": "Sair do mosaico"
     },
     "fileWorkspace": {
@@ -2838,7 +2852,9 @@
       "more": "Mais",
       "maximize": "Maximizar",
       "restore": "Restaurar",
-      "emptyDirectory": "Pasta vazia"
+      "emptyDirectory": "Pasta vazia",
+      "focusTab": "Focar aba",
+      "exitFocus": "Sair do foco"
     },
     "terminal": {
       "rename": "Renomear",

@@ -8,6 +8,18 @@
     "name": "Pane name",
     "save": "Save",
     "cancel": "Cancel",
+    "resetPosition": "Reset Pane position",
+    "dragHint": "Drag to reposition",
+    "status": {
+      "running": "Running",
+      "runningMany": "{count} running",
+      "waiting": "Waiting",
+      "waitingMany": "{count} waiting",
+      "completed": "Completed",
+      "completedMany": "{count} completed",
+      "error": "Error",
+      "errorMany": "{count} errors"
+    },
     "removeDraftTitle": "Remove a Pane with unsent content?",
     "removeDraftDescription": "Unsent content in this Pane will no longer be shown. Conversation history is kept and running tasks continue.",
     "empty": "No conversations open in this Pane",
@@ -2880,6 +2892,8 @@
       "unsplitAll": "Unsplit All",
       "closeAll": "Close All",
       "tileDisplay": "Tile Display",
+      "focusTab": "Focus tab",
+      "exitFocus": "Exit focus",
       "untileDisplay": "Exit Tile"
     },
     "fileWorkspace": {
@@ -2900,6 +2914,8 @@
       "more": "More",
       "maximize": "Maximize",
       "restore": "Restore",
+      "focusTab": "Focus tab",
+      "exitFocus": "Exit focus",
       "emptyDirectory": "Empty folder"
     },
     "terminal": {

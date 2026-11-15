@@ -3,7 +3,19 @@ import { NextIntlClientProvider } from "next-intl"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ConversationPaneSwitcher } from "./conversation-pane-switcher"
 import { resetTabStore, useTabStore } from "@/stores/tab-store"
-import { initialConversationPanes } from "@/lib/conversation-panes"
+import {
+  initialConversationPanes,
+  normalizeConversationPanes,
+} from "@/lib/conversation-panes"
+import { StaticConnectionStoreProvider } from "@/contexts/acp-connections-context"
+import type {
+  ConnectionState,
+  ConnectionStoreApi,
+} from "@/contexts/acp-connections-context"
+import {
+  CONVERSATION_PANE_SWITCHER_POSITION_KEY,
+  DEFAULT_CONVERSATION_PANE_SWITCHER_POSITION,
+} from "@/lib/conversation-pane-switcher-position"
 
 vi.mock("@/lib/api", () => ({
   getFolderConversation: vi.fn(),
@@ -19,6 +31,18 @@ const messages = {
     name: "Pane 名称",
     save: "保存",
     cancel: "取消",
+    resetPosition: "重置灵动岛位置",
+    dragHint: "拖动可调整灵动岛位置",
+    status: {
+      running: "进行中",
+      runningMany: "{count} 个进行中",
+      waiting: "待处理",
+      waitingMany: "{count} 个待处理",
+      completed: "已完成",
+      completedMany: "{count} 个已完成",
+      error: "出错",
+      errorMany: "{count} 个出错",
+    },
     removeDraftTitle: "移除包含未发送内容的 Pane？",
     removeDraftDescription: "历史保留，任务继续。",
   },
@@ -40,6 +64,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 
 describe("浮动 Pane 切换栏", () => {
@@ -129,6 +154,51 @@ describe("浮动 Pane 切换栏", () => {
     expect(useTabStore.getState().paneState!.panes[0].name).toBe("研究")
   })
 
+  it("拖动后保存归一化位置，右键菜单可恢复默认位置", async () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000)
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(800)
+    const { container } = mount()
+    const surface = container.querySelector<HTMLElement>("[data-pane-surface]")!
+    const anchor = container.querySelector<HTMLElement>("[data-pane-anchor]")!
+    fireEvent.click(screen.getByRole("button", { name: "Pane: Pane 1" }))
+
+    const pointerEvent = (type: string, clientX: number, clientY: number) => {
+      const event = new MouseEvent(type, {
+        bubbles: true,
+        button: 0,
+        clientX,
+        clientY,
+      })
+      Object.defineProperty(event, "pointerId", { value: 1 })
+      return event
+    }
+    fireEvent(surface, pointerEvent("pointerdown", 100, 100))
+    fireEvent(window, pointerEvent("pointermove", 112, 124))
+    expect(surface).toHaveAttribute("data-dragging", "true")
+    expect(
+      screen.getByRole("button", { name: "Pane: Pane 1" })
+    ).toHaveAttribute("aria-expanded", "false")
+    expect(anchor.style.transform).not.toBe("translate3d(0px, 2px, 0px)")
+    fireEvent(window, pointerEvent("pointerup", 112, 124))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    const stored = JSON.parse(
+      localStorage.getItem(CONVERSATION_PANE_SWITCHER_POSITION_KEY)!
+    )
+    expect(stored.x).toBeGreaterThan(0)
+    expect(stored.y).toBeGreaterThan(0)
+    expect(surface).not.toHaveAttribute("data-dragging")
+
+    fireEvent.click(screen.getByRole("button", { name: "Pane: Pane 1" }))
+    fireEvent.contextMenu(screen.getByRole("tab", { name: "Pane 1" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "重置灵动岛位置" }))
+    expect(
+      JSON.parse(localStorage.getItem(CONVERSATION_PANE_SWITCHER_POSITION_KEY)!)
+    ).toEqual(DEFAULT_CONVERSATION_PANE_SWITCHER_POSITION)
+  })
+
   it("键盘聚焦展开后焦点进入当前 Pane，Escape 收起并回到胶囊", () => {
     mount()
     act(() => screen.getByRole("button", { name: "Pane: Pane 1" }).focus())
@@ -195,6 +265,67 @@ describe("浮动 Pane 切换栏", () => {
     expect(
       screen.getByRole("button", { name: "Pane: Pane 1" })
     ).toHaveAttribute("aria-expanded", "false")
+  })
+
+  it("实时状态只更新摘要，不自动展开或抢占操作", () => {
+    let connection = {
+      status: "prompting",
+      pendingPermission: null,
+      pendingQuestion: null,
+      pendingAskQuestion: null,
+      pendingPlanApproval: null,
+      sessionFailures: [],
+      errorLevel: null,
+    } as ConnectionState
+    const listeners = new Set<() => void>()
+    const store = {
+      getConnection: () => connection,
+      getConnectPending: () => undefined,
+      getConnectError: () => undefined,
+      getActiveKey: () => null,
+      subscribeActiveKey: () => () => {},
+      subscribeKey: (_key: string, listener: () => void) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+    } as ConnectionStoreApi
+    useTabStore.setState({
+      rawTabs: [
+        {
+          id: "conv-1",
+          kind: "conversation",
+          folderId: 1,
+          conversationId: 1,
+          agentType: "codex",
+          title: "任务",
+          isPinned: false,
+        },
+      ],
+    })
+    useTabStore.setState({
+      tabs: useTabStore.getState().rawTabs,
+      paneState: normalizeConversationPanes(
+        initialConversationPanes(),
+        useTabStore.getState().rawTabs
+      ),
+    })
+    render(
+      <NextIntlClientProvider locale="zh-CN" messages={messages}>
+        <StaticConnectionStoreProvider store={store}>
+          <ConversationPaneSwitcher />
+        </StaticConnectionStoreProvider>
+      </NextIntlClientProvider>
+    )
+    expect(screen.getByText("进行中")).toBeInTheDocument()
+    act(() => {
+      connection = {
+        ...connection,
+        pendingPermission: {},
+      } as ConnectionState
+      listeners.forEach((listener) => listener())
+    })
+    expect(screen.getByText("待处理")).toBeInTheDocument()
+    expect(screen.queryByRole("tab", { name: "Pane 1" })).toBeNull()
   })
 
   it("触屏展开后主动滚到当前 Pane，包含它的操作按钮", () => {

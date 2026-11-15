@@ -8,6 +8,18 @@
     "name": "اسم Pane",
     "save": "حفظ",
     "cancel": "إلغاء",
+    "resetPosition": "إعادة تعيين موضع Pane",
+    "dragHint": "اسحب لتغيير الموضع",
+    "status": {
+      "running": "قيد التشغيل",
+      "runningMany": "{count} قيد التشغيل",
+      "waiting": "يتطلب إجراء",
+      "waitingMany": "{count} تتطلب إجراء",
+      "completed": "اكتمل",
+      "completedMany": "{count} مكتملة",
+      "error": "خطأ",
+      "errorMany": "{count} أخطاء"
+    },
     "removeDraftTitle": "إزالة Pane يحتوي على محتوى غير مرسل؟",
     "removeDraftDescription": "لن يظهر المحتوى غير المرسل. سيبقى سجل المحادثة وستستمر المهام قيد التشغيل.",
     "empty": "لا توجد محادثات مفتوحة في هذا Pane",
@@ -2818,6 +2830,8 @@
       "unsplitAll": "إلغاء كل التقسيمات",
       "closeAll": "إغلاق الكل",
       "tileDisplay": "عرض متجانب",
+      "focusTab": "تركيز علامة التبويب",
+      "exitFocus": "إنهاء التركيز",
       "untileDisplay": "إلغاء التجانب"
     },
     "fileWorkspace": {
@@ -2838,7 +2852,9 @@
       "more": "المزيد",
       "maximize": "تكبير",
       "restore": "استعادة",
-      "emptyDirectory": "مجلد فارغ"
+      "emptyDirectory": "مجلد فارغ",
+      "focusTab": "تركيز علامة التبويب",
+      "exitFocus": "إنهاء التركيز"
     },
     "terminal": {
       "rename": "إعادة تسمية",

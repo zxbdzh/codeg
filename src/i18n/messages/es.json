@@ -8,6 +8,18 @@
     "name": "Nombre del Pane",
     "save": "Guardar",
     "cancel": "Cancelar",
+    "resetPosition": "Restablecer posición de Pane",
+    "dragHint": "Arrastra para cambiar la posición",
+    "status": {
+      "running": "En ejecución",
+      "runningMany": "{count} en ejecución",
+      "waiting": "Requiere atención",
+      "waitingMany": "{count} requieren atención",
+      "completed": "Completado",
+      "completedMany": "{count} completados",
+      "error": "Error",
+      "errorMany": "{count} errores"
+    },
     "removeDraftTitle": "¿Eliminar un Pane con contenido sin enviar?",
     "removeDraftDescription": "El contenido sin enviar dejará de mostrarse. Se conserva el historial y las tareas en curso continúan.",
     "empty": "No hay conversaciones abiertas en este Pane",
@@ -2818,6 +2830,8 @@
       "unsplitAll": "Deshacer todas las divisiones",
       "closeAll": "Cerrar todo",
       "tileDisplay": "Vista en mosaico",
+      "focusTab": "Enfocar pestaña",
+      "exitFocus": "Salir del enfoque",
       "untileDisplay": "Salir de mosaico"
     },
     "fileWorkspace": {
@@ -2838,7 +2852,9 @@
       "more": "Más",
       "maximize": "Maximizar",
       "restore": "Restaurar",
-      "emptyDirectory": "Carpeta vacía"
+      "emptyDirectory": "Carpeta vacía",
+      "focusTab": "Enfocar pestaña",
+      "exitFocus": "Salir del enfoque"
     },
     "terminal": {
       "rename": "Renombrar",

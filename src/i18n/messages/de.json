@@ -8,6 +8,18 @@
     "name": "Pane-Name",
     "save": "Speichern",
     "cancel": "Abbrechen",
+    "resetPosition": "Pane-Position zurücksetzen",
+    "dragHint": "Ziehen, um die Position zu ändern",
+    "status": {
+      "running": "Läuft",
+      "runningMany": "{count} laufen",
+      "waiting": "Aktion erforderlich",
+      "waitingMany": "{count} erfordern Aktion",
+      "completed": "Abgeschlossen",
+      "completedMany": "{count} abgeschlossen",
+      "error": "Fehler",
+      "errorMany": "{count} Fehler"
+    },
     "removeDraftTitle": "Pane mit ungesendeten Inhalten entfernen?",
     "removeDraftDescription": "Ungesendete Inhalte werden nicht mehr angezeigt. Der Gesprächsverlauf bleibt erhalten und laufende Aufgaben werden fortgesetzt.",
     "empty": "Keine Gespräche in diesem Pane geöffnet",
@@ -2818,6 +2830,8 @@
       "unsplitAll": "Alle Teilungen aufheben",
       "closeAll": "Alle schließen",
       "tileDisplay": "Kachelansicht",
+      "focusTab": "Tab fokussieren",
+      "exitFocus": "Fokus beenden",
       "untileDisplay": "Kachel beenden"
     },
     "fileWorkspace": {
@@ -2838,7 +2852,9 @@
       "more": "Mehr",
       "maximize": "Maximieren",
       "restore": "Wiederherstellen",
-      "emptyDirectory": "Leerer Ordner"
+      "emptyDirectory": "Leerer Ordner",
+      "focusTab": "Tab fokussieren",
+      "exitFocus": "Fokus beenden"
     },
     "terminal": {
       "rename": "Umbenennen",

@@ -1,7 +1,18 @@
 "use client"
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
-import { Layers2, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react"
+import type { PointerEvent as ReactPointerEvent } from "react"
+import {
+  Activity,
+  AlertCircle,
+  Check,
+  Layers2,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Trash2,
+} from "lucide-react"
 import { motion, useReducedMotion } from "motion/react"
 import { useTranslations } from "next-intl"
 import { useTabStore } from "@/stores/tab-store"
@@ -12,6 +23,12 @@ import {
   hasLiveComposerContent,
   loadMessageInputDraftV2,
 } from "@/lib/message-input-draft"
+import {
+  DEFAULT_CONVERSATION_PANE_SWITCHER_POSITION,
+  readConversationPaneSwitcherPosition,
+  writeConversationPaneSwitcherPosition,
+} from "@/lib/conversation-pane-switcher-position"
+import { useConversationPaneStatus } from "./use-conversation-pane-status"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -63,11 +80,32 @@ export function ConversationPaneSwitcher({
   const compactContent = useRef<HTMLButtonElement>(null)
   const expandedContent = useRef<HTMLDivElement>(null)
   const [widths, setWidths] = useState({ compact: 88, expanded: 88 })
+  const [layoutSize, setLayoutSize] = useState({ width: 0, height: 0 })
+  const [position, setPosition] = useState({
+    ...DEFAULT_CONVERSATION_PANE_SWITCHER_POSITION,
+  })
+  const positionRef = useRef(position)
+  const [dragging, setDragging] = useState(false)
+  const draggingRef = useRef(false)
+  const dragState = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    originX: number
+    originY: number
+    maxX: number
+    maxY: number
+    moved: boolean
+  } | null>(null)
+  const dragCleanup = useRef<(() => void) | null>(null)
+  const suppressClick = useRef(false)
+  const suppressClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reduceMotion = useReducedMotion()
   const restoringFocus = useRef(false)
   const focusTriggerOnClose = useRef(false)
   const focusTabOnOpen = useRef(false)
   const hasPanes = paneState != null
+  const activity = useConversationPaneStatus(paneState?.activePaneId ?? null)
 
   useLayoutEffect(() => {
     const host = container.current
@@ -84,6 +122,12 @@ export function ConversationPaneSwitcher({
         previous.compact === next.compact && previous.expanded === next.expanded
           ? previous
           : next
+      )
+      const nextSize = { width: host.clientWidth, height: host.clientHeight }
+      setLayoutSize((previous) =>
+        previous.width === nextSize.width && previous.height === nextSize.height
+          ? previous
+          : nextSize
       )
     }
     measure()
@@ -110,10 +154,12 @@ export function ConversationPaneSwitcher({
     closeTimer.current = null
   }
   const reveal = () => {
+    if (draggingRef.current) return
     cancelClose()
     setExpanded(true)
   }
   const deferClose = () => {
+    if (draggingRef.current) return
     cancelClose()
     closeTimer.current = setTimeout(() => setExpanded(false), 280)
   }
@@ -121,9 +167,20 @@ export function ConversationPaneSwitcher({
   useEffect(
     () => () => {
       if (closeTimer.current) clearTimeout(closeTimer.current)
+      if (suppressClickTimer.current) clearTimeout(suppressClickTimer.current)
+      dragCleanup.current?.()
     },
     []
   )
+
+  useEffect(() => {
+    if (mobile) return
+    const stored = readConversationPaneSwitcherPosition()
+    positionRef.current = stored
+    // localStorage 只能在挂载后读取；首帧保留默认位置，避免服务端渲染不一致。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPosition(stored)
+  }, [mobile])
 
   useEffect(() => {
     if (!expanded) return
@@ -203,6 +260,144 @@ export function ConversationPaneSwitcher({
   )
   if (!active) return null
 
+  const activityLabel =
+    activity == null
+      ? null
+      : activity.count > 1
+        ? t(`status.${activity.kind}Many`, { count: activity.count })
+        : t(`status.${activity.kind}`)
+
+  const surfaceHeight = mobile ? 50 : open ? 34 : 22
+  const surfaceWidth = Math.max(0, open ? widths.expanded : widths.compact)
+  const maxOffsetX = mobile
+    ? 0
+    : Math.max(0, (layoutSize.width - surfaceWidth) / 2 - 8)
+  const maxOffsetY = mobile
+    ? 0
+    : Math.max(0, layoutSize.height - surfaceHeight - 2 - 40)
+  const offset = mobile
+    ? { x: 0, y: 0 }
+    : {
+        x: position.x * maxOffsetX,
+        y: 2 + position.y * maxOffsetY,
+      }
+
+  const commitPosition = (next: { x: number; y: number }) => {
+    positionRef.current = next
+    setPosition(next)
+  }
+
+  const resetPosition = () => {
+    const next = { ...DEFAULT_CONVERSATION_PANE_SWITCHER_POSITION }
+    commitPosition(next)
+    writeConversationPaneSwitcherPosition(next)
+    setExpanded(false)
+  }
+
+  const beginDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (mobile || event.button !== 0) return
+    cancelClose()
+    dragCleanup.current?.()
+    const element = event.currentTarget
+    const compactMaxX = Math.max(
+      0,
+      (layoutSize.width - Math.max(0, widths.compact)) / 2 - 8
+    )
+    const compactMaxY = Math.max(0, layoutSize.height - 22 - 2 - 40)
+    const drag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: offset.x,
+      originY: offset.y,
+      maxX: compactMaxX,
+      maxY: compactMaxY,
+      moved: false,
+    }
+    dragState.current = drag
+
+    const cleanup = () => {
+      window.removeEventListener("pointermove", handleMove)
+      window.removeEventListener("pointerup", handleEnd)
+      window.removeEventListener("pointercancel", handleEnd)
+      if (dragCleanup.current === cleanup) dragCleanup.current = null
+    }
+    const handleMove = (nativeEvent: PointerEvent) => {
+      if (
+        dragState.current !== drag ||
+        nativeEvent.pointerId !== drag.pointerId
+      ) {
+        return
+      }
+      const deltaX = nativeEvent.clientX - drag.startX
+      const deltaY = nativeEvent.clientY - drag.startY
+      if (!drag.moved && Math.max(Math.abs(deltaX), Math.abs(deltaY)) < 4) {
+        return
+      }
+      if (!drag.moved) {
+        drag.moved = true
+        draggingRef.current = true
+        setDragging(true)
+        cancelClose()
+        // 拖拽开始后立即收起标签栏，避免按钮点击和横向滚动抢占指针。
+        setExpanded(false)
+        // 阈值跨过时才捕获指针，避免普通点击被重定向到外壳而失效。
+        try {
+          element.setPointerCapture?.(drag.pointerId)
+        } catch {
+          // 某些嵌入环境不支持 pointer capture，窗口级监听仍可完成拖拽。
+        }
+        const startX = Math.min(drag.maxX, Math.max(-drag.maxX, drag.originX))
+        const startY = Math.min(2 + drag.maxY, Math.max(2, drag.originY))
+        commitPosition({
+          x: drag.maxX > 0 ? startX / drag.maxX : 0,
+          y: drag.maxY > 0 ? (startY - 2) / drag.maxY : 0,
+        })
+      }
+      nativeEvent.preventDefault()
+      const nextX = Math.min(
+        drag.maxX,
+        Math.max(-drag.maxX, drag.originX + deltaX)
+      )
+      const nextY = Math.min(2 + drag.maxY, Math.max(2, drag.originY + deltaY))
+      commitPosition({
+        x: drag.maxX > 0 ? nextX / drag.maxX : 0,
+        y: drag.maxY > 0 ? (nextY - 2) / drag.maxY : 0,
+      })
+    }
+    const handleEnd = (nativeEvent: PointerEvent) => {
+      if (
+        dragState.current !== drag ||
+        nativeEvent.pointerId !== drag.pointerId
+      ) {
+        return
+      }
+      try {
+        if (element.hasPointerCapture?.(drag.pointerId)) {
+          element.releasePointerCapture(drag.pointerId)
+        }
+      } catch {
+        // 指针已失效时释放会抛错，不影响已保存的位置。
+      }
+      cleanup()
+      dragState.current = null
+      draggingRef.current = false
+      setDragging(false)
+      if (!drag.moved) return
+      // pointerup 后浏览器仍会补发 click；用一个任务级标记吞掉这次误点击。
+      suppressClick.current = true
+      if (suppressClickTimer.current) clearTimeout(suppressClickTimer.current)
+      suppressClickTimer.current = setTimeout(() => {
+        suppressClick.current = false
+      }, 0)
+      writeConversationPaneSwitcherPosition(positionRef.current)
+    }
+    dragCleanup.current = cleanup
+    window.addEventListener("pointermove", handleMove, { passive: false })
+    window.addEventListener("pointerup", handleEnd)
+    window.addEventListener("pointercancel", handleEnd)
+  }
+
   const requestRemove = (paneId: string) => {
     const state = useTabStore.getState()
     const pane = state.paneState?.panes.find((item) => item.id === paneId)
@@ -259,203 +454,271 @@ export function ConversationPaneSwitcher({
           }
         }}
       >
-        <motion.div
-          data-pane-surface
-          initial={false}
-          animate={{
-            width: open ? widths.expanded : widths.compact,
-            height: mobile ? 50 : open ? 34 : 22,
-            borderRadius: mobile ? 25 : open ? 17 : 11,
+        <div
+          data-pane-anchor
+          className="pointer-events-none will-change-transform"
+          style={{
+            transform: `translate3d(${offset.x}px, ${offset.y}px, 0)`,
           }}
-          transition={
-            reduceMotion
-              ? { duration: 0 }
-              : { type: "spring", stiffness: 520, damping: 46, mass: 1 }
-          }
-          className={cn(
-            "pointer-events-auto relative max-w-full overflow-hidden border border-border/70 bg-background/95 shadow-sm",
-            !mobile && "mt-0.5"
-          )}
         >
-          {/* 只改变外壳的真实尺寸；两层内容按原字号交接，避免布局缩放把文字和圆角拉扁。 */}
-          <motion.button
-            ref={compactContent}
-            type="button"
-            data-pane-trigger
-            aria-hidden={open}
-            inert={open}
-            tabIndex={open ? -1 : 0}
-            initial={false}
-            animate={{ opacity: open ? 0 : 1 }}
-            transition={{ duration: reduceMotion ? 0 : 0.1 }}
-            onClick={reveal}
-            aria-label={`${t("label")}: ${active.name}`}
-            aria-expanded={open}
-            className={cn(
-              "absolute left-1/2 top-0 flex w-max max-w-36 -translate-x-1/2 items-center gap-1.5 px-2.5 font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-              mobile
-                ? "h-12 min-w-11 text-xs touch-manipulation"
-                : "h-5 text-[11px]",
-              open && "pointer-events-none"
-            )}
-          >
-            <Layers2 className="size-3 shrink-0 text-muted-foreground" />
-            <span className="truncate">{active.name}</span>
-          </motion.button>
           <motion.div
-            data-pane-expanded
-            aria-hidden={!open}
-            inert={!open}
+            data-pane-surface
+            data-dragging={dragging ? "true" : undefined}
+            title={mobile ? undefined : t("dragHint")}
             initial={false}
-            animate={{ opacity: open ? 1 : 0 }}
-            transition={{ duration: reduceMotion ? 0 : 0.14 }}
-            style={{ width: Math.max(0, widths.expanded - 2) }}
+            animate={{
+              width: open ? widths.expanded : widths.compact,
+              height: mobile ? 50 : open ? 34 : 22,
+              borderRadius: mobile ? 25 : open ? 17 : 11,
+            }}
+            transition={
+              reduceMotion
+                ? { duration: 0 }
+                : { type: "spring", stiffness: 520, damping: 46, mass: 1 }
+            }
+            onPointerDown={beginDrag}
+            onDragStart={(event) => event.preventDefault()}
+            onClickCapture={(event) => {
+              if (!suppressClick.current) return
+              event.preventDefault()
+              event.stopPropagation()
+            }}
             className={cn(
-              "absolute left-1/2 top-0 -translate-x-1/2 overflow-x-auto overscroll-contain",
-              !open && "pointer-events-none"
+              "pointer-events-auto relative max-w-full select-none overflow-hidden border border-border/70 bg-background/95 shadow-sm transition-shadow",
+              activity?.kind === "waiting" && "border-amber-500/30",
+              activity?.kind === "error" && "border-destructive/35",
+              !mobile && "cursor-grab active:cursor-grabbing",
+              dragging && "shadow-md"
             )}
           >
-            <div
-              ref={expandedContent}
-              role="tablist"
-              aria-label={t("label")}
-              onKeyDown={(event) => {
-                const keys = ["ArrowLeft", "ArrowRight", "Home", "End"]
-                if (!keys.includes(event.key)) return
-                event.preventDefault()
-                const index = paneState.panes.findIndex(
-                  (pane) => pane.id === active.id
-                )
-                const targetIndex =
-                  event.key === "Home"
-                    ? 0
-                    : event.key === "End"
-                      ? paneState.panes.length - 1
-                      : (index +
-                          (event.key === "ArrowLeft" ? -1 : 1) +
-                          paneState.panes.length) %
-                        paneState.panes.length
-                const target = paneState.panes[targetIndex]
-                useTabStore.getState().switchPane(target.id)
-                const buttons =
-                  event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                    '[role="tab"]'
-                  )
-                buttons[targetIndex]?.focus()
-              }}
+            {/* 只改变外壳的真实尺寸；两层内容按原字号交接，避免布局缩放把文字和圆角拉扁。 */}
+            <motion.button
+              ref={compactContent}
+              type="button"
+              data-pane-trigger
+              aria-hidden={open}
+              inert={open}
+              tabIndex={open ? -1 : 0}
+              initial={false}
+              animate={{ opacity: open ? 0 : 1 }}
+              transition={{ duration: reduceMotion ? 0 : 0.1 }}
+              onClick={reveal}
+              aria-label={`${t("label")}: ${active.name}`}
+              aria-expanded={open}
               className={cn(
-                "flex w-max items-center gap-0.5 p-0.5",
-                mobile ? "h-12" : "h-8"
+                "absolute left-1/2 top-0 flex w-max max-w-36 -translate-x-1/2 items-center gap-1.5 px-2.5 font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                mobile
+                  ? "h-12 min-w-11 text-xs touch-manipulation"
+                  : "h-5 text-[11px]",
+                open && "pointer-events-none"
               )}
             >
-              {paneState.panes.map((pane) => {
-                const paneButton = (
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={pane.id === active.id}
-                    tabIndex={pane.id === active.id ? 0 : -1}
-                    title={pane.name}
-                    onClick={() => {
-                      useTabStore.getState().switchPane(pane.id)
-                      if (mobile) setExpanded(false)
-                    }}
+              <span className="flex min-w-0 items-center gap-1.5">
+                {activity == null ? (
+                  <Layers2 className="size-3 shrink-0 text-muted-foreground" />
+                ) : (
+                  <span
+                    data-pane-activity={activity.kind}
+                    className="relative flex size-3 shrink-0 items-center justify-center"
+                    aria-hidden="true"
+                  >
+                    {activity.kind === "running" ? (
+                      <Activity className="size-3 text-primary" />
+                    ) : activity.kind === "waiting" ? (
+                      <span className="size-1.5 rounded-full bg-amber-500 ring-2 ring-amber-500/10" />
+                    ) : activity.kind === "error" ? (
+                      <AlertCircle className="size-3 text-destructive" />
+                    ) : (
+                      <Check className="size-3 text-emerald-600 dark:text-emerald-400" />
+                    )}
+                  </span>
+                )}
+                <span className="truncate">{active.name}</span>
+              </span>
+              {activityLabel && (
+                <>
+                  <span className="h-2.5 w-px shrink-0 bg-border" aria-hidden />
+                  <motion.span
+                    key={`${activity?.kind}-${activity?.count}`}
+                    initial={reduceMotion ? false : { opacity: 0, y: 2 }}
+                    animate={{ opacity: 1, y: 0 }}
                     className={cn(
-                      "max-w-40 shrink-0 truncate rounded-full px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                      mobile ? "h-11 min-w-11 touch-manipulation" : "h-7",
-                      pane.id === active.id
-                        ? "bg-muted text-foreground"
-                        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                      "shrink-0 truncate text-[10px] font-normal tabular-nums",
+                      mobile ? "max-w-16" : "max-w-28",
+                      activity?.kind === "error"
+                        ? "text-destructive"
+                        : activity?.kind === "waiting"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-muted-foreground"
                     )}
                   >
-                    {pane.name}
-                  </button>
-                )
-                const beginRename = () => {
-                  if (mobile) {
-                    setMobileMenuPane(null)
-                    setExpanded(false)
-                  }
-                  setName(pane.name)
-                  setRenaming(pane.id)
-                }
-                return mobile ? (
-                  <div key={pane.id} className="flex shrink-0 items-center">
-                    {paneButton}
-                    <DropdownMenu
-                      open={mobileMenuPane === pane.id}
-                      onOpenChange={(value) =>
-                        setMobileMenuPane(value ? pane.id : null)
-                      }
+                    {activityLabel}
+                  </motion.span>
+                </>
+              )}
+            </motion.button>
+            <motion.div
+              data-pane-expanded
+              aria-hidden={!open}
+              inert={!open}
+              initial={false}
+              animate={{ opacity: open ? 1 : 0 }}
+              transition={{ duration: reduceMotion ? 0 : 0.14 }}
+              style={{ width: Math.max(0, widths.expanded - 2) }}
+              className={cn(
+                "absolute left-1/2 top-0 -translate-x-1/2 overflow-x-auto overscroll-contain",
+                !open && "pointer-events-none"
+              )}
+            >
+              <div
+                ref={expandedContent}
+                role="tablist"
+                aria-label={t("label")}
+                onKeyDown={(event) => {
+                  const keys = ["ArrowLeft", "ArrowRight", "Home", "End"]
+                  if (!keys.includes(event.key)) return
+                  event.preventDefault()
+                  const index = paneState.panes.findIndex(
+                    (pane) => pane.id === active.id
+                  )
+                  const targetIndex =
+                    event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? paneState.panes.length - 1
+                        : (index +
+                            (event.key === "ArrowLeft" ? -1 : 1) +
+                            paneState.panes.length) %
+                          paneState.panes.length
+                  const target = paneState.panes[targetIndex]
+                  useTabStore.getState().switchPane(target.id)
+                  const buttons =
+                    event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                      '[role="tab"]'
+                    )
+                  buttons[targetIndex]?.focus()
+                }}
+                className={cn(
+                  "flex w-max items-center gap-0.5 p-0.5",
+                  mobile ? "h-12" : "h-8"
+                )}
+              >
+                {paneState.panes.map((pane) => {
+                  const paneButton = (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={pane.id === active.id}
+                      tabIndex={pane.id === active.id ? 0 : -1}
+                      title={pane.name}
+                      onClick={() => {
+                        useTabStore.getState().switchPane(pane.id)
+                        if (mobile) setExpanded(false)
+                      }}
+                      className={cn(
+                        "flex max-w-40 shrink-0 items-center truncate rounded-full px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                        mobile ? "h-11 min-w-11 touch-manipulation" : "h-7",
+                        pane.id === active.id
+                          ? "bg-muted text-foreground"
+                          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                      )}
                     >
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          aria-label={`${pane.name}: ${t("rename")} / ${t("remove")}`}
-                          className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none touch-manipulation focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                        >
-                          <MoreHorizontal className="size-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onSelect={beginRename}
-                          className="min-h-11"
-                        >
+                      <span className="flex min-w-0 items-center justify-center gap-1.5">
+                        <PaneActivityDot paneId={pane.id} />
+                        <span className="truncate">{pane.name}</span>
+                      </span>
+                    </button>
+                  )
+                  const beginRename = () => {
+                    if (mobile) {
+                      setMobileMenuPane(null)
+                      setExpanded(false)
+                    }
+                    setName(pane.name)
+                    setRenaming(pane.id)
+                  }
+                  return mobile ? (
+                    <div key={pane.id} className="flex shrink-0 items-center">
+                      {paneButton}
+                      <DropdownMenu
+                        open={mobileMenuPane === pane.id}
+                        onOpenChange={(value) =>
+                          setMobileMenuPane(value ? pane.id : null)
+                        }
+                      >
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={`${pane.name}: ${t("rename")} / ${t("remove")}`}
+                            className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none touch-manipulation focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                          >
+                            <MoreHorizontal className="size-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onSelect={beginRename}
+                            className="min-h-11"
+                          >
+                            <Pencil className="size-4" />
+                            {t("rename")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={paneState.panes.length <= 1}
+                            onSelect={() => requestRemove(pane.id)}
+                            className="min-h-11"
+                          >
+                            <Trash2 className="size-4" />
+                            {t("remove")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  ) : (
+                    <ContextMenu key={pane.id} onOpenChange={setMenuOpen}>
+                      <ContextMenuTrigger asChild>
+                        {paneButton}
+                      </ContextMenuTrigger>
+                      <ContextMenuContent>
+                        <ContextMenuItem onSelect={beginRename}>
                           <Pencil className="size-4" />
                           {t("rename")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
+                        </ContextMenuItem>
+                        <ContextMenuItem
                           disabled={paneState.panes.length <= 1}
                           onSelect={() => requestRemove(pane.id)}
-                          className="min-h-11"
                         >
                           <Trash2 className="size-4" />
                           {t("remove")}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                ) : (
-                  <ContextMenu key={pane.id} onOpenChange={setMenuOpen}>
-                    <ContextMenuTrigger asChild>
-                      {paneButton}
-                    </ContextMenuTrigger>
-                    <ContextMenuContent>
-                      <ContextMenuItem onSelect={beginRename}>
-                        <Pencil className="size-4" />
-                        {t("rename")}
-                      </ContextMenuItem>
-                      <ContextMenuItem
-                        disabled={paneState.panes.length <= 1}
-                        onSelect={() => requestRemove(pane.id)}
-                      >
-                        <Trash2 className="size-4" />
-                        {t("remove")}
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
-                )
-              })}
-              <button
-                type="button"
-                aria-label={t("create")}
-                title={t("create")}
-                disabled={paneState.panes.length >= 64}
-                onClick={() => {
-                  useTabStore.getState().createPane()
-                  if (mobile) setExpanded(false)
-                }}
-                className={cn(
-                  "flex shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-40",
-                  mobile ? "size-11 touch-manipulation" : "size-7"
-                )}
-              >
-                <Plus className="size-3.5" />
-              </button>
-            </div>
+                        </ContextMenuItem>
+                        <ContextMenuItem onSelect={resetPosition}>
+                          <RotateCcw className="size-4" />
+                          {t("resetPosition")}
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  )
+                })}
+                <button
+                  type="button"
+                  aria-label={t("create")}
+                  title={t("create")}
+                  disabled={paneState.panes.length >= 64}
+                  onClick={() => {
+                    useTabStore.getState().createPane()
+                    if (mobile) setExpanded(false)
+                  }}
+                  className={cn(
+                    "flex shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-40",
+                    mobile ? "size-11 touch-manipulation" : "size-7"
+                  )}
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
-        </motion.div>
+        </div>
       </div>
       <Dialog
         open={renaming != null}
@@ -540,5 +803,26 @@ export function ConversationPaneSwitcher({
         </AlertDialogContent>
       </AlertDialog>
     </>
+  )
+}
+
+function PaneActivityDot({ paneId }: { paneId: string }) {
+  const activity = useConversationPaneStatus(paneId)
+  if (!activity) return null
+  return (
+    <span
+      data-pane-activity={activity.kind}
+      className={cn(
+        "size-1.5 shrink-0 rounded-full",
+        activity.kind === "waiting"
+          ? "bg-amber-500"
+          : activity.kind === "error"
+            ? "bg-destructive"
+            : activity.kind === "running"
+              ? "bg-primary"
+              : "bg-emerald-600 dark:bg-emerald-400"
+      )}
+      aria-hidden="true"
+    />
   )
 }

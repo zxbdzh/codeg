@@ -8,6 +8,18 @@
     "name": "Pane 名称",
     "save": "保存",
     "cancel": "取消",
+    "resetPosition": "重置灵动岛位置",
+    "dragHint": "拖动可调整灵动岛位置",
+    "status": {
+      "running": "进行中",
+      "runningMany": "{count} 个进行中",
+      "waiting": "待处理",
+      "waitingMany": "{count} 个待处理",
+      "completed": "已完成",
+      "completedMany": "{count} 个已完成",
+      "error": "出错",
+      "errorMany": "{count} 个出错"
+    },
     "removeDraftTitle": "移除包含未发送内容的 Pane？",
     "removeDraftDescription": "此 Pane 中的未发送内容将不再显示。历史会话会保留，正在运行的任务继续执行。",
     "empty": "此 Pane 尚未打开会话",
@@ -2880,6 +2892,8 @@
       "unsplitAll": "全部取消拆分",
       "closeAll": "关闭所有",
       "tileDisplay": "平铺显示",
+      "focusTab": "聚焦标签页",
+      "exitFocus": "退出聚焦",
       "untileDisplay": "取消平铺"
     },
     "fileWorkspace": {
@@ -2900,6 +2914,8 @@
       "more": "更多",
       "maximize": "最大化",
       "restore": "还原",
+      "focusTab": "聚焦标签页",
+      "exitFocus": "退出聚焦",
       "emptyDirectory": "空目录"
     },
     "terminal": {

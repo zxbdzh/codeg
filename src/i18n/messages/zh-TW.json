@@ -8,6 +8,18 @@
     "name": "Pane 名稱",
     "save": "儲存",
     "cancel": "取消",
+    "resetPosition": "重設靈動島位置",
+    "dragHint": "拖曳可調整靈動島位置",
+    "status": {
+      "running": "進行中",
+      "runningMany": "{count} 個進行中",
+      "waiting": "待處理",
+      "waitingMany": "{count} 個待處理",
+      "completed": "已完成",
+      "completedMany": "{count} 個已完成",
+      "error": "發生錯誤",
+      "errorMany": "{count} 個錯誤"
+    },
     "removeDraftTitle": "移除包含未傳送內容的 Pane？",
     "removeDraftDescription": "此 Pane 中的未傳送內容將不再顯示。歷史對話會保留，執行中的工作繼續執行。",
     "empty": "此 Pane 尚未開啟對話",
@@ -2818,6 +2830,8 @@
       "unsplitAll": "全部取消拆分",
       "closeAll": "關閉所有",
       "tileDisplay": "平鋪顯示",
+      "focusTab": "聚焦分頁",
+      "exitFocus": "離開聚焦",
       "untileDisplay": "取消平鋪"
     },
     "fileWorkspace": {
@@ -2838,7 +2852,9 @@
       "more": "更多",
       "maximize": "最大化",
       "restore": "還原",
-      "emptyDirectory": "空目錄"
+      "emptyDirectory": "空目錄",
+      "focusTab": "聚焦分頁",
+      "exitFocus": "離開聚焦"
     },
     "terminal": {
       "rename": "重新命名",
