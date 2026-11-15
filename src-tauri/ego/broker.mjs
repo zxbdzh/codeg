@@ -39,6 +39,9 @@ export class EgoBroker {
     this.closing = new Set();
     this.nativeQueue = Promise.resolve();
     this.saveQueue = Promise.resolve();
+    this.lifecycleQueue = Promise.resolve();
+    this.lifecycleRunId = randomUUID();
+    this.lifecycleEnabled = false;
     this.agentBundlePath = options.agentBundlePath;
     this.agentBundle = null;
     this.disconnected = false;
@@ -46,6 +49,8 @@ export class EgoBroker {
 
   async start() {
     await fs.mkdir(this.root, { recursive: true });
+    this.lifecycleEnabled = true;
+    await this.recordLifecycle("bridge_started");
     let saved;
     try {
       saved = JSON.parse(await fs.readFile(path.join(this.root, "sessions.json"), "utf8"));
@@ -93,14 +98,58 @@ export class EgoBroker {
     return this;
   }
 
+  recordLifecycle(type, group = null, details = {}) {
+    if (!this.lifecycleEnabled) return Promise.resolve();
+    const record = {
+      at: new Date().toISOString(), runId: this.lifecycleRunId, pid: process.pid, type,
+      ...(group ? { sessionId: group.sessionId, spaceId: group.spaceId,
+        epoch: group.control.epoch, paused: group.control.owner !== null } : {}),
+    };
+    // 只保留定位生命周期所需的标识和枚举，不写网址、输入内容、凭据或原始请求。
+    for (const key of ["targetId", "spaceId", "role", "source", "method", "outcome", "errorCode", "reason", "explicit"]) {
+      if (["string", "number", "boolean"].includes(typeof details[key])) record[key] = details[key];
+    }
+    const operation = this.lifecycleQueue.then(async () => {
+      const filename = path.join(this.root, "lifecycle.jsonl");
+      try {
+        // 保留当前与上一份记录，长期运行也不会无限积累诊断文件。
+        if ((await fs.stat(filename)).size >= 256 * 1024) {
+          await fs.rename(filename, path.join(this.root, "lifecycle.previous.jsonl"));
+        }
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+      await fs.appendFile(filename, `${JSON.stringify(record)}\n`);
+    });
+    // 诊断写入失败不能阻止接管、关闭或保存页面状态，后续记录仍可重试。
+    this.lifecycleQueue = operation.catch((error) => { this.lastLifecycleError = error.code ?? "write_failed"; });
+    return this.lifecycleQueue;
+  }
+
   async nativeCall(spaceId, method, ...args) {
     const operation = this.nativeQueue.then(async () => {
-      if (spaceId != null) await this.native.useTaskSpace(spaceId);
-      const result = await this.native[method](...args);
-      if (result?.error_code) {
-        throw new BrowserControlError(result.error_code, result.error);
+      const group = spaceId == null ? null : [...this.groups.values()].find((entry) => entry.spaceId === spaceId);
+      const tracked = !["listTaskSpaces", "listTabs"].includes(method);
+      if (tracked) await this.recordLifecycle("native_request", group, { spaceId, method });
+      try {
+        if (spaceId != null) {
+          const selected = await this.native.useTaskSpace(spaceId);
+          // 切组失败时不能沿用上一次的页面组执行后续操作。
+          if (selected?.error_code) throw new BrowserControlError(selected.error_code, selected.error);
+        }
+        const result = await this.native[method](...args);
+        if (result?.error_code) {
+          throw new BrowserControlError(result.error_code, result.error);
+        }
+        if (tracked) await this.recordLifecycle("native_result", group, {
+          spaceId: method === "createTaskSpace" ? result?.id : spaceId,
+          method, targetId: result?.targetId, outcome: "ok",
+        });
+        return result;
+      } catch (error) {
+        await this.recordLifecycle("native_result", group, { spaceId, method, outcome: "error", errorCode: error.code });
+        throw error;
       }
-      return result;
     });
     this.nativeQueue = operation.catch(() => {});
     return operation;
@@ -235,10 +284,12 @@ export class EgoBroker {
     const { taskSpaces } = await this.nativeCall(null, "listTaskSpaces");
     for (const group of this.groups.values()) {
       const space = taskSpaces.find((entry) => entry.id === group.spaceId && entry.name === group.name);
+      if (!space) await this.recordLifecycle("space_missing", group, { source: "reconcile" });
       for (const tab of group.tabs) {
         const target = targets.get(tab.id);
         if (!space || !target || target.openerId !== (tab.openerId ?? group.anchorId)) {
           tab.live = false;
+          await this.recordLifecycle("target_unavailable", group, { targetId: tab.id, source: "reconcile" });
           continue;
         }
         tab.live = true;
@@ -249,30 +300,56 @@ export class EgoBroker {
     }
   }
 
-  async open(group, address) {
+  async open(group, address, replacedTabId = null) {
     const url = webUrl(address);
     await this.ensureSpace(group);
     const anchor = await this.attach(group, { id: group.anchorId, url: "about:blank", live: true });
+    const replacedTab = group.tabs.find((entry) => entry.id === replacedTabId);
     const before = await this.browser.call("Target.getTargets");
-    const previous = new Set(before.targetInfos.map((target) => target.targetId));
-    const tree = await this.call(anchor, "Page.getFrameTree");
-    const world = await this.call(anchor, "Page.createIsolatedWorld", {
-      frameId: tree.frameTree.frame.id, worldName: "codeg-page-open",
-    });
-    const opened = await this.call(anchor, "Runtime.evaluate", {
-      expression: "window.open('about:blank', '_blank') !== null",
-      contextId: world.executionContextId, returnByValue: true, userGesture: true,
-    });
-    if (!opened.result?.value) fail("open_failed", "Ego 阻止了新页面，请检查页面通道。");
-    const after = await this.browser.call("Target.getTargets");
-    const target = after.targetInfos.find((entry) =>
-      entry.openerId === group.anchorId && !previous.has(entry.targetId));
-    if (!target) fail("open_failed", "Ego 尚未确认新页面，未重复创建。");
+    let target = before.targetInfos.find((entry) =>
+      entry.targetId === replacedTab?.recoveryTargetId && entry.openerId === group.anchorId);
+    if (!target) {
+      const previous = new Set(before.targetInfos.map((entry) => entry.targetId));
+      const tree = await this.call(anchor, "Page.getFrameTree");
+      const world = await this.call(anchor, "Page.createIsolatedWorld", {
+        frameId: tree.frameTree.frame.id, worldName: "codeg-page-open",
+      });
+      const opened = await this.call(anchor, "Runtime.evaluate", {
+        expression: "window.open('about:blank', '_blank') !== null",
+        contextId: world.executionContextId, returnByValue: true, userGesture: true,
+      });
+      if (!opened.result?.value) fail("open_failed", "Ego 阻止了新页面，请检查页面通道。");
+      const after = await this.browser.call("Target.getTargets");
+      target = after.targetInfos.find((entry) =>
+        entry.openerId === group.anchorId && !previous.has(entry.targetId));
+      if (!target) fail("open_failed", "Ego 尚未确认新页面，未重复创建。");
+    }
     const tab = group.tabs.find((entry) => entry.id === target.targetId) ??
+      this.pages.get(target.targetId)?.tab ??
       { id: target.targetId, openerId: group.anchorId, url, title: "", live: true };
-    if (!group.tabs.some((entry) => entry.id === tab.id)) group.tabs.push(tab);
-    const page = await this.attach(group, tab);
-    await this.call(page, "Page.navigate", { url });
+    if (replacedTab) {
+      // 导航成功前保留旧 URL/view，只记录候选 target；失败重试复用它，空白页事件不会覆盖恢复地址。
+      replacedTab.recoveryTargetId = tab.id;
+    } else if (!group.tabs.some((entry) => entry.id === tab.id)) {
+      group.tabs.push(tab);
+    }
+    try {
+      const page = await this.attach(group, tab);
+      tab.url = url;
+      await this.call(page, "Page.navigate", { url });
+    } catch (error) {
+      if (replacedTab) await this.save();
+      throw error;
+    }
+    if (replacedTab) {
+      // 成功页和全部视图映射一并替换后再保存，后续页或保存失败也不会重复恢复它。
+      group.tabs = group.tabs.filter((entry) => entry.id !== tab.id)
+        .map((entry) => entry.id === replacedTabId ? tab : entry);
+      for (const viewId of Object.keys(group.views)) {
+        if (group.views[viewId] === replacedTabId) group.views[viewId] = tab.id;
+      }
+      this.pages.delete(replacedTabId);
+    }
     await this.save();
     return tab;
   }
@@ -308,7 +385,7 @@ export class EgoBroker {
           return;
         }
         const page = await this.page(group, request.tabId);
-        return this.humanAction(group, page, request.action);
+        return this.humanAction(group, page, request.action, request.method === "closeView" ? "web-view" : "web-page");
       },
       { transfer: request.action.kind === "takeover" }
     );
@@ -317,9 +394,10 @@ export class EgoBroker {
     return this.snapshot(group);
   }
 
-  async humanAction(group, page, action) {
+  async humanAction(group, page, action, source = "web-page") {
     switch (action.kind) {
       case "close": {
+        await this.recordLifecycle("close_requested", group, { targetId: page.tab.id, source });
         this.closing.add(page.tab.id);
         try {
           // Page.close 尊重 beforeunload；Target.closeTarget 会跳过网页的离开确认。
@@ -441,7 +519,20 @@ export class EgoBroker {
       await this.ensureSpace(group);
       const { taskSpaces } = await this.nativeCall(null, "listTaskSpaces");
       const space = taskSpaces.find((entry) => entry.id === group.spaceId && entry.name === group.name);
-      if (!space) fail("recovery_required", "Ego 页面组已变化，请先在 Codeg 确认恢复。");
+      if (!space) {
+        await this.recordLifecycle("space_missing", group, { source: "agent" });
+        group.control.recoveryRequired = true;
+        group.control.nativeResumeAuthorized = false;
+        group.blocked = "Ego 页面组已变化，请先在 Codeg 确认恢复。";
+        // 原生组可能先于销毁事件消失，不能让旧 live 标志或 CDP 缓存跳过恢复。
+        for (const tab of group.tabs) {
+          tab.live = false;
+          this.pages.delete(tab.id);
+        }
+        this.pages.delete(group.anchorId);
+        await this.save();
+        fail("recovery_required", group.blocked);
+      }
       if (space.ownership !== "agent") {
         if (!group.control.nativeResumeAuthorized) {
           fail("user_in_control", "Ego 已由人工接管，请在 Codeg 接管后显式交还 Agent。");
@@ -541,7 +632,7 @@ export class EgoBroker {
           await this.save();
           return { tab: this.tabSummary(page.tab) };
         case "close":
-          await this.humanAction(group, page, { kind: "close" });
+          await this.humanAction(group, page, { kind: "close" }, "agent");
           return {};
         case "capture": {
           const options = request.request ?? {};
@@ -574,45 +665,50 @@ export class EgoBroker {
   async restore(request) {
     const group = this.group(request.sessionId);
     return group.control.enqueue(async () => {
-    group.control.checkEpoch(request.epoch);
-    if (!group.control.recoveryRequired) return this.snapshot(group);
-    group.control.checkOwner(request.clientId);
-    const { taskSpaces } = await this.nativeCall(null, "listTaskSpaces");
-    const space = taskSpaces.find((entry) => entry.name === group.name);
-    if (space) {
-      group.spaceId = space.id;
-      if (space.ownership === "agentDelegatedToUser") {
-        if (group.control.owner === null) await this.takeOver(group);
-      } else if (space.ownership !== "agent") {
-        await this.nativeCall(null, "claimTaskSpace", space.id);
+      group.control.checkEpoch(request.epoch);
+      if (!group.control.recoveryRequired) return this.snapshot(group);
+      group.control.checkOwner(request.clientId);
+      const { taskSpaces } = await this.nativeCall(null, "listTaskSpaces");
+      const space = taskSpaces.find((entry) => entry.name === group.name);
+      try {
+        if (space) {
+          group.spaceId = space.id;
+          if (space.ownership === "agentDelegatedToUser") {
+            if (group.control.owner === null) await this.takeOver(group);
+          } else if (space.ownership !== "agent") {
+            await this.nativeCall(null, "claimTaskSpace", space.id);
+          }
+        } else {
+          group.spaceId = null;
+          await this.ensureSpace(group);
+        }
+        const { targetInfos } = await this.browser.call("Target.getTargets");
+        if (!targetInfos.some((target) => target.targetId === group.anchorId)) {
+          if (group.control.owner !== null) await this.takeOver(group);
+          const anchor = await this.nativeCall(group.spaceId, "createTab", "about:blank");
+          group.anchorId = anchor.targetId;
+          if (group.control.owner !== null) await this.handOff(group);
+        }
+        for (const tab of [...group.tabs]) {
+          if (!tab.live) await this.open(group, tab.url, tab.id);
+        }
+        for (const tab of group.tabs) await this.attach(group, tab);
+      } finally {
+        // 恢复中途失败也交回原生人工控制；确认恢复不等于交还 Agent。
+        if (group.control.owner !== null) await this.handOff(group);
       }
-    } else {
-      group.spaceId = null;
-      await this.ensureSpace(group);
-    }
-    const { targetInfos } = await this.browser.call("Target.getTargets");
-    if (!targetInfos.some((target) => target.targetId === group.anchorId)) {
-      if (group.control.owner !== null) await this.takeOver(group);
-      const anchor = await this.nativeCall(group.spaceId, "createTab", "about:blank");
-      group.anchorId = anchor.targetId;
-      if (group.control.owner !== null) await this.handOff(group);
-    }
-    const restored = [];
-    for (const tab of [...group.tabs]) {
-      if (tab.live) { restored.push(tab); continue; }
-      const opened = await this.open(group, tab.url);
-      restored.push(opened);
-      for (const viewId of Object.keys(group.views)) {
-        if (group.views[viewId] === tab.id) group.views[viewId] = opened.id;
+      const blocked = group.blocked;
+      group.control.confirmRecovery();
+      group.blocked = null;
+      try {
+        await this.save();
+      } catch (error) {
+        // 队列尚未释放；保存失败先恢复门禁，已唤醒的 Agent 仍需等待确认。
+        group.control.recoveryRequired = true;
+        group.blocked = blocked;
+        throw error;
       }
-    }
-    group.tabs = restored;
-    for (const tab of restored) await this.attach(group, tab);
-    if (group.control.owner !== null) await this.handOff(group);
-    group.control.confirmRecovery();
-    group.blocked = null;
-    await this.save();
-    return this.snapshot(group);
+      return this.snapshot(group);
     });
   }
 
@@ -644,7 +740,21 @@ export class EgoBroker {
   }
 
   async event(event) {
+    if (["Target.targetDestroyed", "Target.targetCrashed", "Inspector.targetCrashed"].includes(event.method)) {
+      const targetId = event.params?.targetId ??
+        [...this.pages.values()].find((page) => page.sessionId === event.sessionId)?.tab.id;
+      const group = targetId && [...this.groups.values()].find((entry) => entry.anchorId === targetId ||
+        entry.tabs.some((tab) => tab.id === targetId || tab.recoveryTargetId === targetId));
+      if (group) {
+        // CDP 只报告结果，不能据此认定发起方；与关闭意图、原生操作记录共同核对。
+        void this.recordLifecycle("target_event", group, {
+          targetId, method: event.method, role: group.anchorId === targetId ? "anchor" : "page",
+          explicit: this.closing.has(targetId), errorCode: event.params?.errorCode,
+        });
+      }
+    }
     if (event.method === "Codeg.disconnected") {
+      void this.recordLifecycle("cdp_disconnected", null, { explicit: this.stopping === true });
       this.disconnected = true;
       for (const group of this.groups.values()) {
         group.control.stop();
@@ -872,7 +982,7 @@ export async function serve(options) {
       const result = command.method === "shutdown" ? { stopped: true } : await broker.dispatch(command);
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ result }));
-      if (command.method === "shutdown") shutdown();
+      if (command.method === "shutdown") shutdown("rpc");
     } catch (error) {
       response.writeHead(400, { "content-type": "application/json" });
       response.end(JSON.stringify({
@@ -889,8 +999,10 @@ export async function serve(options) {
     await fs.writeFile(options.readyPath, JSON.stringify({ port: server.address().port }), { flag: "wx" });
   }
   let leaseTimer;
-  function shutdown() {
+  function shutdown(reason) {
     clearInterval(leaseTimer);
+    broker.stopping = true;
+    void broker.recordLifecycle("bridge_stop_requested", null, { reason });
     for (const group of broker.groups.values()) {
       group.control.stop();
       group.evalRequest?.decide(false);
@@ -907,7 +1019,7 @@ export async function serve(options) {
         const lease = await fs.stat(options.leasePath);
         if (Date.now() - lease.mtimeMs < 15000) return;
       } catch {}
-      shutdown();
+      shutdown("lease_expired");
     }, 3000);
   }
   server.on("close", () => {

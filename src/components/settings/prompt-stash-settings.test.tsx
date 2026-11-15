@@ -69,7 +69,7 @@ function renderSettings() {
 async function chooseFilter(name: string) {
   const user = userEvent.setup()
   await user.click(screen.getByRole("combobox", { name: "Filter favorites" }))
-  await user.click(await screen.findByRole("option", { name, exact: true }))
+  await user.click(await screen.findByRole("option", { name }))
 }
 
 beforeEach(() => {
@@ -191,9 +191,7 @@ describe("PromptStashSettings", () => {
     )
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
     expect(removeStash).not.toHaveBeenCalled()
-    await user.click(
-      screen.getByRole("button", { name: "Cancel", exact: true })
-    )
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
     expect(removeStash).not.toHaveBeenCalled()
 
@@ -204,7 +202,6 @@ describe("PromptStashSettings", () => {
     await user.click(
       within(screen.getByRole("alertdialog")).getByRole("button", {
         name: "Delete favorites",
-        exact: true,
       })
     )
     await waitFor(() => expect(removeStash).toHaveBeenCalledWith(1))
@@ -240,13 +237,11 @@ describe("PromptStashSettings", () => {
       screen.getByRole("checkbox", { name: "Select all filtered favorites" })
     )
     expect(screen.getByText(/2 selected/)).toBeInTheDocument()
-    await user.click(
-      screen.getByRole("button", { name: "Delete selected", exact: true })
-    )
+    await user.click(screen.getByRole("button", { name: "Delete selected" }))
     expect(removeStash).not.toHaveBeenCalled()
     const confirm = within(screen.getByRole("alertdialog")).getByRole(
       "button",
-      { name: "Delete favorites", exact: true }
+      { name: "Delete favorites" }
     )
     await user.dblClick(confirm)
     expect(removeStash.mock.calls).toEqual([[2], [3]])
@@ -274,13 +269,10 @@ describe("PromptStashSettings", () => {
     await user.click(
       screen.getByRole("checkbox", { name: "Select all filtered favorites" })
     )
-    await user.click(
-      screen.getByRole("button", { name: "Delete selected", exact: true })
-    )
+    await user.click(screen.getByRole("button", { name: "Delete selected" }))
     await user.click(
       within(screen.getByRole("alertdialog")).getByRole("button", {
         name: "Delete favorites",
-        exact: true,
       })
     )
 
@@ -298,14 +290,11 @@ describe("PromptStashSettings", () => {
 
     removeStash.mockResolvedValue(undefined)
     listStash.mockResolvedValue([])
-    await user.click(
-      screen.getByRole("button", { name: "Delete selected", exact: true })
-    )
+    await user.click(screen.getByRole("button", { name: "Delete selected" }))
     expect(removeStash).toHaveBeenCalledTimes(3)
     await user.click(
       within(screen.getByRole("alertdialog")).getByRole("button", {
         name: "Delete favorites",
-        exact: true,
       })
     )
     await waitFor(() => expect(removeStash).toHaveBeenCalledTimes(4))
@@ -323,7 +312,7 @@ describe("PromptStashSettings", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Loading favorites")
     await act(async () => request.reject(new Error("offline")))
     expect(await screen.findByRole("alert")).toHaveTextContent("offline")
-    await user.click(screen.getByRole("button", { name: "Retry", exact: true }))
+    await user.click(screen.getByRole("button", { name: "Retry" }))
     expect(
       await screen.findByText(
         "No saved favorites. Save input from a conversation to see it here."
@@ -358,7 +347,6 @@ describe("PromptStashSettings", () => {
     await user.click(
       within(screen.getByRole("alertdialog")).getByRole("button", {
         name: "Delete favorites",
-        exact: true,
       })
     )
     oldPage.unmount()

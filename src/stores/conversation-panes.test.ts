@@ -41,7 +41,7 @@ const folders: FolderDetail[] = [1, 2].map((id) => ({
   sort_order: id,
   color: "inherit",
   parent_id: null,
-  kind: "folder",
+  kind: "regular",
   alias: null,
   group_id: null,
 }))

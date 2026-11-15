@@ -25,9 +25,10 @@ export function connectionActivityKind(
   ) {
     return "waiting"
   }
+  // 错误级别有默认值，必须同时存在错误信息才能判定实际出错。
   if (
     connection.status === "error" ||
-    connection.errorLevel === "error" ||
+    (Boolean(connection.error) && connection.errorLevel === "error") ||
     connection.sessionFailures.some(
       (failure) => !failure.resolved && failure.severity === "error"
     )

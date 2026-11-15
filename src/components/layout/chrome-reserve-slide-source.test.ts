@@ -110,6 +110,10 @@ describe("corner reserve slide", () => {
     expect(start).toBeGreaterThan(-1)
     const body = panel.slice(start, panel.indexOf("\n}\n", start))
     expect(body).toContain(
+      "const { mode, conversationMaximized, focusedTabId } = useWorkspaceView()"
+    )
+    expect(body).toContain("if (focusedTabId !== null) return null")
+    expect(body).toContain(
       'const holdsRight = mode === "conversation" || conversationMaximized'
     )
     expect(body).toContain('if (side === "right" && !holdsRight) return null')
@@ -171,7 +175,9 @@ describe("corner reserve slide", () => {
   // 列宽；标签条和退出按钮会停在旧列右缘。聚焦期间要同步把面板组改为
   // 100/0 或 0/100，退出后用原 fusion 比例恢复。
   it("fills the panel group while a tab is focused", () => {
-    expect(layout).toContain('const conversationFocused = focusedTabPane === "conversation"')
+    expect(layout).toContain(
+      'const conversationFocused = focusedTabPane === "conversation"'
+    )
     expect(layout).toContain('const fileFocused = focusedTabPane === "files"')
     expect(layout).toContain("conversationFillsArea || conversationFocused")
     expect(layout).toContain("filesMaximized || fileFocused")

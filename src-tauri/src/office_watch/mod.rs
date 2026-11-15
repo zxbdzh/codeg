@@ -946,11 +946,30 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 /// Seed a live watch entry (backed by a real long-lived child bound to `port`)
 /// so proxy integration tests can exercise the gate without a real officecli.
-/// Unix-only at runtime (`sleep`); on Windows CI `cargo test` is `--no-run`.
 #[cfg(feature = "test-utils")]
 pub fn insert_known_port_for_test(port: u16, cap: &str) {
-    let child = tokio_command("sleep")
-        .arg("600")
+    #[cfg(windows)]
+    let mut command = {
+        // Windows 默认没有 sleep；复用无窗口的进程封装避免干扰桌面。
+        let mut command = tokio_command("powershell.exe");
+        command.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Start-Sleep -Seconds 600",
+        ]);
+        command
+    };
+    #[cfg(not(windows))]
+    let mut command = {
+        let mut command = tokio_command("sleep");
+        command.arg("600");
+        command
+    };
+    let child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         // Like the real watch child: a test that panics before it removes the
         // entry must not leave the sleeper behind.
         .kill_on_drop(true)

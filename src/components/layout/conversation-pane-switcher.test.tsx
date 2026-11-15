@@ -8,10 +8,8 @@ import {
   normalizeConversationPanes,
 } from "@/lib/conversation-panes"
 import { StaticConnectionStoreProvider } from "@/contexts/acp-connections-context"
-import type {
-  ConnectionState,
-  ConnectionStoreApi,
-} from "@/contexts/acp-connections-context"
+import type { ConnectionStoreApi } from "@/contexts/acp-connections-context"
+import { makePaneTestConnection } from "@/lib/conversation-pane-test-helpers"
 import {
   CONVERSATION_PANE_SWITCHER_POSITION_KEY,
   DEFAULT_CONVERSATION_PANE_SWITCHER_POSITION,
@@ -268,15 +266,7 @@ describe("浮动 Pane 切换栏", () => {
   })
 
   it("实时状态只更新摘要，不自动展开或抢占操作", () => {
-    let connection = {
-      status: "prompting",
-      pendingPermission: null,
-      pendingQuestion: null,
-      pendingAskQuestion: null,
-      pendingPlanApproval: null,
-      sessionFailures: [],
-      errorLevel: null,
-    } as ConnectionState
+    let connection = makePaneTestConnection({ status: "prompting" })
     const listeners = new Set<() => void>()
     const store = {
       getConnection: () => connection,
@@ -320,8 +310,12 @@ describe("浮动 Pane 切换栏", () => {
     act(() => {
       connection = {
         ...connection,
-        pendingPermission: {},
-      } as ConnectionState
+        pendingPermission: {
+          request_id: "permission-1",
+          tool_call: {},
+          options: [],
+        },
+      }
       listeners.forEach((listener) => listener())
     })
     expect(screen.getByText("待处理")).toBeInTheDocument()

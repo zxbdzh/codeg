@@ -1,31 +1,50 @@
 import { describe, expect, it } from "vitest"
 import type { ConnectionState } from "@/contexts/acp-connections-context"
 import { emptyConversationPane } from "@/lib/conversation-panes"
+import { makePaneTestConnection } from "@/lib/conversation-pane-test-helpers"
 import {
   connectionActivityKind,
   summarizePaneActivity,
 } from "./conversation-pane-status"
 
 function connection(status: ConnectionState["status"]) {
-  return {
-    status,
-    pendingPermission: null,
-    pendingQuestion: null,
-    pendingAskQuestion: null,
-    pendingPlanApproval: null,
-    sessionFailures: [],
-    errorLevel: null,
-  } as ConnectionState
+  return makePaneTestConnection({ status })
 }
 
 describe("灵动岛状态", () => {
+  it("只有存在错误信息时才按错误级别显示错误", () => {
+    expect(connectionActivityKind(connection("prompting"), undefined)).toBe(
+      "running"
+    )
+    expect(
+      connectionActivityKind(
+        { ...connection("connected"), error: "连接失败" },
+        undefined
+      )
+    ).toBe("error")
+    expect(
+      connectionActivityKind(
+        {
+          ...connection("prompting"),
+          error: "请求较慢",
+          errorLevel: "warning",
+        },
+        undefined
+      )
+    ).toBe("running")
+  })
+
   it("等待操作优先于运行，未决错误优先于空闲", () => {
     expect(
       connectionActivityKind(
         {
           ...connection("prompting"),
-          pendingPermission: {},
-        } as ConnectionState,
+          pendingPermission: {
+            request_id: "permission-1",
+            tool_call: {},
+            options: [],
+          },
+        },
         undefined
       )
     ).toBe("waiting")
