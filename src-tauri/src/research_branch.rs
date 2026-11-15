@@ -1039,7 +1039,6 @@ mod tests {
             AgentConnection {
                 id: "temp".into(),
                 agent_type: AgentType::ClaudeCode,
-                status: ConnectionStatus::Connected,
                 owner_window_label: TEMPORARY_OWNER.into(),
                 cmd_tx: sender,
                 handshake: tokio_util::sync::CancellationToken::new(),
