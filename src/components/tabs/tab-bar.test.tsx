@@ -12,9 +12,13 @@ const h = vi.hoisted(() => ({
     activePane: "conversation" as "conversation" | "files",
     filesMaximized: false,
     conversationMaximized: false,
+    focusedTabId: null as string | null,
+    focusedTabPane: null as "conversation" | "files" | null,
   },
   isMobile: false,
   toggleConversationMaximized: vi.fn(),
+  focusTab: vi.fn(),
+  exitFocusedTab: vi.fn(),
   tabs: [] as TabItemData[],
   groupOf: {} as Record<string, string>,
   visibleLayout: { type: "group", id: "g-main" } as unknown,
@@ -57,6 +61,8 @@ vi.mock("@/contexts/workspace-context", () => ({
   useWorkspaceView: () => h.view,
   useWorkspaceActions: () => ({
     toggleConversationMaximized: h.toggleConversationMaximized,
+    focusTab: h.focusTab,
+    exitFocusedTab: h.exitFocusedTab,
   }),
 }))
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => h.isMobile }))
@@ -119,11 +125,13 @@ vi.mock("./tab-item", () => ({
   TabItem: ({
     tab,
     onToggleTile,
+    onToggleFocus,
     isSplit,
     moveTargets,
   }: {
     tab: TabItemData
     onToggleTile: () => void
+    onToggleFocus?: () => void
     isSplit: boolean
     moveTargets: { groupId: string }[]
   }) => (
@@ -134,6 +142,7 @@ vi.mock("./tab-item", () => ({
     >
       {tab.title}
       <button onClick={onToggleTile}>Tile</button>
+      <button onClick={onToggleFocus}>Focus</button>
     </div>
   ),
 }))
@@ -173,6 +182,8 @@ beforeEach(() => {
     activePane: "conversation",
     filesMaximized: false,
     conversationMaximized: false,
+    focusedTabId: null,
+    focusedTabPane: null,
   }
   h.isMobile = false
   h.groupOf = {}
@@ -181,6 +192,25 @@ beforeEach(() => {
   h.toggleGroupTile.mockClear()
   h.tabs = [conversationTab("conv-1")]
   h.toggleConversationMaximized.mockClear()
+  h.focusTab.mockClear()
+  h.exitFocusedTab.mockClear()
+})
+
+describe("TabBar — 单标签聚焦", () => {
+  it("进入聚焦后可从标签条退出", () => {
+    const view = renderStrip()
+    fireEvent.click(screen.getByRole("button", { name: "Focus" }))
+    expect(h.focusTab).toHaveBeenCalledWith("conv-1")
+    h.view.focusedTabId = "conv-1"
+    h.view.focusedTabPane = "conversation"
+    view.rerender(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <TabBar />
+      </NextIntlClientProvider>
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Exit focus" }))
+    expect(h.exitFocusedTab).toHaveBeenCalled()
+  })
 })
 
 describe("TabBar — maximize/restore", () => {

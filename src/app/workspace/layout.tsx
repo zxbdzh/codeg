@@ -281,9 +281,38 @@ function KeptMountedSurface({
   )
 }
 
+function FocusHideSurface({
+  hidden,
+  children,
+}: {
+  hidden: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <OverlayHostHiddenProvider hidden={hidden}>
+      <div
+        className={cn(
+          "h-full min-h-0",
+          hidden && "conversation-tab-hidden invisible pointer-events-none"
+        )}
+        inert={hidden || undefined}
+      >
+        {children}
+      </div>
+    </OverlayHostHiddenProvider>
+  )
+}
+
 function WorkspaceContent({ children }: { children: React.ReactNode }) {
-  const { mode, filesMaximized, conversationMaximized } = useWorkspaceView()
-  const { setActivePane } = useWorkspaceActions()
+  const {
+    mode,
+    filesMaximized,
+    conversationMaximized,
+    focusedTabId,
+    focusedTabPane,
+  } = useWorkspaceView()
+  const { setActivePane, exitFocusedTab } = useWorkspaceActions()
+  const { isConversations } = useWorkbenchRoute()
   const panelGroupRef = useRef<ImperativePanelGroupHandle | null>(null)
   const fusionLayoutRef = useRef<[number, number]>(DEFAULT_FUSION_LAYOUT)
   const desiredLayoutRef = useRef<[number, number]>(DEFAULT_FUSION_LAYOUT)
@@ -347,7 +376,11 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
     [applyLayout, mode]
   )
 
-  const { isConversations } = useWorkbenchRoute()
+  // 标签被关闭或路由离开工作区时，聚焦态必须清空，否则只能靠残留按钮恢复。
+  useEffect(() => {
+    if (!isConversations) exitFocusedTab()
+  }, [exitFocusedTab, isConversations])
+
   const hasRouteStrip = useHasWorkbenchRouteStrip()
   const { isOpen: sidebarOpen } = useSidebarContext()
   const { isOpen: auxOpen } = useAuxPanelContext()
@@ -365,8 +398,14 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
   // panel toggles. Each edge column just reserves the overlay's width so its
   // tabs never render underneath. The reserve scales with the app zoom so it
   // tracks the rem-sized overlay buttons (which grow with zoom).
-  const leftReserve = leftChromeReserve(isMac && isDesktop(), zoomLevel)
-  const rightReserve = rightChromeReserve(winLinuxControls, zoomLevel)
+  // 原地聚焦隐藏了固定窗口 chrome，所以标签条也不再为左右角预留空白。
+  const focusActive = focusedTabId !== null
+  const leftReserve = focusActive
+    ? 0
+    : leftChromeReserve(isMac && isDesktop(), zoomLevel)
+  const rightReserve = focusActive
+    ? 0
+    : rightChromeReserve(winLinuxControls, zoomLevel)
   // A corner needs reserving only while no side panel covers it, and that
   // width slides in and out with the panel's own toggle (ChromeReserve).
   const leftCornerWidth = sidebarOpen ? 0 : leftReserve
@@ -386,6 +425,8 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
   // animating after its column had moved (picking a nested file in search
   // opens the aux panel and the first file tab within one slide), and a fresh
   // mount starts at its final width.
+  const conversationFocused = focusedTabPane === "conversation"
+  const fileFocused = focusedTabPane === "files"
   const convHoldsRight = conversationFillsArea
   const fileHoldsRight = mode === "fusion"
   const fileHoldsLeft = filesMaximized
@@ -403,12 +444,12 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
             id={WORKSPACE_CONVERSATION_PANEL_ID}
             order={1}
             defaultSize={56}
-            minSize={mode === "fusion" ? 25 : 0}
+            minSize={focusActive ? 0 : mode === "fusion" ? 25 : 0}
           >
             {/* Conversations live in here, so a session viewer opened from one
                 portals to the body and escapes the hiding below — same reason
                 `KeptMountedSurface` carries this flag. */}
-            <OverlayHostHiddenProvider hidden={filesMaximized}>
+            <OverlayHostHiddenProvider hidden={fileFocused}>
               <section
                 className={cn(
                   "flex h-full min-h-0 flex-col overflow-hidden",
@@ -425,11 +466,17 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
                   // conversation-tab-hidden is the shared hardening for a hidden
                   // keep-alive subtree (kills its transitions, and re-hides the
                   // descendants that declare `visibility: visible` themselves).
-                  filesMaximized && "conversation-tab-hidden invisible"
+                  fileFocused && "conversation-tab-hidden invisible",
+                  conversationFocused &&
+                    "absolute inset-0 z-30 w-[100vw] bg-background ws-transparent-bg [&_[role='separator']]:hidden"
                 )}
-                inert={filesMaximized || undefined}
+                inert={fileFocused || undefined}
+                aria-hidden={fileFocused || undefined}
                 style={{
-                  position: conversationFillsArea ? "absolute" : "relative",
+                  position:
+                    conversationFillsArea || conversationFocused
+                      ? "absolute"
+                      : "relative",
                 }}
               >
                 {/* Conversation column top bar (UNSPLIT only): the tab strip,
@@ -484,8 +531,12 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
                   `data-workspace-pane` is how ⌘W pressed there finds its pane
                   (see `menu-close-shortcut`). */}
                 <div
-                  className="relative flex-1 min-h-0 overflow-hidden"
                   data-workspace-pane="conversation"
+                  className={cn(
+                    "relative flex-1 min-h-0 overflow-hidden",
+                    fileFocused &&
+                      "conversation-tab-hidden invisible pointer-events-none"
+                  )}
                   onPointerDownCapture={markConversationActive}
                   onFocusCapture={markConversationActive}
                 >
@@ -522,7 +573,7 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
             id={WORKSPACE_FILES_PANEL_ID}
             order={2}
             defaultSize={44}
-            minSize={mode === "fusion" ? 20 : 0}
+            minSize={focusActive ? 0 : mode === "fusion" ? 20 : 0}
           >
             {/* When maximized, overlay the file section across the entire
                 workspace area instead of resizing the conversation panel — that
@@ -544,12 +595,16 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
                 its host has to take it off screen — and this flag tells it so
                 directly, without leaning on the engine reporting the
                 placeholder's CSS visibility. */}
-            <OverlayHostHiddenProvider hidden={conversationFillsArea}>
+            <OverlayHostHiddenProvider hidden={conversationFocused}>
               <section
                 className={cn(
                   "flex h-full min-h-0 flex-col overflow-hidden",
                   filesMaximized &&
                     "absolute inset-0 z-30 bg-background ws-transparent-bg",
+                  // 单文件标签聚焦与最大化一样覆盖整个工作区；会话列保持挂载，
+                  // 但不参与绘制与交互，退出聚焦时编辑器尺寸和状态可直接还原。
+                  fileFocused &&
+                    "absolute inset-0 z-30 w-[100vw] bg-background ws-transparent-bg [&_[role='separator']]:hidden",
                   // Covered by the conversation overlay (conversation mode, or a
                   // maximized conversation): hide from paint (keep mount +
                   // layout) so it can't show through the translucent overlay.
@@ -559,8 +614,14 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
                   // `invisible` alone leaves them painting.
                   conversationFillsArea && "conversation-tab-hidden invisible"
                 )}
-                aria-hidden={conversationFillsArea}
-                inert={conversationFillsArea || undefined}
+                aria-hidden={conversationFillsArea || conversationFocused}
+                inert={
+                  conversationFillsArea || conversationFocused || undefined
+                }
+                style={{
+                  position:
+                    filesMaximized || fileFocused ? "absolute" : "relative",
+                }}
               >
                 {/* File column top bar: the file tab strip + a right reserve for
                     the fixed corner overlay (mounted in fusion, when this column
@@ -784,7 +845,7 @@ function MobileFolderWorkspaceShell({
 
 function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
   const {
-    isOpen: sidebarOpen,
+    isOpen: baseSidebarOpen,
     restored: sidebarRestored,
     width: sidebarWidth,
     minWidth: sidebarMinWidth,
@@ -792,7 +853,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
     setWidth: setSidebarWidth,
   } = useSidebarContext()
   const {
-    isOpen: auxOpenRequested,
+    isOpen: baseAuxOpenRequested,
     restored: auxRestored,
     width: auxWidth,
     minWidth: auxMinWidth,
@@ -800,7 +861,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
     setWidth: setAuxWidth,
   } = useAuxPanelContext()
   const {
-    isOpen: terminalOpenRequested,
+    isOpen: baseTerminalOpenRequested,
     height: terminalHeight,
     minHeight: terminalMinHeight,
     maxHeight: terminalMaxHeight,
@@ -814,8 +875,14 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
   // user's real open state (and the terminal keeps running), so switching back
   // to conversations restores exactly what was there.
   const { isConversations } = useWorkbenchRoute()
-  const auxOpen = auxOpenRequested && isConversations
-  const terminalOpen = terminalOpenRequested && isConversations
+  const auxOpenRequested = baseAuxOpenRequested && isConversations
+  const terminalOpenRequested = baseTerminalOpenRequested && isConversations
+  // 单标签聚焦时，侧栏 / 辅助面板 / 终端都不再参与布局；状态保留，退出时还原。
+  const { focusedTabId } = useWorkspaceView()
+  const focusActive = focusedTabId !== null
+  const sidebarOpen = focusActive ? false : baseSidebarOpen
+  const auxOpen = focusActive ? false : auxOpenRequested
+  const terminalOpen = focusActive ? false : terminalOpenRequested
 
   // Animate the shell (horizontal) group while the sidebar/aux toggle and the
   // main (vertical) group while the terminal toggles, so the panes slide open
@@ -924,6 +991,11 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
   // base a handle drag starts from — sits tens of px away from the divider on
   // screen.
   const shellSides = useMemo(() => {
+    // 单标签 Zoom 连外层侧栏/辅助面板的固定 px 宽度也要释放；否则中间
+    // 工作区仍被辅助面板挤窄，标签条右侧会停在工作区内部而非窗口右缘。
+    if (focusActive) {
+      return { left: 0, right: 0, totalWidth: shellPanelsWidth }
+    }
     const requestedLeft = sidebarOpen
       ? clamp(sidebarWidth, sidebarMinWidth, sidebarMaxWidth)
       : 0
@@ -973,6 +1045,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
     shellPanelsWidth,
     sidebarMaxWidth,
     sidebarMinWidth,
+    focusActive,
     sidebarOpen,
     sidebarWidth,
   ])
@@ -1281,9 +1354,9 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
               it closes, but the panel keeps a shrinking width for the 240ms
               slide — an un-backed wrapper would show the root `bg-background`
               (white) through that gap. */}
-          <div className="h-full min-h-0 overflow-hidden ws-surface-sidebar">
+          <FocusHideSurface hidden={focusActive}>
             {sidebarElement}
-          </div>
+          </FocusHideSurface>
         </ResizablePanel>
 
         <ResizableHandle
@@ -1352,9 +1425,9 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
                 minSize={terminalOpen ? terminalSizeRange.minSize : 0}
                 maxSize={terminalOpen ? terminalSizeRange.maxSize : 0}
               >
-                <div className="h-full min-h-0 overflow-hidden">
+                <FocusHideSurface hidden={focusActive}>
                   {terminalElement}
-                </div>
+                </FocusHideSurface>
               </ResizablePanel>
             </ResizablePanelGroup>
           </main>
@@ -1383,9 +1456,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
               paired `bg-background` is the off-state (image disabled): equivalent
               to the old opaque wrapper, so the 240ms collapse slide still never
               flashes white while AuxPanel `return null`s. */}
-          <div className="h-full min-h-0 overflow-hidden bg-background ws-transparent-bg">
-            {auxElement}
-          </div>
+          <FocusHideSurface hidden={focusActive}>{auxElement}</FocusHideSurface>
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
@@ -1399,8 +1470,11 @@ function FolderLayoutShell({ children }: { children: React.ReactNode }) {
   const winLinuxControls = isDesktop() && (isWindows || isLinux)
   const { zoomLevel } = useZoomLevel()
   const { isConversations } = useWorkbenchRoute()
-  const { filesMaximized } = useWorkspaceView()
+  const { filesMaximized, focusedTabId, focusedTabPane } = useWorkspaceView()
   // 两侧预留相同宽度，既避开窗口按钮，也不让左右侧栏改变灵动岛的窗口中心。
+  // 预留始终按未聚焦的窗口 chrome 计算：单标签聚焦会临时隐藏 chrome，但
+  // 灵动岛此时也已卸载，不需要跟着收零，更不能用 0 宽安全区覆盖右上角。
+  const focusActive = focusedTabId !== null
   const paneSwitcherInset = Math.max(
     leftChromeReserve(isMac && isDesktop(), zoomLevel),
     rightChromeReserve(winLinuxControls, zoomLevel)
@@ -1462,7 +1536,7 @@ function FolderLayoutShell({ children }: { children: React.ReactNode }) {
       ) : (
         <FolderWorkspaceShell>{children}</FolderWorkspaceShell>
       )}
-      <StatusBar />
+      {!focusActive && <StatusBar />}
       {/* Desktop window chrome, pinned to the window corners so it never moves —
           or re-mounts — when the side panels open/close (that re-parenting is
           what made the old in-header clusters flicker). Left = sidebar toggle +
@@ -1470,13 +1544,17 @@ function FolderLayoutShell({ children }: { children: React.ReactNode }) {
           Windows/Linux caption buttons; then the caption buttons themselves
           (self-null on macOS/web). Each edge column reserves the matching width
           beneath these (see leftChromeReserve / rightChromeReserve). */}
-      {!isMobile && (
+      {!isMobile && !focusActive && (
         <>
           <div
-            className="pointer-events-none absolute top-0 z-40"
+            className="pointer-events-none absolute top-0 z-40 h-10"
             style={{ left: paneSwitcherInset, right: paneSwitcherInset }}
           >
-            <KeptMountedSurface hidden={!isConversations || filesMaximized}>
+            <KeptMountedSurface
+              hidden={
+                !isConversations || filesMaximized || focusedTabPane !== null
+              }
+            >
               <ConversationPaneSwitcher />
             </KeptMountedSurface>
           </div>

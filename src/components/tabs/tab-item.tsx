@@ -74,6 +74,11 @@ interface TabItemProps {
     info: PanInfo
   ) => void
   onSwitch: (tabId: string) => void
+  /** 单标签 zoom：双击或菜单进入/退出。文案由条上传入，避免多语言键散落。 */
+  onToggleFocus?: () => void
+  isFocused?: boolean
+  focusLabel?: string
+  exitFocusLabel?: string
   onClose: (tabId: string) => void
   onCloseOthers: (tabId: string) => void
   onCloseAll: () => void
@@ -105,6 +110,10 @@ export const TabItem = memo(function TabItem({
   onTabDrag,
   onTabDragEnd,
   onSwitch,
+  onToggleFocus,
+  isFocused = false,
+  focusLabel,
+  exitFocusLabel,
   onClose,
   onCloseOthers,
   onCloseAll,
@@ -200,11 +209,20 @@ export const TabItem = memo(function TabItem({
     onSwitch(tab.id)
   }, [onSwitch, tab.id])
 
+  const handleToggleFocus = useCallback(() => {
+    onToggleFocus?.()
+  }, [onToggleFocus])
+
+  // 双击本来用于置顶；聚焦标签是显式“这一块放大”的意图，优先级更高。
   const handleDoubleClick = useCallback(() => {
+    if (onToggleFocus) {
+      onToggleFocus()
+      return
+    }
     if (!tab.isPinned) {
       onPin(tab.id)
     }
-  }, [onPin, tab.id, tab.isPinned])
+  }, [onPin, onToggleFocus, tab.id, tab.isPinned])
 
   const handleClose = useCallback(() => {
     onClose(tab.id)
@@ -289,7 +307,7 @@ export const TabItem = memo(function TabItem({
             role="tab"
             aria-selected={isActive}
             onClick={handleClick}
-            onDoubleClick={handleDoubleClick}
+            onDoubleClick={isCoarsePointer ? undefined : handleDoubleClick}
             onMouseDown={(event) => handleMiddleClickClose(event, handleClose)}
             className={cn(
               "group/tab relative flex items-center h-full gap-1.5 text-xs",
@@ -383,6 +401,13 @@ export const TabItem = memo(function TabItem({
           <ContextMenuItem onSelect={handleCloseOthers}>
             {t("closeOthers")}
           </ContextMenuItem>
+          {onToggleFocus && (
+            <ContextMenuItem onSelect={handleToggleFocus}>
+              {isFocused
+                ? (exitFocusLabel ?? "Exit focus")
+                : (focusLabel ?? "Focus")}
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
           {paneState && paneState.panes.length > 1 && (
             <ContextMenuSub>

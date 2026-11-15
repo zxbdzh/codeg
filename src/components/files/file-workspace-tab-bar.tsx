@@ -22,6 +22,7 @@ import {
 import { AGENT_MARK } from "@/components/browser/browser-agent-access"
 import { browserListServices } from "@/lib/browser/browser-api"
 import { useBrowserTabState } from "@/lib/browser/browser-tab-store"
+import { useEgoWorkspacePage } from "@/lib/browser/ego-workspace"
 import {
   BLANK_PAGE_URL,
   displayHostPort,
@@ -60,7 +61,8 @@ import {
 // (folder › file breadcrumb) instead and opens files from the file tree.
 export function FileWorkspaceTabBar() {
   const t = useTranslations("Folder.fileWorkspace")
-  const { mode, filesMaximized } = useWorkspaceView()
+  const { mode, filesMaximized, focusedTabId, focusedTabPane } =
+    useWorkspaceView()
   const { fileTabs, activeFileTabId, previewFileTabIds } =
     useWorkspaceFileTabs()
   const {
@@ -70,6 +72,8 @@ export function FileWorkspaceTabBar() {
     closeAllFileTabs,
     reorderFileTabs,
     toggleFilesMaximized,
+    focusTab,
+    exitFocusedTab,
   } = useWorkspaceActions()
   const scrollRef = useRef<HTMLDivElement>(null)
   const isCoarsePointer = useIsCoarsePointer()
@@ -105,6 +109,8 @@ export function FileWorkspaceTabBar() {
     activeFileIndex >= 0 && activeFileIndex === fileTabs.length - 1
 
   if (fileTabs.length === 0) return null
+  const activeFileIsFocused =
+    focusedTabPane === "files" && focusedTabId === activeFileTabId
 
   return (
     <Reorder.Group
@@ -156,9 +162,18 @@ export function FileWorkspaceTabBar() {
           closeText={t("close")}
           closeOthersText={t("closeOthers")}
           closeAllText={t("closeAll")}
+          focusText={t("focusTab")}
+          exitFocusText={t("exitFocus")}
           isCoarsePointer={isCoarsePointer}
           isTouchSorting={touchSortingTabId === tab.id}
           onSwitch={switchFileTab}
+          onFocus={(tabId) => {
+            if (isCoarsePointer) return
+            switchFileTab(tabId)
+            if (focusedTabId === tab.id) exitFocusedTab()
+            else focusTab(tabId)
+          }}
+          isFocused={focusedTabId === tab.id}
           onClose={closeFileTab}
           onCloseOthers={closeOtherFileTabs}
           onCloseAll={closeAllFileTabs}
@@ -208,6 +223,18 @@ export function FileWorkspaceTabBar() {
             ) : (
               <Maximize2 className="h-3.5 w-3.5" />
             )}
+          </button>
+        )}
+        {activeFileIsFocused && (
+          <button
+            type="button"
+            onClick={exitFocusedTab}
+            className={cn(STRIP_ICON_BTN, "mr-1.5 text-primary")}
+            aria-pressed
+            aria-label={t("exitFocus")}
+            title={t("exitFocus")}
+          >
+            <Minimize2 className="h-3.5 w-3.5" />
           </button>
         )}
       </div>
@@ -360,9 +387,13 @@ interface FileWorkspaceTabItemProps {
   closeText: string
   closeOthersText: string
   closeAllText: string
+  focusText: string
+  exitFocusText: string
+  isFocused: boolean
   isCoarsePointer: boolean
   isTouchSorting: boolean
   onSwitch: (tabId: string) => void
+  onFocus: (tabId: string) => void
   onClose: (tabId: string) => void
   onCloseOthers: (tabId: string) => void
   onCloseAll: () => void
@@ -380,9 +411,13 @@ const FileWorkspaceTabItem = memo(function FileWorkspaceTabItem({
   closeText,
   closeOthersText,
   closeAllText,
+  focusText,
+  exitFocusText,
+  isFocused,
   isCoarsePointer,
   isTouchSorting,
   onSwitch,
+  onFocus,
   onClose,
   onCloseOthers,
   onCloseAll,
@@ -397,12 +432,13 @@ const FileWorkspaceTabItem = memo(function FileWorkspaceTabItem({
   // A browser tab's title follows the page (document.title); the record only
   // knows the host it was opened with.
   const browserState = useBrowserTabState(isBrowser ? tab.id : null)
+  const egoPage = useEgoWorkspacePage(tab.id)
   // No live state = no page behind the tab yet: restored from a previous run
   // or unloaded in the background; it loads when switched to. Drawn faded,
   // the way browsers draw a discarded tab.
-  const unloaded = isBrowser && !browserState
+  const unloaded = isBrowser && !browserState && !egoPage
   const browserUrl = isBrowser
-    ? browserState?.url || tab.browser.initialUrl
+    ? egoPage?.url || browserState?.url || tab.browser.initialUrl
     : null
   // An empty tab names itself ("New tab") and has no address worth showing:
   // `about:blank` is the absence of a page, not one the user navigated to.
@@ -432,7 +468,8 @@ const FileWorkspaceTabItem = memo(function FileWorkspaceTabItem({
     [previewing, tab.content, tab.kind, tab.path]
   )
   const displayTitle = isBrowser
-    ? browserState?.title ||
+    ? egoPage?.title ||
+      browserState?.title ||
       (blankPage
         ? tBrowserTab("untitled")
         : (recordTitle ?? browserHost ?? tab.title))
@@ -469,6 +506,11 @@ const FileWorkspaceTabItem = memo(function FileWorkspaceTabItem({
   const handleSwitch = useCallback(() => {
     onSwitch(tab.id)
   }, [onSwitch, tab.id])
+
+  // 文件列没有既有的双击行为；双击当前标签就是进入/退出单标签 zoom。
+  const handleToggleFocus = useCallback(() => {
+    onFocus(tab.id)
+  }, [onFocus, tab.id])
 
   const whileDrag = useMemo(() => ({ scale: 1.03 }), [])
 
@@ -514,6 +556,7 @@ const FileWorkspaceTabItem = memo(function FileWorkspaceTabItem({
             role="tab"
             aria-selected={active}
             onClick={handleSwitch}
+            onDoubleClick={isCoarsePointer ? undefined : handleToggleFocus}
             onMouseDown={(event) =>
               handleMiddleClickClose(event, () => onClose(tab.id))
             }
@@ -625,6 +668,9 @@ const FileWorkspaceTabItem = memo(function FileWorkspaceTabItem({
           </ContextMenuItem>
           <ContextMenuItem onSelect={() => onCloseOthers(tab.id)}>
             {closeOthersText}
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={handleToggleFocus}>
+            {isFocused ? exitFocusText : focusText}
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={onCloseAll}>

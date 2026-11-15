@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { openSettingsWindow } from "@/lib/api"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { firstLeafId } from "@/lib/tab-group-layout"
 import { useSidebarContext } from "@/contexts/sidebar-context"
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { useTerminalContext } from "@/contexts/terminal-context"
@@ -60,6 +62,7 @@ import {
 export function WorkspaceChromeController() {
   const { activeFolder } = useActiveFolder()
   const isChatMode = useIsActiveChatMode()
+  const isMobile = useIsMobile()
   const { toggle } = useSidebarContext()
   const { toggle: toggleAuxPanel } = useAuxPanelContext()
   const { toggle: toggleTerminal } = useTerminalContext()
@@ -67,11 +70,19 @@ export function WorkspaceChromeController() {
     useTabActions()
   const tabs = useVisibleConversationTabs()
   const activeTabId = useTabStore((s) => s.activeTabId)
+  const visibleActiveTabId =
+    tabs.find((tab) => tab.id === activeTabId)?.id ?? tabs[0]?.id ?? null
   // Tab-close/navigation shortcuts used to live in the visible tab strips.
   // Mobile no longer mounts those strips, so this always-mounted controller now
   // owns them too (see the keydown handler below).
-  const { mode, activePane, filesMaximized, conversationMaximized } =
-    useWorkspaceView()
+  const {
+    mode,
+    activePane,
+    filesMaximized,
+    conversationMaximized,
+    focusedTabId: focusedTabIdState,
+    focusedTabPane,
+  } = useWorkspaceView()
   const { activeFileTabId, fileTabs } = useWorkspaceFileTabs()
   const {
     closeFileTab,
@@ -80,6 +91,8 @@ export function WorkspaceChromeController() {
     openFilePreview,
     openBrowserTab,
     setActivePane,
+    exitFocusedTab,
+    focusTab,
   } = useWorkspaceActions()
   const { openConversations } = useWorkbenchRoute()
   const { shortcuts } = useShortcutSettings()
@@ -95,6 +108,8 @@ export function WorkspaceChromeController() {
     openSearch,
   } = useSearchDialog()
   const [browserOpen, setBrowserOpen] = useState(false)
+  const focusedTabId = isMobile ? null : focusedTabIdState
+  const focusedPane = isMobile ? null : focusedTabPane
 
   // One dialog on every platform: it owns directory selection *and* the
   // follow-up step that links other folders into the new workspace, so the
@@ -232,6 +247,37 @@ export function WorkspaceChromeController() {
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && focusedTabId !== null) {
+        if (document.querySelector('[role="dialog"], [role="alertdialog"]')) {
+          return
+        }
+        e.preventDefault()
+        exitFocusedTab()
+        return
+      }
+      if (
+        !e.isComposing &&
+        !e.repeat &&
+        !isMobile &&
+        !e.altKey &&
+        e.shiftKey &&
+        (e.ctrlKey || e.metaKey) &&
+        e.key === "Enter"
+      ) {
+        const target =
+          focusedPane === "files"
+            ? activeFileTabId
+            : focusedPane === "conversation"
+              ? focusedTabId
+              : activePane === "files"
+                ? activeFileTabId
+                : visibleActiveTabId
+        if (!target) return
+        e.preventDefault()
+        if (focusedTabId === target) exitFocusedTab()
+        else focusTab(target)
+        return
+      }
       if (
         !e.isComposing &&
         !e.repeat &&
@@ -259,16 +305,19 @@ export function WorkspaceChromeController() {
         return
       }
       if (matchShortcutEvent(e, shortcuts.toggle_sidebar)) {
+        if (focusedPane !== null) return
         e.preventDefault()
         toggle()
         return
       }
       if (matchShortcutEvent(e, shortcuts.toggle_terminal)) {
+        if (focusedPane !== null) return
         e.preventDefault()
         toggleTerminal()
         return
       }
       if (matchShortcutEvent(e, shortcuts.toggle_aux_panel)) {
+        if (focusedPane !== null) return
         // The aux panel hosts the Session Details tab, so it's usable in chat
         // mode too; only suppress the toggle when there's nothing to show.
         if (!activeFolder && !isChatMode) return
@@ -308,23 +357,60 @@ export function WorkspaceChromeController() {
           filesMaximized,
           conversationMaximized
         )
+      // 原地聚焦只让当前列接收标签快捷键，避免 Ctrl+Tab 跳到隐藏列。
+      const focusConversationActive = focusedPane === "conversation"
+      const focusFilesActive = focusedPane === "files"
 
       const isNextTab = matchShortcutEvent(e, shortcuts.next_tab)
       const isPrevTab = matchShortcutEvent(e, shortcuts.prev_tab)
       if (isNextTab || isPrevTab) {
-        if (!conversationPaneActive) return
-        if (tabs.length < 2 || !activeTabId) return
-        const currentIndex = tabs.findIndex((tab) => tab.id === activeTabId)
+        if (focusFilesActive) {
+          if (fileTabs.length < 2 || !activeFileTabId) return
+          const currentIndex = fileTabs.findIndex(
+            (tab) => tab.id === activeFileTabId
+          )
+          if (currentIndex === -1) return
+          e.preventDefault()
+          const offset = isNextTab ? 1 : -1
+          const nextIndex =
+            (currentIndex + offset + fileTabs.length) % fileTabs.length
+          switchFileTab(fileTabs[nextIndex].id)
+          focusTab(fileTabs[nextIndex].id)
+          return
+        }
+        if (!conversationPaneActive && !focusConversationActive) return
+        const availableTabs = focusConversationActive
+          ? tabs.filter((tab) => {
+              const state = useTabStore.getState()
+              const groupOf = state.paneState
+                ? state.paneState.panes.find(
+                    (pane) => pane.id === state.paneState?.activePaneId
+                  )?.assignments
+                : state.groupOf
+              const fallback =
+                state.paneState == null ? firstLeafId(state.groupLayout) : null
+              return (
+                (groupOf?.[tab.id] ?? fallback) ===
+                (groupOf?.[focusedTabId ?? ""] ?? fallback)
+              )
+            })
+          : tabs
+        if (availableTabs.length < 2 || !activeTabId) return
+        const currentIndex = availableTabs.findIndex(
+          (tab) => tab.id === activeTabId
+        )
         if (currentIndex === -1) return
         e.preventDefault()
         const offset = isNextTab ? 1 : -1
-        const nextIndex = (currentIndex + offset + tabs.length) % tabs.length
-        switchTab(tabs[nextIndex].id)
+        const nextIndex =
+          (currentIndex + offset + availableTabs.length) % availableTabs.length
+        switchTab(availableTabs[nextIndex].id)
         return
       }
 
       const numberedIndex = numberedTabIndexFromEvent(e, shortcuts)
       if (numberedIndex !== null) {
+        if (focusedPane !== null) return
         // A Ctrl chord belongs to a focused terminal — with the defaults it is
         // a control code, and Ctrl+6 is the Ctrl+^ that switches vim's
         // alternate file — so decline there, the same way the zoom listener
@@ -371,7 +457,16 @@ export function WorkspaceChromeController() {
       }
 
       if (matchShortcutEvent(e, shortcuts.close_current_tab)) {
-        if (closeCurrentTab(activePane)) e.preventDefault()
+        if (
+          closeCurrentTab(
+            focusedPane === "files"
+              ? "files"
+              : focusedPane === "conversation"
+                ? "conversation"
+                : activePane
+          )
+        )
+          e.preventDefault()
         return
       }
 
@@ -434,9 +529,16 @@ export function WorkspaceChromeController() {
         }
       }
     }
-    document.addEventListener("keydown", handleKeyDown)
-    return () => document.removeEventListener("keydown", handleKeyDown)
+    // 输入框的 ProseMirror 会处理 Ctrl/Shift+Enter；Zoom 是全局窗口状态，
+    // 必须在捕获阶段先接住，避免焦点在 composer 时快捷键失效。
+    document.addEventListener("keydown", handleKeyDown, true)
+    return () => document.removeEventListener("keydown", handleKeyDown, true)
   }, [
+    focusedTabId,
+    focusedPane,
+    isMobile,
+    exitFocusedTab,
+    focusTab,
     activeFolder,
     handleOpenFolder,
     handleOpenSettings,
@@ -462,6 +564,7 @@ export function WorkspaceChromeController() {
     filesMaximized,
     conversationMaximized,
     fileTabs,
+    activeFileTabId,
     closeAllFileTabs,
     switchFileTab,
   ])

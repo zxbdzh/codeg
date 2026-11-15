@@ -2719,6 +2719,7 @@ export function ConversationDetailPanel() {
   const t = useTranslations("Folder.conversation")
   const tDetails = useTranslations("Folder.sessionDetails")
   const isMobile = useIsMobile()
+  const { focusedTabId, focusedTabPane } = useWorkspaceView()
   const {
     completeTurn: runtimeCompleteTurn,
     removeConversation: runtimeRemoveConversation,
@@ -3053,6 +3054,21 @@ export function ConversationDetailPanel() {
     () => [...tabsByGroup.keys()].sort(),
     [tabsByGroup]
   )
+  // 单标签 zoom 保留分屏 DOM；未聚焦的组继续挂载但不再显示、不再接收输入。
+  const focusedGroupId =
+    focusedTabPane === "conversation" && focusedTabId != null
+      ? visibleTabIds.has(focusedTabId)
+        ? groupOfTab(groupOf, visibleLayout, focusedTabId)
+        : null
+      : null
+  const focusedShellId =
+    focusedGroupId == null
+      ? null
+      : (orderedGroupIds.find(
+          (shellId) =>
+            shellId === focusedGroupId || shellId.endsWith(`/${focusedGroupId}`)
+        ) ?? null)
+  const focusActive = focusedGroupId != null
   const mobileActiveTabId =
     visibleTabs.find((tab) => tab.id === activeTabId)?.id ??
     visibleTabs[0]?.id ??
@@ -3209,13 +3225,15 @@ export function ConversationDetailPanel() {
   // would change every render and remount the whole shell subtree).
   const renderGroupShell = (shellId: string) => {
     const inScope =
-      groupRects.has(shellId) && (!isMobile || shellId === mobileActiveShellId)
+      groupRects.has(shellId) &&
+      (!isMobile || shellId === mobileActiveShellId) &&
+      (focusedShellId === null || focusedShellId === shellId)
     const groupId =
       paneState && shellId.startsWith(`${paneState.activePaneId}/`)
         ? shellId.slice(paneState.activePaneId.length + 1)
         : shellId
     const rect =
-      isMobile && inScope
+      (isMobile || focusActive) && inScope
         ? { x: 0, y: 0, w: 100, h: 100 }
         : (groupRects.get(shellId) ?? { x: 0, y: 0, w: 100, h: 100 })
     const groupTabs = tabsByGroup.get(shellId) ?? []
@@ -3223,7 +3241,10 @@ export function ConversationDetailPanel() {
       visibleTabIds.has(tab.id)
     )
     const canTileG =
-      !isMobile && !!tileByGroup[groupId] && visibleGroupTabs.length > 1
+      !isMobile &&
+      !focusActive &&
+      !!tileByGroup[groupId] &&
+      visibleGroupTabs.length > 1
     // Only the TOP-edge strips sit under the fixed corner overlays (the split
     // layout has no title-bar row above them) — the leftmost/rightmost of that
     // row carry the corner reserves the unsplit strip row normally provides.
@@ -3250,7 +3271,10 @@ export function ConversationDetailPanel() {
         data-conv-group-shell={groupId}
         aria-hidden={!inScope || undefined}
         inert={!inScope || undefined}
-        className="absolute flex min-h-0 flex-col overflow-hidden"
+        className={cn(
+          "absolute flex min-h-0 flex-col overflow-hidden",
+          focusedShellId !== null && focusedShellId !== shellId && "invisible"
+        )}
         style={{
           left: `${rect.x}%`,
           top: `${rect.y}%`,
@@ -3365,6 +3389,7 @@ export function ConversationDetailPanel() {
                   folder's, while tabs follow the folder), which the visible
                   one only differs from before the tab set is known. */}
               {isSplit &&
+                !focusActive &&
                 visibleLayout === groupLayout &&
                 groupHandles.map((handle) => (
                   <GroupSplitHandle

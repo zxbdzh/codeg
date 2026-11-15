@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   openFilePreview: vi.fn(() => Promise.resolve("/abs/path")),
   openFileDialog: vi.fn(() => Promise.resolve<string | string[] | null>(null)),
   browserListServices: vi.fn(() => Promise.resolve<DetectedService[]>([])),
+  focusTab: vi.fn(),
+  exitFocusedTab: vi.fn(),
   fileTabs: [] as FileWorkspaceTab[],
   previewFileTabIds: new Set<string>(),
   browserState: null as { url: string; title: string } | null,
@@ -85,6 +87,8 @@ vi.mock("@/contexts/workspace-context", () => ({
     closeAllFileTabs: vi.fn(),
     reorderFileTabs: vi.fn(),
     toggleFilesMaximized: vi.fn(),
+    focusTab: mocks.focusTab,
+    exitFocusedTab: mocks.exitFocusedTab,
     openFilePreview: mocks.openFilePreview,
     openBrowserTab: mocks.openBrowserTab,
   }),
@@ -93,7 +97,12 @@ vi.mock("@/contexts/workspace-context", () => ({
     activeFileTabId: mocks.fileTabs[0]?.id ?? null,
     previewFileTabIds: mocks.previewFileTabIds,
   }),
-  useWorkspaceView: () => ({ mode: "fusion", filesMaximized: false }),
+  useWorkspaceView: () => ({
+    mode: "fusion",
+    filesMaximized: false,
+    focusedTabId: null,
+    focusedTabPane: null,
+  }),
 }))
 
 import { FileWorkspaceTabBar } from "./file-workspace-tab-bar"
@@ -169,6 +178,14 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.openFileDialog.mockResolvedValue(null)
   mocks.browserListServices.mockResolvedValue([])
+})
+
+describe("FileWorkspaceTabBar — 单标签聚焦", () => {
+  it("双击文件标签会激活并聚焦它", () => {
+    renderStrip()
+    fireEvent.doubleClick(screen.getByRole("tab", { name: /a.ts/ }))
+    expect(mocks.focusTab).toHaveBeenCalledWith("file:/repo/a.ts")
+  })
 })
 
 function detectedService(

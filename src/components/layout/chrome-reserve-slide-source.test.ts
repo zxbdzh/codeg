@@ -117,4 +117,72 @@ describe("corner reserve slide", () => {
     expect(body).toMatch(/:\s*auxOpen\s*\?\s*0\s*:\s*rightChromeReserve\(/)
     expect(body).toContain("return <ChromeReserve width={width} />")
   })
+
+  // 文件标签原地聚焦要像文件列最大化一样覆盖整个工作区；只隐藏会话列会
+  // 留下左侧空白，视觉上像一列窄文件编辑器飘在右边。
+  it("covers the workspace when a file tab is focused", () => {
+    expect(layout).toMatch(
+      /fileFocused &&\s*"absolute inset-0 z-30 w-\[100vw\] bg-background ws-transparent-bg/
+    )
+    expect(layout).toContain(
+      'filesMaximized || fileFocused ? "absolute" : "relative"'
+    )
+  })
+
+  // 单标签聚焦时，侧栏、辅助面板、状态栏和顶层窗口 chrome 都退出布局；
+  // 只留下标签条自身的退出按钮。否则右上角的固定按钮会与会话头部动作
+  // 叠成上下两排，退出按钮也因旧预留宽度而偏离窗口右缘。
+  it("leaves only the focused tab strip chrome visible", () => {
+    expect(layout).toContain("const focusActive = focusedTabId !== null")
+    expect(layout).toContain("{!focusActive && <StatusBar />}")
+    expect(layout).toContain("{!isMobile && !focusActive && (")
+    expect(layout).toMatch(
+      /const leftReserve = focusActive\s*\? 0\s*: leftChromeReserve\(/
+    )
+    expect(layout).toMatch(
+      /const rightReserve = focusActive\s*\? 0\s*: rightChromeReserve\(/
+    )
+  })
+
+  // 窗口级聚焦与标签条各自计算过 chrome 预留；两处都要收零，否则退出按钮
+  // 虽然可见，却仍被原先给终端/辅助面板/窗口按钮留出的空白推离右缘。
+  it("drops both strip reserves while a tab is focused", () => {
+    expect(layout).toContain("const focusActive = focusedTabId !== null")
+    expect(layout).toMatch(
+      /const leftReserve = focusActive\s*\?\s*0\s*: leftChromeReserve\(/
+    )
+    expect(layout).toMatch(
+      /const rightReserve = focusActive\s*\?\s*0\s*: rightChromeReserve\(/
+    )
+  })
+
+  // 顶层灵动岛只占顶部 40px，并始终按窗口 chrome 的较大预留居中；否则
+  // 本地拖动版会把安全区放大到整窗，胶囊可压住右上角的终端/设置按钮。
+  it("keeps the desktop pane switcher inside the top chrome safe area", () => {
+    expect(layout).toContain(
+      "const paneSwitcherInset = Math.max(\n    leftChromeReserve(isMac && isDesktop(), zoomLevel),\n    rightChromeReserve(winLinuxControls, zoomLevel)\n  )"
+    )
+    expect(layout).toContain(
+      'className="pointer-events-none absolute top-0 z-40 h-10"'
+    )
+  })
+
+  // 只把内容 section 设成 absolute 时，ResizablePanelGroup 仍保留 56/44 的
+  // 列宽；标签条和退出按钮会停在旧列右缘。聚焦期间要同步把面板组改为
+  // 100/0 或 0/100，退出后用原 fusion 比例恢复。
+  it("fills the panel group while a tab is focused", () => {
+    expect(layout).toContain('const conversationFocused = focusedTabPane === "conversation"')
+    expect(layout).toContain('const fileFocused = focusedTabPane === "files"')
+    expect(layout).toContain("conversationFillsArea || conversationFocused")
+    expect(layout).toContain("filesMaximized || fileFocused")
+  })
+
+  // 外层 shell 用固定 px 锁定侧栏/辅助面板宽度；只改面板组比例仍会把中间
+  // 工作区挤窄。聚焦期间两侧宽度必须一起归零，退出后由原状态恢复。
+  it("releases the outer shell side panels while focused", () => {
+    expect(layout).toContain("if (focusActive) {")
+    expect(layout).toContain(
+      "return { left: 0, right: 0, totalWidth: shellPanelsWidth }"
+    )
+  })
 })
