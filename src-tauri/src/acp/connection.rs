@@ -8349,14 +8349,9 @@ where
         result: groups.result,
         automations: authoring.automations_enabled,
         taskboard: authoring.work_tasks_enabled,
-        // `cfg!` rather than a runtime probe: a browser tab is a native
-        // webview owned by this process, and the server binary has no such
-        // thing — what a web user sees in a "browser tab" is an iframe their
-        // own browser renders, which nothing here can read. Advertising the
-        // tools there would promise a capability that cannot exist, and the
-        // agent would find out by being told "no tabs" forever.
-        browser: cfg!(feature = "tauri-runtime") && injection.browser.is_enabled().await,
-        browser_eval: cfg!(feature = "tauri-runtime") && injection.browser.is_eval_enabled().await,
+        // 服务端只在已配置执行端 Ego 时提供真实页面工具，普通 iframe 仍不冒充可控浏览器。
+        browser: injection.browser.is_available().await && injection.browser.is_enabled().await,
+        browser_eval: injection.browser.is_available().await && injection.browser.is_eval_enabled().await,
         // Only where this process serves computer use: the desktop app, and
         // codeg-server where the person who runs it has let it share the
         // screen it runs on (`CODEG_COMPUTER_USE`). Elsewhere there are no

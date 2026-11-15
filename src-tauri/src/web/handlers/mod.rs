@@ -19,6 +19,7 @@ pub mod conversation_tags;
 pub mod conversations;
 pub mod custom_skills;
 pub mod delegation;
+pub mod ego;
 mod error;
 pub mod event_metrics;
 pub mod experts;

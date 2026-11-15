@@ -32,6 +32,7 @@ pub mod backgrounds;
 /// Built-in browser. Only its wire types and its grant rules compile in server
 /// mode — see `browser/mod.rs` for why those two, and only those two.
 pub mod browser;
+pub mod ego;
 pub mod chat_channel;
 /// The `codeg-cli` binary's client side (feature `cli-bin`).
 #[cfg(feature = "cli-bin")]
@@ -1325,9 +1326,12 @@ mod tauri_app {
                             ),
                         ),
                         std::sync::Arc::new(
-                            crate::commands::browser::McpBrowserTools::new(
-                                app.handle().clone(),
+                            crate::ego::tools::RoutedBrowserTools::new(
+                                &effective_data_dir,
                                 browser_tools_config.clone(),
+                                std::sync::Arc::new(crate::commands::browser::McpBrowserTools::new(
+                                    app.handle().clone(), browser_tools_config.clone(),
+                                )),
                             ),
                         ),
                         std::sync::Arc::new(crate::commands::computer::McpComputerTools::new(
@@ -1801,6 +1805,7 @@ mod tauri_app {
                 }
             })
             .invoke_handler(tauri::generate_handler![
+                crate::ego::api::ego_browser,
                 browser_commands::browser_capabilities,
                 browser_commands::browser_open_tab,
                 browser_commands::browser_close,

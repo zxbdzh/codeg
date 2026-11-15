@@ -543,7 +543,10 @@ async fn async_main(
             // No native webviews in this process: what a web user sees in a
             // "browser tab" is an iframe their own browser renders, which
             // nothing here can reach.
-            Arc::new(codeg_lib::acp::browser_tools::NoBrowserTabs),
+            Arc::new(codeg_lib::ego::tools::RoutedBrowserTools::new(
+                &state.data_dir, browser_tools_config.clone(),
+                Arc::new(codeg_lib::acp::browser_tools::NoBrowserTabs),
+            )),
             // The screen this server runs on, where it is let share it
             // (`CODEG_COMPUTER_USE`); none otherwise.
             match state.computer_service.get() {

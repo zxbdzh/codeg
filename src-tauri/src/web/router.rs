@@ -54,6 +54,8 @@ pub fn build_router_with_proxy_auth(
     let token_for_cli_hello = token.clone();
 
     let api = Router::new()
+        .route("/ego_browser", post(handlers::ego::ego_browser))
+        .route("/ego_download", post(handlers::ego::ego_download))
         .route("/health", post(health_check))
         // Debug endpoint: operator-facing snapshot of `EventBusMetrics`
         // (emit volume, lag/eviction counts, attach decision counts).
@@ -151,8 +153,7 @@ pub fn build_router_with_proxy_auth(
             "/set_computer_tools_preferences",
             post(handlers::computer_tools::set_computer_tools_preferences),
         )
-        // Computer use itself: answered only by a codeg-server let share the
-        // screen it runs on (see `handlers::computer`).
+        // 桌面内置 Web 共享桌面实例；独立 server 仍须显式开启 computer use。
         .route(
             "/computer_available",
             post(handlers::computer::computer_available),
