@@ -1,13 +1,9 @@
 //! HTTP handlers for codeg's Computer use panel — the web-mode mirror of the
 //! Tauri commands in `commands::computer`.
 //!
-//! Only codeg-server answers them, and only where the person who runs it has
-//! let it share the screen it runs on (`CODEG_COMPUTER_USE`): its web
-//! clients — each holding the server's token, as every route here requires —
-//! are then the only panel there is, from which windows are shared and Stop
-//! is pressed. Anywhere else (a server not let share its screen, the desktop
-//! app's own web service, whose screen is shared from the desktop window
-//! itself) every call is refused, and `computer_available` says so up front.
+//! 桌面内置 Web 复用桌面已经启动的实例；独立 codeg-server 仅在
+//! `CODEG_COMPUTER_USE` 开启时注入实例。所有端点仍要求服务器认证，
+//! 并沿用同一服务的窗口授权、前后台输入和停止语义。
 
 use std::sync::Arc;
 
@@ -36,9 +32,8 @@ use crate::computer::targets::SharedWindow;
 fn served(state: &AppState) -> Result<&Arc<ComputerService>, AppCommandError> {
     state.computer_service.get().ok_or_else(|| {
         AppCommandError::configuration_invalid(
-            "computer use is not available here: codeg-server offers it only when started with \
-             CODEG_COMPUTER_USE=1 in a desktop session, and the desktop app only in its own \
-             window",
+            "computer use is not available here: connect to the desktop app's web service, \
+             or start codeg-server with CODEG_COMPUTER_USE=1 in a desktop session",
         )
     })
 }

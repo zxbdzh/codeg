@@ -1,11 +1,8 @@
 //! HTTP handlers for the computer-use settings — the web-mode mirror of the
 //! Tauri commands in `commands::computer_tools`.
 //!
-//! Only the settings: sharing a window, and everything else that is about the
-//! screen, is a desktop-only action with no HTTP face. The switches are here
-//! for the same reason the browser's are — one setting in one database, which
-//! a user administering their desktop instance from elsewhere should see in
-//! the same position.
+//! 配置与窗口操作共同使用 AppState 中的运行时句柄，保证桌面、
+//! Web 和运行中的 Agent 看到相同开关及授权约束。
 
 use std::sync::Arc;
 

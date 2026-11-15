@@ -81,10 +81,9 @@ pub struct AppState {
     /// when the group is switched off. Carried in both runtimes for the same
     /// reason as `browser_tools_config`: one setting, one popover.
     pub computer_tools_config: crate::acp::computer_tools::ComputerToolsRuntimeConfig,
-    /// codeg-server's computer service, where the person who runs it has let
-    /// it share the screen it runs on (`CODEG_COMPUTER_USE`) — set once,
-    /// after the persisted settings are applied. Never set in the desktop
-    /// app's web service: its screen is shared from the desktop window.
+    /// Web 使用的 computer service。桌面内置 Web 复用已经启动的同一实例，
+    /// 让窗口授权、停止和 Agent 操作保持一致；独立 server 仍由
+    /// `CODEG_COMPUTER_USE` 决定是否提供，不另建第二套授权状态。
     pub computer_service: std::sync::OnceLock<Arc<crate::commands::computer::ComputerService>>,
     /// Serializes mutually-exclusive system operations — in-place
     /// self-update, restart, rollback — so a second click can't race a

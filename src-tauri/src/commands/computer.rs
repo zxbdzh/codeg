@@ -41,9 +41,8 @@
 //! helper). It does not wait for the queue, and it leaves nothing behind:
 //! what the person shares next is shared as usual.
 //!
-//! Sharing and unsharing are Tauri commands only. There is no HTTP face for
-//! them: deciding what of this screen an agent may see is for the person at
-//! this screen.
+//! 桌面命令和已认证的 HTTP 接口都调用同一组 core 函数、复用同一服务，
+//! 避免 Web 授权与桌面授权、停止状态分别演化。
 
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

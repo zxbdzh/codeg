@@ -1007,9 +1007,12 @@ pub(crate) async fn do_start_web_server_tauri(
             .state::<crate::acp::computer_tools::ComputerToolsRuntimeConfig>()
             .inner()
             .clone(),
-        // Never set here: the desktop's screen is shared from its own
-        // window, not by the clients of its web service.
-        computer_service: std::sync::OnceLock::new(),
+        // 复用桌面和 Agent 持有的实例，Web 重启不能清空授权或绕过既有停止状态。
+        computer_service: std::sync::OnceLock::from(
+            app.state::<Arc<crate::commands::computer::ComputerService>>()
+                .inner()
+                .clone(),
+        ),
         system_op_lock: crate::app_state::default_system_op_lock(),
         // Reuse the same handle the desktop `app_update` commands write to so
         // HTTP and webview readers see the identical update snapshot.

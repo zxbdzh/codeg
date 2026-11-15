@@ -1,16 +1,8 @@
 //! What the frontend is told about computer use.
 //!
-//! On the desktop, deliberately not `web::event_bridge::emit_event`, which
-//! also fans every event out to the web service's clients. What these carry
-//! — the titles of the windows a person shared, which of their applications
-//! an agent just looked at — is about this machine's screen, and a browser
-//! connected to the desktop's web service is somewhere else: there, sharing
-//! a window is the desktop window's own action, and so is watching it.
-//!
-//! codeg-server has no window of its own. Where the person who runs it has
-//! let it share the screen it runs on (`CODEG_COMPUTER_USE`), its web
-//! clients — each holding the server's token — are the only panel there is,
-//! and they are told.
+//! 桌面和通过认证的 Web 客户端操作同一个 computer service，因此授权、
+//! 活动、驱动状态与停止状态也必须同步。独立 codeg-server 仍只在运行者
+//! 通过 `CODEG_COMPUTER_USE` 开启后提供这些能力。
 
 use std::sync::Arc;
 
@@ -49,8 +41,7 @@ struct StatePayload<'a> {
 /// Where computer use tells what changed.
 #[derive(Clone)]
 pub enum ComputerEvents {
-    /// The desktop app's own webviews — never the clients of its web
-    /// service (see the module note).
+    /// 桌面 webview 和同一进程内置 Web 服务的已认证客户端。
     #[cfg(feature = "tauri-runtime")]
     Desktop(tauri::AppHandle),
     /// codeg-server's web clients: the only panel there is in server mode.
@@ -62,8 +53,12 @@ impl ComputerEvents {
         match self {
             #[cfg(feature = "tauri-runtime")]
             Self::Desktop(app) => {
-                use tauri::Emitter;
-                let _ = app.emit(channel, payload);
+                // 与共享实例配套广播；否则另一端只能看到过期授权，无法确认停止。
+                crate::web::event_bridge::emit_event(
+                    &crate::web::event_bridge::EventEmitter::Tauri(app.clone()),
+                    channel,
+                    payload,
+                );
             }
             Self::Web(broadcaster) => {
                 let _ = broadcaster.send(channel, payload);
