@@ -76,4 +76,30 @@ describe("灵动岛状态", () => {
       )
     ).toEqual({ kind: "running", count: 1 })
   })
+
+  it("待处理单独计数，不混入同 Pane 的运行会话或其他 Pane 的等待", () => {
+    const pane = emptyConversationPane("pane-main", "工作")
+    pane.assignments = {
+      permission: "g-main",
+      question: "g-main",
+      running: "g-main",
+    }
+    const waiting = makePaneTestConnection({
+      status: "prompting",
+      pendingQuestion: { tool_call_id: "tool-1", question: "是否继续？" },
+    })
+    const connections = new Map([
+      ["permission", waiting],
+      ["question", waiting],
+      ["running", connection("prompting")],
+      ["other-pane", waiting],
+    ])
+    expect(
+      summarizePaneActivity(
+        pane,
+        Array.from(connections.keys(), (id) => ({ id })),
+        (id) => connections.get(id)
+      )
+    ).toEqual({ kind: "waiting", count: 2 })
+  })
 })

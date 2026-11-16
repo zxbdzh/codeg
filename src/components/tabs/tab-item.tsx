@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from "react"
 import { Reorder } from "motion/react"
 import type { PanInfo } from "motion/react"
-import { X } from "lucide-react"
+import { CircleHelp, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { cn, handleMiddleClickClose } from "@/lib/utils"
 import {
@@ -26,6 +26,7 @@ import { useLongPressDrag } from "@/hooks/use-long-press-drag"
 import type { TabItem as TabItemData } from "@/contexts/tab-context"
 import type { SplitDirection } from "@/lib/tab-group-layout"
 import { useTabStore } from "@/stores/tab-store"
+import { useConnectionActivity } from "@/hooks/use-connection-activity"
 
 /** A group this tab could move to (every group EXCEPT the tab's own), labeled
  *  by its traversal-order number and its selected tab's title. */
@@ -132,6 +133,10 @@ export const TabItem = memo(function TabItem({
   const t = useTranslations("Folder.tabs")
   const tPanes = useTranslations("ConversationPanes")
   const paneState = useTabStore((state) => state.paneState)
+  const activity = useConnectionActivity(
+    tab.id,
+    tab.status as ConversationStatus | undefined
+  )
   const itemRef = useRef<HTMLDivElement>(null)
 
   const resolvedFolderName = folderName ?? String(tab.folderId)
@@ -347,9 +352,20 @@ export const TabItem = memo(function TabItem({
                   ]
             )}
           >
-            <ConversationStatusDot
-              status={tab.status as ConversationStatus | undefined}
-            />
+            {activity === "waiting" ? (
+              <span
+                data-conversation-activity="waiting"
+                className="flex size-3.5 shrink-0 items-center justify-center text-orange-700 dark:text-orange-400"
+                title={tPanes("status.waiting")}
+              >
+                <CircleHelp className="size-3.5" aria-hidden />
+                <span className="sr-only">{tPanes("status.waiting")}</span>
+              </span>
+            ) : (
+              <ConversationStatusDot
+                status={tab.status as ConversationStatus | undefined}
+              />
+            )}
             <span
               className={cn(
                 // Embedded: grow + shrink as the tab tightens, but instead of an

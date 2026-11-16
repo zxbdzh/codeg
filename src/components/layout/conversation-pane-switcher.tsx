@@ -6,6 +6,7 @@ import {
   Activity,
   AlertCircle,
   Check,
+  CircleHelp,
   Layers2,
   MoreHorizontal,
   Pencil,
@@ -485,7 +486,7 @@ export function ConversationPaneSwitcher({
             }}
             className={cn(
               "pointer-events-auto relative max-w-full select-none overflow-hidden border border-border/70 bg-background/95 shadow-sm transition-shadow",
-              activity?.kind === "waiting" && "border-amber-500/30",
+              activity?.kind === "waiting" && "border-orange-500/50",
               activity?.kind === "error" && "border-destructive/35",
               !mobile && "cursor-grab active:cursor-grabbing",
               dragging && "shadow-md"
@@ -593,7 +594,7 @@ export function ConversationPaneSwitcher({
                               ? { opacity: 1, scale: 1 }
                               : {
                                   opacity: [0.64, 1, 0.64],
-                                  scale: [0.82, 1, 0.82],
+                                  scale: [0.94, 1, 0.94],
                                 }
                           }
                           transition={
@@ -605,8 +606,10 @@ export function ConversationPaneSwitcher({
                                   repeat: Infinity,
                                 }
                           }
-                          className="size-1.5 rounded-full bg-amber-500 ring-2 ring-amber-500/10"
-                        />
+                          className="flex items-center text-orange-700 dark:text-orange-400"
+                        >
+                          <CircleHelp className="size-3" />
+                        </motion.span>
                       ) : activity.kind === "error" ? (
                         <AlertCircle className="size-3 text-destructive" />
                       ) : (
@@ -633,7 +636,7 @@ export function ConversationPaneSwitcher({
                         activity?.kind === "error"
                           ? "text-destructive"
                           : activity?.kind === "waiting"
-                            ? "text-amber-600 dark:text-amber-400"
+                            ? "text-orange-700 dark:text-orange-400"
                             : "text-muted-foreground"
                       )}
                     >
@@ -710,8 +713,8 @@ export function ConversationPaneSwitcher({
                       )}
                     >
                       <span className="flex min-w-0 items-center justify-center gap-1.5">
-                        <PaneActivityDot paneId={pane.id} />
                         <span className="truncate">{pane.name}</span>
+                        <PaneActivityDot paneId={pane.id} />
                       </span>
                     </button>
                   )
@@ -894,19 +897,36 @@ export function ConversationPaneSwitcher({
 
 function PaneActivityDot({ paneId }: { paneId: string }) {
   const activity = useConversationPaneStatus(paneId)
+  const t = useTranslations("ConversationPanes")
   if (!activity) return null
+  // 展开后仍显示待处理文案和数量，避免只剩色点时与正在运行的 Pane 混淆。
+  if (activity.kind === "waiting") {
+    const label =
+      activity.count > 1
+        ? t("status.waitingMany", { count: activity.count })
+        : t("status.waiting")
+    return (
+      <span
+        data-pane-activity="waiting"
+        className="inline-flex shrink-0 items-center gap-1 text-[10px] text-orange-700 dark:text-orange-400"
+        title={label}
+        aria-hidden="true"
+      >
+        <CircleHelp className="size-3" />
+        <span>{label}</span>
+      </span>
+    )
+  }
   return (
     <span
       data-pane-activity={activity.kind}
       className={cn(
         "size-1.5 shrink-0 rounded-full",
-        activity.kind === "waiting"
-          ? "bg-amber-500"
-          : activity.kind === "error"
-            ? "bg-destructive"
-            : activity.kind === "running"
-              ? "bg-primary"
-              : "bg-emerald-600 dark:bg-emerald-400"
+        activity.kind === "error"
+          ? "bg-destructive"
+          : activity.kind === "running"
+            ? "bg-primary"
+            : "bg-emerald-600 dark:bg-emerald-400"
       )}
       aria-hidden="true"
     />

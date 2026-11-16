@@ -12,6 +12,7 @@ import {
   Pencil,
   Trash2,
   Circle,
+  CircleHelp,
   SquarePen,
   Loader2,
   XCircle,
@@ -25,6 +26,7 @@ import {
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useImeGuard } from "@/hooks/use-ime-guard"
+import { useConnectionActivity } from "@/hooks/use-connection-activity"
 import { useTabStore } from "@/contexts/tab-context"
 import { emitAttachSessionToSession } from "@/lib/session-attachment-events"
 import type { DbConversationSummary, ConversationStatus } from "@/lib/types"
@@ -243,6 +245,7 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
   const ime = useImeGuard()
   const tSidebar = useTranslations("Folder.sidebar")
   const tStatus = useTranslations("Folder.statusLabels")
+  const tPanes = useTranslations("ConversationPanes")
   const tDetails = useTranslations("Folder.sessionDetails")
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -343,6 +346,18 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
   ])
 
   const status = conversation.status as ConversationStatus
+  // 首次发送后草稿会保留原 tab id，不能只按持久化会话 id 拼接连接键。
+  const contextKey = useTabStore(
+    (state) =>
+      state.tabs.find(
+        (tab) =>
+          tab.conversationId === conversation.id &&
+          tab.agentType === conversation.agent_type
+      )?.id ??
+      `conv-${conversation.folder_id}-${conversation.agent_type}-${conversation.id}`
+  )
+  const activity = useConnectionActivity(contextKey, status)
+  const isWaiting = activity === "waiting"
   const isRunning = status === "in_progress"
   const isCancelled = status === "cancelled"
   const isPinned = conversation.pinned_at != null
@@ -459,6 +474,7 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
                       )}
                       <ConversationStatusDot
                         status={status}
+                        activity={activity}
                         size="sm"
                         className="absolute -right-0.5 -bottom-0.5 ring-2 ring-sidebar"
                       />
@@ -583,10 +599,19 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
                         // Roots swap the badge out for the hover actions; sub-sessions
                         // have no actions, so keep the badge (incl. the running
                         // spinner) visible on hover.
-                        !isSubsession && "group-hover:hidden"
+                        !isSubsession && !isWaiting && "group-hover:hidden"
                       )}
                     >
-                      {isRunning ? (
+                      {isWaiting ? (
+                        <span
+                          data-conversation-activity="waiting"
+                          className="inline-flex shrink-0 items-center gap-1 text-[11px] text-orange-700 dark:text-orange-400"
+                          title={tPanes("status.waiting")}
+                        >
+                          <CircleHelp className="size-3.5" aria-hidden />
+                          {tPanes("status.waiting")}
+                        </span>
+                      ) : isRunning ? (
                         <span
                           className="relative inline-flex shrink-0 items-center justify-center"
                           title={tSidebar("statusRunningBadge")}

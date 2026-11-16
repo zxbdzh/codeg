@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { NextIntlClientProvider } from "next-intl"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ConversationPaneSwitcher } from "./conversation-pane-switcher"
@@ -321,11 +321,21 @@ describe("浮动 Pane 切换栏", () => {
       }
       listeners.forEach((listener) => listener())
     })
-    expect(screen.getByText("待处理")).toBeInTheDocument()
+    expect(
+      within(screen.getByRole("button", { name: "Pane: Pane 1" })).getByText(
+        "待处理"
+      )
+    ).toBeInTheDocument()
     expect(
       container.querySelector('[data-pane-activity="waiting"]')
     ).toBeInTheDocument()
     expect(screen.queryByRole("tab", { name: "Pane 1" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Pane: Pane 1" }))
+    const waitingPane = screen.getByRole("tab", { name: "Pane 1" })
+    expect(within(waitingPane).getByText("待处理")).toBeInTheDocument()
+    expect(
+      waitingPane.querySelector('[data-pane-activity="waiting"] svg')
+    ).not.toBeNull()
   })
 
   it("触屏展开后主动滚到当前 Pane，包含它的操作按钮", () => {

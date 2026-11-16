@@ -19,6 +19,12 @@ import {
   type AttachSessionToSessionDetail,
 } from "@/lib/session-attachment-events"
 import type { DbConversationSummary } from "@/lib/types"
+import {
+  StaticConnectionStoreProvider,
+  type ConnectionState,
+  type ConnectionStoreApi,
+} from "@/contexts/acp-connections-context"
+import { makePaneTestConnection } from "@/lib/conversation-pane-test-helpers"
 import enMessages from "@/i18n/messages/en.json"
 import {
   resetAssistantsStore,
@@ -372,6 +378,81 @@ describe("SidebarConversationCard command-line badge", () => {
 })
 
 describe("SidebarConversationCard running badge", () => {
+  it("等待用户处理时替换运行标记，回答后恢复，流式正文不重绘卡片", () => {
+    onStatusChange.mockClear()
+    const conversation = { ...conv(1), status: "in_progress" }
+    useTabStore.setState({
+      tabs: [
+        {
+          id: "bound-draft",
+          kind: "conversation",
+          folderId: 1,
+          conversationId: 1,
+          agentType: "claude_code",
+          title: "conv-1",
+          isPinned: false,
+        },
+      ],
+    })
+    let connection = makePaneTestConnection({ status: "prompting" })
+    const listeners = new Set<() => void>()
+    const store: ConnectionStoreApi = {
+      getConnection: (key) => (key === "bound-draft" ? connection : undefined),
+      getConnectPending: () => undefined,
+      getConnectError: () => undefined,
+      getActiveKey: () => null,
+      subscribeActiveKey: () => () => {},
+      subscribeKey: (key, listener) => {
+        if (key !== "bound-draft") return () => {}
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+    }
+    const update = (patch: Partial<ConnectionState>) => {
+      act(() => {
+        connection = { ...connection, ...patch }
+        listeners.forEach((listener) => listener())
+      })
+    }
+    renderWithIntl(
+      <StaticConnectionStoreProvider store={store}>
+        <CardList conversations={[conversation]} now={NOW} />
+      </StaticConnectionStoreProvider>
+    )
+    expect(screen.getByTitle("Running")).toBeInTheDocument()
+
+    update({
+      pendingPermission: {
+        request_id: "permission-1",
+        tool_call: {},
+        options: [],
+      },
+    })
+    expect(screen.queryByTitle("Running")).toBeNull()
+    const waiting = screen.getByTitle(
+      enMessages.ConversationPanes.status.waiting
+    )
+    expect(waiting).toHaveTextContent(
+      enMessages.ConversationPanes.status.waiting
+    )
+    expect(waiting).not.toHaveClass("group-hover:hidden")
+    expect(waiting.querySelector(".animate-spin")).toBeNull()
+    expect(waiting.querySelector("svg")).not.toBeNull()
+
+    const renders = probe.agentIconRenders
+    update({ lastAppliedSeq: 10 })
+    expect(probe.agentIconRenders).toBe(renders)
+    expect(onStatusChange).not.toHaveBeenCalled()
+
+    update({ pendingPermission: null })
+    expect(screen.getByTitle("Running")).toBeInTheDocument()
+    expect(
+      screen.queryByTitle(enMessages.ConversationPanes.status.waiting)
+    ).toBeNull()
+    cleanup()
+    useTabStore.setState({ tabs: [] })
+  })
+
   it("turns a span around its icon, never the icon itself", () => {
     // An SVG element's turn animates on the main thread and lays the page out
     // every frame, for as long as the conversation runs.
