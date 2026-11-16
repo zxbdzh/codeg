@@ -55,6 +55,7 @@ pub fn build_router_with_proxy_auth(
 
     let api = Router::new()
         .route("/ego_browser", post(handlers::ego::ego_browser))
+        .route("/ego_stream", post(handlers::ego::ego_stream))
         .route("/ego_download", post(handlers::ego::ego_download))
         .route("/health", post(health_check))
         // Debug endpoint: operator-facing snapshot of `EventBusMetrics`

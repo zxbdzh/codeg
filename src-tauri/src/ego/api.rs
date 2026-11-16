@@ -48,7 +48,13 @@ pub async fn command(
         .ok_or("缺少 Ego 操作名称。")?
         .to_owned();
     if method == "config" {
-        return Ok(json!({"config": service.config().await?, "platform": std::env::consts::OS}));
+        let pixel_display = std::env::var("CODEG_EGO_PIXEL_CODEC")
+            .ok()
+            .is_some_and(|filename| Path::new(&filename).is_file());
+        return Ok(
+            json!({"config": service.config().await?, "platform": std::env::consts::OS,
+            "pixelDisplay": pixel_display}),
+        );
     }
     if method == "configure" {
         let config: EgoConfig =
@@ -58,6 +64,9 @@ pub async fn command(
     if !matches!(
         method.as_str(),
         "session"
+            | "pixelAck"
+            | "rtcOffer"
+            | "rtcClose"
             | "human"
             | "return"
             | "restore"

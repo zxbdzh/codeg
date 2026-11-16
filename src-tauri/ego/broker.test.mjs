@@ -3,7 +3,40 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { EventEmitter } from "node:events";
 import { EgoBroker } from "./broker.mjs";
+
+test("左键拖动按 buttons 保留 CDP 按键状态，兼容旧 Web 的 button none", async () => {
+  const broker = new EgoBroker({ dataDir: process.cwd(), endpoint: "http://127.0.0.1:9222" });
+  const calls = [];
+  broker.call = async (page, method, params) => { calls.push({ method, params }); };
+  for (const [buttons, expected] of [[1, "left"], [2, "right"], [4, "middle"], [0, "none"]]) {
+    await broker.humanAction({}, {}, {
+      kind: "pointer", type: "mouseMoved", x: 40, y: 60,
+      button: "none", buttons,
+    });
+    assert.equal(calls.at(-1).params.button, expected);
+    assert.equal(calls.at(-1).params.buttons, buttons);
+  }
+  await broker.humanAction({}, {}, {
+    kind: "pointer", type: "mouseReleased", x: 40, y: 60,
+    button: "left", buttons: 0,
+  });
+  assert.equal(calls.at(-1).params.button, "left", "释放的 button 表示变化的键，不能被 buttons=0 覆盖");
+});
+
+test("视频元数据复用同页实时帧，不重复截图或改变人工归属", async () => {
+  const broker = new EgoBroker({ dataDir: process.cwd(), endpoint: "http://127.0.0.1:9222" });
+  const group = broker.group(7);
+  group.control.owner = "human";
+  const page = { screencasting: Promise.resolve(), lastFrame: { data: "private-frame", width: 800, height: 600 }, chooser: null, dialog: null };
+  broker.page = async (selected, tabId) => { assert.equal(selected, group); assert.equal(tabId, "page"); return page; };
+  broker.call = async () => { throw new Error("metadata must not capture"); };
+  const frame = await broker.frame({ sessionId: 7, tabId: "page", metadata: true });
+  assert.equal(frame.data, "");
+  assert.equal(frame.width, 800);
+  assert.equal(group.control.owner, "human");
+});
 
 function fixture() {
   const broker = new EgoBroker({ dataDir: process.cwd(), endpoint: "http://127.0.0.1:9222" });
@@ -104,6 +137,127 @@ function recoveryFixture() {
   };
   return { broker, group, spaces, targets, saved, navigated, faults };
 }
+
+test("连续人工指针与输入只在接管变化时持久化并交接一次，显式交还后重新交接", async () => {
+  const broker = fixture();
+  const group = broker.group(7);
+  group.spaceId = 41;
+  group.tabs = [{ id: "page", live: true }];
+  let saves = 0;
+  let handoffs = 0;
+  const actions = [];
+  broker.save = async () => { saves += 1; };
+  broker.handOff = EgoBroker.prototype.handOff;
+  broker.nativeCall = async () => { handoffs += 1; return {}; };
+  broker.humanAction = async (_group, _page, action) => { actions.push(action); };
+  const input = () => broker.human({ sessionId: 7, clientId: "this-device", epoch: group.control.epoch,
+    tabId: "page", action: { kind: "pointer", type: "mouseMoved", x: 1, y: 1 } });
+  await input();
+  const firstSaves = saves;
+  for (let index = 0; index < 20; index += 1) await input();
+  assert.equal(handoffs, 1, "同一次人工归属不重复发原生交接");
+  assert.equal(saves, firstSaves, "无持久状态变化的指针不逐次写盘");
+  assert.ok(firstSaves > 0, "首次人工归属必须在输入前持久化");
+  assert.equal(actions.length, 21);
+  await broker.returnToAgent({ sessionId: 7, clientId: "this-device", epoch: group.control.epoch });
+  await broker.takeOver(group);
+  await input();
+  assert.equal(handoffs, 3, "交还后的原生恢复和新一轮人工交接均执行");
+  assert.equal(group.control.owner, "this-device");
+});
+
+for (const kind of ["context", "selectWord"]) test(`${kind} 选区只返回当前人工设备，不持久保存且旧设备切换后被拒绝`, async () => {
+  const broker = fixture();
+  const group = broker.group(7);
+  group.tabs = [{ id: "page", live: true }];
+  broker.humanAction = async () => ({ handled: false, linkUrl: "https://example.com/", selection: "selected", editable: false });
+  const response = await broker.human({ sessionId: 7, clientId: "first-device", epoch: group.control.epoch,
+    tabId: "page", action: { kind, x: 20, y: 20 } });
+  assert.equal(response.contextMenu.selection, "selected");
+  assert.equal(broker.snapshot(group).contextMenu, undefined);
+  let finish;
+  broker.humanAction = () => new Promise(resolve => { finish = resolve; });
+  const pending = broker.human({ sessionId: 7, clientId: "first-device", epoch: group.control.epoch,
+    tabId: "page", action: { kind, x: 20, y: 20 } });
+  while (!finish) await new Promise(resolve => setImmediate(resolve));
+  const moved = broker.human({ sessionId: 7, clientId: "second-device", epoch: group.control.epoch,
+    action: { kind: "takeover" } });
+  finish({ handled: false, selection: "must-not-return" });
+  await assert.rejects(pending, error => error.code === "stale_control");
+  await moved;
+  assert.equal(group.control.owner, "second-device");
+});
+
+test("画面推送复用同页通道，慢观察端仅保留最新帧且断开不关闭页面或交还", async () => {
+  const broker = fixture();
+  const group = broker.group(7);
+  group.control.owner = "this-device";
+  group.tabs = [{ id: "page", live: true }];
+  const page = { group, tab: group.tabs[0], sessionId: "cdp-page", chooser: null, dialog: null };
+  broker.pages.set("page", page);
+  broker.page = async (entry, tabId) => {
+    assert.equal(entry, group);
+    if (tabId !== "page") throw new Error("no_such_tab");
+    return page;
+  };
+  const commands = [];
+  const captures = [];
+  broker.call = async (_page, method, params) => { commands.push(method); if (method === "Page.startScreencast") captures.push(params); return {}; };
+  broker.browser = { async call(method) { commands.push(method); return {}; } };
+  const response = () => {
+    const result = new EventEmitter();
+    result.frames = [];
+    result.accepting = true;
+    result.write = (line) => { if (line.trim()) result.frames.push(JSON.parse(line)); return result.accepting; };
+    return result;
+  };
+  const first = response();
+  const second = response();
+  const disconnectFirst = await broker.watchFrames({ sessionId: 7, tabId: "page" }, first);
+  const disconnectSecond = await broker.watchFrames({ sessionId: 7, tabId: "page" }, second);
+  assert.equal(commands.filter(command => command === "Page.startScreencast").length, 1);
+  assert.ok(captures[0].quality >= 85, "网页文字不再使用低质量 JPEG");
+  assert.ok(captures[0].maxWidth >= 1920, "全屏画面不再被强制缩到 1440 像素");
+  assert.ok(captures[0].maxHeight >= 1080);
+  first.accepting = false;
+  for (const data of ["one", "two", "three"]) {
+    await broker.event({ method: "Page.screencastFrame", sessionId: "cdp-page", params: {
+      sessionId: 1, data, metadata: { deviceWidth: 1200, deviceHeight: 800 },
+    } });
+  }
+  assert.deepEqual(first.frames.map(frame => frame.data), ["one"]);
+  assert.deepEqual(second.frames.map(frame => frame.data), ["one", "two", "three"]);
+  first.accepting = true;
+  first.emit("drain");
+  assert.deepEqual(first.frames.map(frame => frame.data), ["one", "three"]);
+  disconnectFirst();
+  assert.equal(commands.includes("Page.stopScreencast"), false);
+  disconnectSecond();
+  assert.equal(commands.filter(command => command === "Page.stopScreencast").length, 1);
+  assert.equal(group.tabs.length, 1);
+  assert.equal(group.control.owner, "this-device");
+  assert.equal(group.control.recoveryRequired, false);
+});
+
+test("无损画面确认绑定会话设备及真实目标，观看确认不接管或交还", () => {
+  const broker = fixture();
+  const group = broker.group(7);
+  group.control.owner = "controlling-device";
+  const calls = [];
+  broker.pixelStreams.set("stream", {
+    binding: { sessionId: 7, clientId: "watching-device", tabId: "page-a" },
+    acknowledge(revision, id) { calls.push({ revision, id }); return true; },
+  });
+  const request = { sessionId: 7, clientId: "watching-device", tabId: "page-a", streamId: "stream", revision: "one", id: 1 };
+  assert.equal(broker.pixelAck(request).accepted, true);
+  for (const changed of [{ sessionId: 8 }, { clientId: "other-device" }, { tabId: "page-b" }]) {
+    assert.throws(() => broker.pixelAck({ ...request, ...changed }), error => error.code === "read_only");
+  }
+  assert.equal(calls.length, 1);
+  assert.equal(group.control.owner, "controlling-device");
+  group.control.recoveryRequired = true;
+  assert.throws(() => broker.pixelAck(request), error => error.code === "recovery_required");
+});
 
 test("非主动销毁记录只覆盖所属业务页和锚点，不把其他任务或无目标崩溃归给本组", async () => {
   const broker = fixture();

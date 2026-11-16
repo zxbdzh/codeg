@@ -5,6 +5,10 @@ import path from "node:path";
 
 import { BrowserControlError, PageGroupControl } from "./control.mjs";
 import { CdpConnection, validateEndpoint } from "./cdp.mjs";
+import { dispatchContextMenu, dispatchSelectWord } from "./context-menu.mjs";
+import { createVideoEncoder } from "./video.mjs";
+import { EgoRtcConnection } from "./rtc.mjs";
+import { PixelStream } from "./pixel-stream.mjs";
 
 function fail(code, message) {
   throw new BrowserControlError(code, message);
@@ -43,6 +47,12 @@ export class EgoBroker {
     this.lifecycleRunId = randomUUID();
     this.lifecycleEnabled = false;
     this.agentBundlePath = options.agentBundlePath;
+    this.videoEncoder = options.videoEncoder;
+    this.rtcConnections = new Map();
+    this.rtcFactory = options.rtcFactory ?? ((browser, input) => new EgoRtcConnection(browser, input));
+    this.rtcIceServers = options.rtcIceServers ?? [];
+    this.pixelCodec = options.pixelCodec;
+    this.pixelStreams = new Map();
     this.agentBundle = null;
     this.disconnected = false;
   }
@@ -209,6 +219,7 @@ export class EgoBroker {
 
   async ensureSpace(group) {
     if (group.spaceId != null) return;
+    group.handedOffSpaceId = null;
     const result = await this.nativeCall(null, "createTaskSpace", group.name);
     group.spaceId = result.id;
     // 空白锚点供人工接管期间创建同组页面；不必临时恢复 Agent 的原生控制权。
@@ -356,24 +367,34 @@ export class EgoBroker {
 
   async handOff(group) {
     if (group.spaceId == null) return;
+    if (group.handedOffSpaceId === group.spaceId) return;
     try {
       await this.nativeCall(group.spaceId, "handOffTaskSpace");
     } catch (error) {
       if (error.code !== "EGO_TASK_SPACE_USER_IN_CONTROL") throw error;
     }
+    group.handedOffSpaceId = group.spaceId;
   }
 
   async takeOver(group) {
     if (group.spaceId != null) {
+      group.handedOffSpaceId = null;
       await this.nativeCall(group.spaceId, "takeOverTaskSpace");
     }
   }
 
   async human(request) {
     const group = this.group(request.sessionId);
+    const previousEpoch = group.control.epoch;
+    let pauseSave;
     const operation = group.control.runHuman(
       request.clientId, request.epoch, async () => {
-        await this.save();
+        if (pauseSave) await pauseSave;
+        // 同一归属的指针和按键不改变持久状态；只在本轮控制 epoch 首次输入前保存。
+        if (group.persistedHumanEpoch !== group.control.epoch) {
+          await this.save();
+          group.persistedHumanEpoch = group.control.epoch;
+        }
         // 恢复前只允许转移人工控制权，不调用可能已经失效的原生页面组。
         if (request.action.kind === "takeover" && group.control.recoveryRequired) return;
         await this.handOff(group);
@@ -389,13 +410,37 @@ export class EgoBroker {
       },
       { transfer: request.action.kind === "takeover" }
     );
-    await this.save();
-    await operation;
-    return this.snapshot(group);
+    const acceptedEpoch = group.control.epoch;
+    if (previousEpoch !== group.control.epoch) {
+      // 在等待在途 Agent 结束前先持久保存人工暂停，不能为了降延迟牺牲重启安全。
+      const epoch = group.control.epoch;
+      pauseSave = this.save().then(() => { group.persistedHumanEpoch = epoch; });
+      void pauseSave.catch(() => {});
+    }
+    const result = await operation;
+    const menuAction = ["context", "selectWord"].includes(request.action.kind);
+    if (menuAction) {
+      group.control.checkEpoch(acceptedEpoch);
+      group.control.checkOwner(request.clientId);
+    }
+    return {
+      ...this.snapshot(group),
+      // 选中文字只返回给本次已授权设备，不能放入广播或持久化的会话快照。
+      ...(menuAction ? { contextMenu: result } : {}),
+    };
   }
 
   async humanAction(group, page, action, source = "web-page") {
     switch (action.kind) {
+      case "context":
+      case "selectWord":
+        if (!Number.isFinite(action.x) || !Number.isFinite(action.y) ||
+            action.x < 0 || action.y < 0 || action.x > 20000 || action.y > 20000) {
+          fail("invalid_input", "页面指针参数无效。");
+        }
+        return action.kind === "selectWord"
+          ? dispatchSelectWord(this.call.bind(this), page, action)
+          : dispatchContextMenu(this.call.bind(this), page, action);
       case "close": {
         await this.recordLifecycle("close_requested", group, { targetId: page.tab.id, source });
         this.closing.add(page.tab.id);
@@ -441,10 +486,14 @@ export class EgoBroker {
             !["left", "right", "middle", "none"].includes(action.button ?? "none")) {
           fail("invalid_input", "页面指针参数无效。");
         }
+        const buttons = (action.buttons ?? 0) & 7;
+        // 兼容尚未刷新的 Web：移动时以持续按键位图为准，避免 button:none 让 Chromium 丢失拖选。
+        const button = action.type === "mouseMoved"
+          ? buttons & 1 ? "left" : buttons & 2 ? "right" : buttons & 4 ? "middle" : "none"
+          : action.button ?? "none";
         await this.call(page, "Input.dispatchMouseEvent", {
           type: action.type, x: action.x, y: action.y,
-          button: action.button ?? "none",
-          buttons: (action.buttons ?? 0) & 7,
+          button, buttons,
           modifiers: (action.modifiers ?? 0) & 15,
           clickCount: action.type === "mouseMoved" || action.type === "mouseWheel" ? 0 : 1,
           ...(action.type === "mouseWheel" ? {
@@ -668,6 +717,7 @@ export class EgoBroker {
       group.control.checkEpoch(request.epoch);
       if (!group.control.recoveryRequired) return this.snapshot(group);
       group.control.checkOwner(request.clientId);
+      group.handedOffSpaceId = null;
       const { taskSpaces } = await this.nativeCall(null, "listTaskSpaces");
       const space = taskSpaces.find((entry) => entry.name === group.name);
       try {
@@ -715,6 +765,9 @@ export class EgoBroker {
   async frame(request) {
     const group = this.group(request.sessionId);
     const page = await this.page(group, request.tabId);
+    if (request.metadata === true && page.screencasting && page.lastFrame) {
+      return { ...page.lastFrame, data: "", chooser: page.chooser, dialog: page.dialog };
+    }
     // JS 弹窗期间部分 CDP 读取会等待弹窗结束；先送出提示才能从 Web 解开阻塞。
     if (page.dialog) {
       return { ...(page.lastFrame ?? { data: "", width: 1, height: 1 }), chooser: page.chooser, dialog: page.dialog };
@@ -722,7 +775,7 @@ export class EgoBroker {
     try {
       const metrics = await this.call(page, "Page.getLayoutMetrics");
       const screenshot = await this.call(page, "Page.captureScreenshot", {
-        format: "jpeg", quality: 75, captureBeyondViewport: false,
+        format: "jpeg", quality: 88, captureBeyondViewport: false,
       });
       page.lastFrame = {
         data: screenshot.data,
@@ -739,7 +792,224 @@ export class EgoBroker {
     };
   }
 
+  async watchFrames(request, response) {
+    const group = this.group(request.sessionId);
+    group.control.checkRecovery();
+    const page = await this.page(group, request.tabId);
+    const captureFormat = request.captureFormat === "png" ? "png" : "jpeg";
+    let pending = null;
+    let blocked = false;
+    let closed = false;
+    const write = (frame) => {
+      if (closed) return;
+      if (captureFormat === "png" && frame.format && frame.format !== "png") return;
+      if (blocked) { pending = frame; return; }
+      blocked = !response.write(`${JSON.stringify(frame)}\n`);
+    };
+    const drain = () => {
+      blocked = false;
+      if (pending) {
+        const frame = pending;
+        pending = null;
+        write(frame);
+      }
+    };
+    page.frameWatchers ??= new Set();
+    page.frameClosers ??= new Set();
+    page.frameWatchers.add(write);
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(heartbeat);
+      response.off("drain", drain);
+      page.frameWatchers.delete(write);
+      page.frameClosers.delete(close);
+      // 断开观察只停止画面通道，不关闭页面、不改变人工归属。
+      if (!page.frameWatchers.size) {
+        void this.call(page, "Page.stopScreencast").catch(() => {});
+        page.screencasting = null;
+        page.captureFormat = null;
+      }
+      response.end?.();
+    };
+    const heartbeat = setInterval(() => {
+      if (!blocked && !closed) response.write("\n");
+    }, 10000);
+    page.frameClosers.add(close);
+    response.on("drain", drain);
+    response.once("close", close);
+    try {
+      if (!page.screencasting || (captureFormat === "png" && page.captureFormat !== "png")) {
+        if (page.screencasting) await this.call(page, "Page.stopScreencast");
+        page.captureFormat = captureFormat;
+        page.screencasting = this.call(page, "Page.startScreencast", {
+          // 保留文字细节与高分辨率画面；仍由慢端丢旧帧，避免靠积压换清晰度。
+          format: captureFormat, quality: 88, maxWidth: 2560, maxHeight: 1600, everyNthFrame: 1,
+        });
+      }
+      await page.screencasting;
+      if (page.lastFrame) write({ ...page.lastFrame, chooser: page.chooser, dialog: page.dialog });
+      return close;
+    } catch (error) {
+      close();
+      throw error;
+    }
+  }
+
+  async watchPixels(request, response) {
+    const group = this.group(request.sessionId);
+    group.control.checkRecovery();
+    await this.page(group, request.tabId);
+    if (typeof request.clientId !== "string" || request.clientId.length < 8 || request.clientId.length > 128 || this.pixelStreams.size >= 8) {
+      fail("invalid_pixels", "画面连接参数无效或连接过多。");
+    }
+    const { EventEmitter } = await import("node:events");
+    const observer = new EventEmitter();
+    let stopFrames;
+    const pixels = new PixelStream(this.pixelCodec, response, request, () => {
+      stopFrames?.(); observer.emit("close"); this.pixelStreams.delete(pixels.id);
+    });
+    observer.write = line => { if (line.trim()) pixels.write(JSON.parse(line)); return true; };
+    observer.end = () => pixels.close();
+    this.pixelStreams.set(pixels.id, pixels);
+    try {
+      stopFrames = await this.watchFrames({ ...request, captureFormat: "png" }, observer);
+      if (pixels.closed) stopFrames();
+      response.on("drain", () => void pixels.flush());
+      return () => pixels.close();
+    } catch (error) { pixels.close(); throw error; }
+  }
+
+  pixelAck(request) {
+    const stream = this.pixelStreams.get(request.streamId);
+    if (!stream) fail("pixel_closed", "画面连接已经结束。");
+    if (stream.binding.sessionId !== request.sessionId || stream.binding.clientId !== request.clientId || stream.binding.tabId !== request.tabId) {
+      fail("read_only", "画面连接不属于当前设备、会话或页面。");
+    }
+    this.group(request.sessionId).control.checkRecovery();
+    return { accepted: stream.acknowledge(request.revision, request.id) };
+  }
+
+  async watchVideo(request, response) {
+    const group = this.group(request.sessionId);
+    group.control.checkRecovery();
+    await this.page(group, request.tabId);
+    const encoder = await createVideoEncoder(response, { executable: this.videoEncoder });
+    const observer = new (await import("node:events")).EventEmitter();
+    let stopFrames;
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true; stopFrames?.(); encoder.close(); observer.emit("close");
+    };
+    response.once("close", close);
+    observer.write = line => {
+      if (!line.trim()) return true;
+      const frame = JSON.parse(line);
+      if (frame.data) encoder.write(Buffer.from(frame.data, "base64"));
+      return true;
+    };
+    observer.end = () => { encoder.close(); response.end(); };
+    try {
+      // 视频与 JPEG 观察共享同一精确 target 的采集，不能互相 stopScreencast 或改变接管状态。
+      stopFrames = await this.watchFrames(request, observer);
+      if (closed) stopFrames();
+      response.writeHead(200, { "content-type": "video/mp4", "cache-control": "no-store" });
+      response.flushHeaders();
+      encoder.start();
+      return close;
+    } catch (error) { close(); throw error; }
+  }
+
+  async rtcOffer(request) {
+    const group = this.group(request.sessionId);
+    group.control.checkRecovery();
+    if (typeof request.clientId !== "string" || request.clientId.length < 8 || request.clientId.length > 128 ||
+        request.offer?.type !== "offer" || typeof request.offer.sdp !== "string" || request.offer.sdp.length > 100000) {
+      fail("invalid_rtc", "WebRTC 协商参数无效。");
+    }
+    await this.page(group, request.tabId);
+    if (this.rtcConnections.size >= 8) fail("rtc_busy", "实时连接较多，请关闭不用的浏览器面板后重试。");
+    let connected;
+    let lastSeen = Date.now();
+    const input = async payload => {
+      lastSeen = Date.now();
+      if (payload.length > 150000) return;
+      let message;
+      try { message = JSON.parse(payload); } catch { return; }
+      if (!message || typeof message !== "object" || Array.isArray(message)) return;
+      const id = message.id;
+      if (!Number.isSafeInteger(id) || id < 0) return;
+      if (message.kind === "ping") {
+        return { id, result: this.snapshot(group) };
+      }
+      try {
+        if (message.kind !== "human" || !message.action ||
+            !["pointer", "text", "key", "context", "selectWord"].includes(message.action.kind)) {
+          fail("invalid_rtc_input", "此操作请通过原会话接口执行。");
+        }
+        // 会话、设备和真实 target 由握手绑定，不能相信对端重新自报；epoch 仍逐动作验证。
+        const result = await this.human({ method: "human", sessionId: request.sessionId,
+          clientId: request.clientId, viewId: request.viewId, tabId: request.tabId,
+          epoch: message.epoch, action: message.action });
+        return { id, result };
+      } catch (error) {
+        return { id, error: { code: error.code ?? "rtc_input_failed", message: error.message } };
+      }
+    };
+    const rtc = this.rtcFactory(this.browser, input);
+    const { EventEmitter } = await import("node:events");
+    const observer = new EventEmitter();
+    observer.write = line => {
+      if (line.trim()) rtc.write(JSON.parse(line));
+      return true;
+    };
+    observer.end = () => { void rtc.close(); };
+    let stopFrames;
+    let timer;
+    rtc.onClose = () => {
+      clearInterval(timer);
+      stopFrames?.();
+      observer.emit("close");
+      this.rtcConnections.delete(rtc.id);
+    };
+    this.rtcConnections.set(rtc.id, { rtc, sessionId: request.sessionId, clientId: request.clientId });
+    try {
+      connected = await rtc.start(request.offer, this.rtcIceServers);
+      group.control.checkRecovery();
+      if (!group.tabs.some(tab => tab.id === request.tabId && tab.live)) fail("no_such_tab", "原页面已关闭。");
+      stopFrames = await this.watchFrames(request, observer);
+      if (rtc.closed) { stopFrames(); fail("rtc_closed", "实时通道已结束。"); }
+      timer = setInterval(() => {
+        if (Date.now() - lastSeen > 15000 || this.disconnected || group.control.recoveryRequired) void rtc.close();
+      }, 3000);
+      return connected;
+    } catch (error) { await rtc.close(); throw error; }
+  }
+
+  async rtcClose(request) {
+    const entry = this.rtcConnections.get(request.id);
+    if (!entry) return { closed: true };
+    if (entry.sessionId !== request.sessionId || entry.clientId !== request.clientId) {
+      fail("read_only", "实时连接不属于当前设备或会话。");
+    }
+    await entry.rtc.close();
+    return { closed: true };
+  }
+
   async event(event) {
+    if (event.method === "Page.screencastFrame") {
+      const page = [...this.pages.values()].find((entry) => entry.sessionId === event.sessionId);
+      if (!page) return;
+      // 立即确认给 Ego；慢设备只保留最新帧，绝不让过时画面排队拖慢输入。
+      void this.browser.call("Page.screencastFrameAck", { sessionId: event.params.sessionId }, page.sessionId).catch(() => {});
+      const metadata = event.params.metadata;
+      page.lastFrame = { data: event.params.data, width: metadata.deviceWidth, height: metadata.deviceHeight, format: page.captureFormat ?? "jpeg" };
+      for (const watcher of page.frameWatchers ?? []) {
+        watcher({ ...page.lastFrame, chooser: page.chooser, dialog: page.dialog });
+      }
+      return;
+    }
     if (["Target.targetDestroyed", "Target.targetCrashed", "Inspector.targetCrashed"].includes(event.method)) {
       const targetId = event.params?.targetId ??
         [...this.pages.values()].find((page) => page.sessionId === event.sessionId)?.tab.id;
@@ -756,6 +1026,9 @@ export class EgoBroker {
     if (event.method === "Codeg.disconnected") {
       void this.recordLifecycle("cdp_disconnected", null, { explicit: this.stopping === true });
       this.disconnected = true;
+      for (const page of this.pages.values()) {
+        for (const close of [...page.frameClosers ?? []]) close();
+      }
       for (const group of this.groups.values()) {
         group.control.stop();
         group.evalRequest?.decide(false);
@@ -775,6 +1048,8 @@ export class EgoBroker {
       return;
     }
     if (event.method === "Target.targetDestroyed") {
+      const destroyed = this.pages.get(event.params.targetId);
+      for (const close of [...destroyed?.frameClosers ?? []]) close();
       if (this.closing.delete(event.params.targetId)) {
         const page = this.pages.get(event.params.targetId);
         if (page) page.group.tabs = page.group.tabs.filter((tab) => tab.id !== event.params.targetId);
@@ -855,9 +1130,15 @@ export class EgoBroker {
         break;
       case "Page.fileChooserOpened":
         page.chooser = event.params;
+        for (const watcher of page.frameWatchers ?? []) {
+          if (page.lastFrame) watcher({ ...page.lastFrame, chooser: page.chooser, dialog: page.dialog });
+        }
         break;
       case "Page.javascriptDialogOpening":
         page.dialog = event.params;
+        for (const watcher of page.frameWatchers ?? []) {
+          if (page.lastFrame) watcher({ ...page.lastFrame, chooser: page.chooser, dialog: page.dialog });
+        }
         break;
       case "Page.javascriptDialogClosed":
         page.dialog = null;
@@ -884,6 +1165,12 @@ export class EgoBroker {
     switch (request.method) {
       case "session":
         return this.snapshot(this.group(request.sessionId));
+      case "rtcOffer":
+        return this.rtcOffer(request);
+      case "rtcClose":
+        return this.rtcClose(request);
+      case "pixelAck":
+        return this.pixelAck(request);
       case "visit": {
         const group = this.group(request.sessionId);
         if (typeof request.viewId !== "string" || request.viewId.length > 256) fail("invalid_view", "页面视图标识无效。");
@@ -979,11 +1266,32 @@ export async function serve(options) {
         chunks.push(chunk);
       }
       const command = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (command.method === "stream") {
+        // 凭据沿用同一个回环桥接；外层服务负责鉴权、项目归属和流式转发。
+        broker.group(command.sessionId).control.checkRecovery();
+        await broker.page(broker.group(command.sessionId), command.tabId);
+        if (command.format === "pixels") {
+          if (!broker.pixelCodec) fail("pixels_unavailable", "当前环境未配置无损显示。");
+          response.writeHead(200, { "content-type": "application/x-ndjson", "cache-control": "no-store" });
+          response.flushHeaders();
+          await broker.watchPixels(command, response);
+          return;
+        }
+        if (command.format === "video") {
+          await broker.watchVideo(command, response);
+          return;
+        }
+        response.writeHead(200, { "content-type": "application/x-ndjson", "cache-control": "no-store" });
+        response.flushHeaders();
+        await broker.watchFrames(command, response);
+        return;
+      }
       const result = command.method === "shutdown" ? { stopped: true } : await broker.dispatch(command);
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ result }));
       if (command.method === "shutdown") shutdown("rpc");
     } catch (error) {
+      if (response.headersSent) { response.end(); return; }
       response.writeHead(400, { "content-type": "application/json" });
       response.end(JSON.stringify({
         error: { code: error.code ?? "ego_failed", message: error.message },
@@ -999,6 +1307,12 @@ export async function serve(options) {
     await fs.writeFile(options.readyPath, JSON.stringify({ port: server.address().port }), { flag: "wx" });
   }
   let leaseTimer;
+  let rtcShutdown;
+  const closeRtcTargets = () => {
+    for (const pixels of [...broker.pixelStreams.values()]) pixels.close();
+    rtcShutdown ??= Promise.allSettled([...broker.rtcConnections.values()].map(({ rtc }) => rtc.close()));
+    return rtcShutdown;
+  };
   function shutdown(reason) {
     clearInterval(leaseTimer);
     broker.stopping = true;
@@ -1008,7 +1322,7 @@ export async function serve(options) {
       group.evalRequest?.decide(false);
     }
     // 先终止等待交还的请求，否则 server.close 会一直等待这些连接，留下孤儿桥接。
-    broker.browser.close();
+    void closeRtcTargets().finally(() => broker.browser.close());
     server.close();
     server.closeAllConnections();
   }
@@ -1024,7 +1338,7 @@ export async function serve(options) {
   }
   server.on("close", () => {
     clearInterval(leaseTimer);
-    broker.browser.close();
+    void closeRtcTargets().finally(() => broker.browser.close());
   });
   return { server, broker };
 }

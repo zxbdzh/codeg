@@ -5,6 +5,8 @@ import {
   ArrowRight,
   Download,
   Folder,
+  Maximize,
+  Minimize,
   MousePointer2,
   Plus,
   RotateCw,
@@ -13,13 +15,24 @@ import {
   X,
 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { createPortal, flushSync } from "react-dom"
 
 import type { BrowserWorkspaceTab } from "@/contexts/workspace-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { uploadAttachment } from "@/lib/api"
 import { normalizeTypedAddress } from "./browser-toolbar"
+import { EgoContextMenu, type EgoContextMenuState } from "./ego-context-menu"
 import { publishEgoSession, registerEgoView } from "@/lib/browser/ego-workspace"
+import { EgoInputQueue } from "@/lib/browser/ego-input-queue"
+import { watchEgoFrames } from "@/lib/browser/ego-frame-stream"
+import { watchEgoPixels } from "@/lib/browser/ego-pixel-stream"
+import { watchEgoRtc, type EgoRtcHandle } from "@/lib/browser/ego-rtc-stream"
+import {
+  egoVideoUnavailableReason,
+  watchEgoVideo,
+  type EgoVideoDiagnostics,
+} from "@/lib/browser/ego-video-stream"
 import {
   egoClientId,
   egoError,
@@ -39,6 +52,7 @@ export function EgoBrowserGateway({
   children: ReactNode
 }) {
   const [config, setConfig] = useState<EgoConfig | null>(null)
+  const [pixelDisplay, setPixelDisplay] = useState(false)
   const [settings, setSettings] = useState(false)
   const [endpoint, setEndpoint] = useState("http://127.0.0.1:9222")
   const [serverName, setServerName] = useState("")
@@ -51,11 +65,15 @@ export function EgoBrowserGateway({
     const refresh = async () => {
       const revision = ++configRevision.current
       try {
-        const result = await egoRequest<{ config: EgoConfig }>({
+        const result = await egoRequest<{
+          config: EgoConfig
+          pixelDisplay?: boolean
+        }>({
           method: "config",
         })
         if (disposed || revision !== configRevision.current) return
         setConfig(result.config)
+        setPixelDisplay(result.pixelDisplay === true)
         setEndpoint((value) => value || result.config.endpoint)
         setServerName((value) => value || result.config.serverName)
       } catch (reason) {
@@ -188,10 +206,11 @@ export function EgoBrowserGateway({
         ) : config.enabled ? (
           tab.browser.conversationId ? (
             <EgoBrowserView
-              key={tab.browser.conversationId}
+              key={`${tab.browser.conversationId}:${pixelDisplay}`}
               viewId={tab.id}
               sessionId={tab.browser.conversationId}
               initialUrl={tab.browser.initialUrl}
+              pixelDisplay={pixelDisplay}
             />
           ) : (
             <p className="p-3 text-xs text-muted-foreground">
@@ -210,10 +229,12 @@ export function EgoBrowserView({
   sessionId,
   initialUrl,
   viewId,
+  pixelDisplay = false,
 }: {
   sessionId: number
   initialUrl: string
   viewId: string
+  pixelDisplay?: boolean
 }) {
   const [clientId] = useState(egoClientId)
   const [session, setSession] = useState<EgoSession | null>(null)
@@ -224,18 +245,47 @@ export function EgoBrowserView({
   )
   const [error, setError] = useState("")
   const [projectDirectory, setProjectDirectory] = useState<string | null>(null)
+  const [copyNotice, setCopyNotice] = useState("")
+  const [copyFallback, setCopyFallback] = useState<string | null>(null)
+  const [fullscreen, setFullscreen] = useState(false)
   const [projectFiles, setProjectFiles] = useState<
     { name: string; path: string; directory: boolean }[]
   >([])
   const [promptText, setPromptText] = useState("")
   const [selectedFiles, setSelectedFiles] = useState<string[]>([])
+  const [contextMenu, setContextMenu] = useState<EgoContextMenuState | null>(
+    null
+  )
+  const contextPosition = useRef<{
+    tabId: string
+    x: number
+    y: number
+  } | null>(null)
+  const rightPointer = useRef<number | null>(null)
   const latest = useRef<EgoSession | null>(null)
   const active = useRef<string | null>(null)
-  const queue = useRef<Promise<unknown>>(Promise.resolve())
+  const queue = useRef(new EgoInputQueue())
   const inputVersion = useRef(0)
   const upload = useRef<HTMLInputElement>(null)
+  const container = useRef<HTMLDivElement>(null)
   const keyboard = useRef<HTMLTextAreaElement>(null)
   const surface = useRef<HTMLDivElement>(null)
+  const video = useRef<HTMLVideoElement>(null)
+  const pixels = useRef<HTMLCanvasElement>(null)
+  const [pixelMode, setPixelMode] = useState(pixelDisplay)
+  const [pixelTab, setPixelTab] = useState<string | null>(null)
+  const [videoMode, setVideoMode] = useState(false)
+  const [rtcMode, setRtcMode] = useState(false)
+  const [displaySettings, setDisplaySettings] = useState(false)
+  const rtc = useRef<EgoRtcHandle | null>(null)
+  const [videoTab, setVideoTab] = useState<string | null>(null)
+  const [videoNotice, setVideoNotice] = useState("")
+  const [videoDiagnostics, setVideoDiagnostics] =
+    useState<EgoVideoDiagnostics | null>(null)
+  useEffect(() => {
+    if (!pixelDisplay && typeof RTCPeerConnection !== "undefined")
+      setRtcMode(true)
+  }, [pixelDisplay])
   const mounted = useRef(true)
   const composing = useRef(false)
   const pointerState = useRef<{
@@ -244,8 +294,67 @@ export function EgoBrowserView({
     y: number
     touch: boolean
     moved: boolean
+    held: boolean
+    tabId: string
+    clientX: number
+    clientY: number
   } | null>(null)
+  const longPress = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelLongPress = useCallback(() => {
+    if (longPress.current !== null) clearTimeout(longPress.current)
+    longPress.current = null
+  }, [])
   const lastMove = useRef(0)
+  const fullscreenEscape = useRef(false)
+  const closeContextMenu = useCallback(() => {
+    contextPosition.current = null
+    setContextMenu(null)
+    setCopyFallback(null)
+  }, [])
+
+  useEffect(() => {
+    const changed = () => {
+      if (!document.fullscreenElement) setFullscreen(false)
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && fullscreen && !contextPosition.current) {
+        // Esc 只退出本设备的显示模式，不透传为执行端按键或改变人工归属。
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        fullscreenEscape.current = true
+        setFullscreen(false)
+        if (document.fullscreenElement === container.current)
+          void document.exitFullscreen?.().catch(() => {})
+      }
+    }
+    const releaseEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && fullscreenEscape.current) {
+        fullscreenEscape.current = false
+        event.preventDefault()
+        event.stopImmediatePropagation()
+      }
+    }
+    document.addEventListener("fullscreenchange", changed)
+    document.addEventListener("keydown", escape, true)
+    document.addEventListener("keyup", releaseEscape, true)
+    return () => {
+      document.removeEventListener("fullscreenchange", changed)
+      document.removeEventListener("keydown", escape, true)
+      document.removeEventListener("keyup", releaseEscape, true)
+    }
+  }, [fullscreen])
+
+  const toggleFullscreen = async () => {
+    if (fullscreen) {
+      setFullscreen(false)
+      if (document.fullscreenElement === container.current)
+        await document.exitFullscreen?.().catch(() => {})
+    } else {
+      flushSync(() => setFullscreen(true))
+      // 仅响应用户点击；不支持原生全屏的移动端仍可在当前网页内铺满。
+      await container.current?.requestFullscreen?.().catch(() => {})
+    }
+  }
 
   const accept = useCallback(
     (next: EgoSession) => {
@@ -285,33 +394,77 @@ export function EgoBrowserView({
 
   const send = (action: Record<string, unknown>, tabId?: string | null) => {
     const version = inputVersion.current
+    const menuPosition = contextPosition.current
     // 排队期间用户可能切页；输入始终交付产生该输入时的真实页面。
     const targetId = tabId === undefined ? active.current : tabId
-    const operation = queue.current.then(async () => {
-      if (
-        !mounted.current ||
-        version !== inputVersion.current ||
-        !latest.current
-      )
-        return
-      const next = await egoRequest<EgoSession>({
-        method: "human",
-        sessionId,
-        viewId,
-        clientId,
-        epoch: latest.current.control.epoch,
-        tabId: targetId,
-        action,
-      })
-      accept(next)
-      if (action.kind === "open") {
-        active.current = next.tabs[next.tabs.length - 1]?.id ?? null
-        setActiveId(active.current)
+    const operation = queue.current.push(
+      `${version}:${targetId}`,
+      action,
+      async (latestAction) => {
+        if (
+          !mounted.current ||
+          version !== inputVersion.current ||
+          !latest.current
+        )
+          return
+        if (
+          latestAction.kind === "selectWord" &&
+          (active.current !== targetId ||
+            contextPosition.current !== menuPosition)
+        )
+          return
+        const realtime =
+          active.current === targetId &&
+          ["pointer", "text", "key", "context", "selectWord"].includes(
+            String(latestAction.kind)
+          )
+            ? rtc.current?.send(latest.current.control.epoch, latestAction)
+            : null
+        // 数据通道已接受的输入不能再走 HTTP 重发，避免点击或提交重复执行。
+        const next = await (realtime ??
+          egoRequest<EgoSession>({
+            method: "human",
+            sessionId,
+            viewId,
+            clientId,
+            epoch: latest.current.control.epoch,
+            tabId: targetId,
+            action: latestAction,
+          }))
+        accept(next)
+        if (
+          ["context", "selectWord"].includes(String(latestAction.kind)) &&
+          mounted.current &&
+          version === inputVersion.current &&
+          active.current === targetId &&
+          next.control.owner === clientId &&
+          latest.current?.control.epoch === next.control.epoch &&
+          contextPosition.current === menuPosition &&
+          menuPosition?.tabId === targetId
+        ) {
+          const details = next.contextMenu
+          if (!details)
+            throw new Error("当前服务尚不支持 Web 右键菜单，请更新验收服务。")
+          if (
+            details.handled ||
+            (latestAction.kind === "selectWord" &&
+              !details.selection &&
+              !details.linkUrl)
+          )
+            closeContextMenu()
+          else setContextMenu({ ...menuPosition, ...details })
+        }
+        if (action.kind === "open") {
+          active.current = next.tabs[next.tabs.length - 1]?.id ?? null
+          setActiveId(active.current)
+        }
+        setError("")
       }
-      setError("")
-    })
-    queue.current = operation.catch((reason) => {
+    )
+    void operation.catch((reason) => {
       inputVersion.current += 1
+      if (["context", "selectWord"].includes(String(action.kind)))
+        closeContextMenu()
       if (mounted.current) setError(egoError(reason))
     })
     return operation
@@ -329,28 +482,13 @@ export function EgoBrowserView({
         })
         if (stopped) return
         accept(next)
-        const tabId = active.current
-        if (
-          tabId &&
-          next.connected &&
-          !next.control.recoveryRequired &&
-          surface.current?.clientWidth
-        ) {
-          const image = await egoRequest<EgoFrame>({
-            method: "frame",
-            sessionId,
-            tabId,
-          })
-          if (!stopped && tabId === active.current)
-            setFrame({ ...image, tabId })
-        }
       } catch (reason) {
         if (!stopped) {
           inputVersion.current += 1
           setError(egoError(reason))
         }
       } finally {
-        if (!stopped) timer = setTimeout(() => void poll(), 400)
+        if (!stopped) timer = setTimeout(() => void poll(), 700)
       }
     }
     const visit = egoRequest<EgoSession>({ method: "session", sessionId }).then(
@@ -379,15 +517,17 @@ export function EgoBrowserView({
       stopped = true
       mounted.current = false
       inputVersion.current += 1
+      cancelLongPress()
       clearTimeout(timer)
     }
-  }, [sessionId, viewId, initialUrl, clientId, accept])
+  }, [sessionId, viewId, initialUrl, clientId, accept, cancelLongPress])
 
   const tab = session?.tabs.find((entry) => entry.id === activeId)
   const tabUrl = tab?.url
   useEffect(() => {
     if (tabUrl) setAddress(tabUrl)
-  }, [activeId, tabUrl])
+    closeContextMenu()
+  }, [activeId, tabUrl, closeContextMenu])
   const dialogPrompt = frame?.dialog?.defaultPrompt
   const dialogMessage = frame?.dialog?.message
   useEffect(() => {
@@ -398,7 +538,235 @@ export function EgoBrowserView({
   const paused = session?.control.owner != null
   const ready = session?.connected && !session.control.recoveryRequired
   const editable = ready && !readOnly
+  useEffect(() => {
+    cancelLongPress()
+    pointerState.current = null
+  }, [activeId, tabUrl, editable, cancelLongPress])
+  useEffect(() => {
+    const cancel = () => {
+      cancelLongPress()
+      pointerState.current = null
+      closeContextMenu()
+    }
+    const hidden = () => {
+      if (document.visibilityState === "hidden") cancel()
+    }
+    window.addEventListener("blur", cancel)
+    document.addEventListener("visibilitychange", hidden)
+    return () => {
+      window.removeEventListener("blur", cancel)
+      document.removeEventListener("visibilitychange", hidden)
+    }
+  }, [cancelLongPress, closeContextMenu])
+  const videoPlaying = (videoMode || rtcMode) && videoTab === activeId
+  const pixelPlaying = pixelMode && pixelTab === activeId
+  useEffect(() => {
+    if (!pixelMode || !activeId || !ready || !pixels.current) return
+    let stopped = false
+    const cancel = watchEgoPixels(
+      pixels.current,
+      sessionId,
+      activeId,
+      clientId,
+      (image) => {
+        if (!stopped && active.current === activeId)
+          setFrame((previous) => ({
+            ...image,
+            data: previous?.tabId === activeId ? previous.data : "",
+            tabId: activeId,
+          }))
+      },
+      () => {
+        if (!stopped) setPixelTab(activeId)
+      },
+      (reason) => {
+        if (!stopped) {
+          setPixelMode(false)
+          setPixelTab(null)
+          setRtcMode(true)
+          setVideoNotice(`${reason}，已自动恢复兼容显示。`)
+        }
+      },
+      (details) => {
+        if (!stopped) setVideoDiagnostics(details)
+      }
+    )
+    if (!cancel) {
+      setPixelMode(false)
+      setRtcMode(true)
+    }
+    return () => {
+      stopped = true
+      cancel?.()
+    }
+  }, [pixelMode, activeId, ready, sessionId, clientId, fullscreen])
+  useEffect(() => {
+    if (!rtcMode || !activeId || !ready || !video.current) return
+    let stopped = false
+    const handle = watchEgoRtc(
+      video.current,
+      sessionId,
+      activeId,
+      viewId,
+      clientId,
+      () => {
+        if (!stopped) setVideoTab(activeId)
+      },
+      (next) => {
+        if (!stopped) accept(next)
+      },
+      (image) => {
+        if (!stopped && active.current === activeId)
+          setFrame((previous) => ({
+            ...image,
+            data: previous?.tabId === activeId ? previous.data : "",
+            chooser: previous?.tabId === activeId ? previous.chooser : null,
+            dialog: previous?.tabId === activeId ? previous.dialog : null,
+            tabId: activeId,
+          }))
+      },
+      (reason) => {
+        if (!stopped) {
+          rtc.current = null
+          setRtcMode(false)
+          setVideoTab(null)
+          setVideoNotice(`${reason || "WebRTC 暂不可用"}，已回退原画面通道。`)
+        }
+      },
+      (details) => {
+        if (!stopped) setVideoDiagnostics(details)
+      }
+    )
+    rtc.current = handle
+    if (!handle) {
+      setRtcMode(false)
+      setVideoNotice("当前环境不支持 WebRTC，已回退原画面通道。")
+    }
+    return () => {
+      stopped = true
+      handle?.cancel()
+      if (rtc.current === handle) rtc.current = null
+    }
+  }, [
+    rtcMode,
+    activeId,
+    ready,
+    sessionId,
+    viewId,
+    clientId,
+    accept,
+    fullscreen,
+  ])
+  useEffect(() => {
+    if (!videoMode || !activeId || !ready || !video.current) return
+    let stopped = false
+    const cancel = watchEgoVideo(
+      video.current,
+      sessionId,
+      activeId,
+      () => {
+        if (!stopped) setVideoTab(activeId)
+      },
+      (reason) => {
+        if (!stopped) {
+          setVideoMode(false)
+          setVideoTab(null)
+          setVideoNotice(`${reason || "视频暂不可用"}，已回退原画面通道。`)
+        }
+      },
+      (details) => {
+        if (!stopped) setVideoDiagnostics(details)
+      }
+    )
+    if (!cancel) {
+      setVideoMode(false)
+      setVideoNotice(
+        `${egoVideoUnavailableReason() || "当前设备不支持此视频通道"}，继续使用原画面。`
+      )
+    }
+    return () => {
+      stopped = true
+      cancel?.()
+    }
+  }, [videoMode, activeId, ready, sessionId, fullscreen])
+  useEffect(() => {
+    if (contextMenu && (!editable || activeId !== contextMenu.tabId || !paused))
+      closeContextMenu()
+  }, [contextMenu, editable, activeId, paused, closeContextMenu])
+  useEffect(() => {
+    if (!activeId || !ready) return
+    let stopped = false
+    let streaming = false
+    let lastStreamFrame = 0
+    let timer: ReturnType<typeof setTimeout>
+    const receive = (image: EgoFrame) => {
+      if (!stopped && active.current === activeId)
+        setFrame((previous) => ({
+          ...image,
+          data:
+            image.data || (previous?.tabId === activeId ? previous.data : ""),
+          tabId: activeId,
+        }))
+    }
+    const cancelStream =
+      videoMode || rtcMode || pixelMode
+        ? null
+        : watchEgoFrames(
+            sessionId,
+            activeId,
+            (image) => {
+              streaming = true
+              lastStreamFrame = performance.now()
+              receive(image)
+            },
+            () => {
+              streaming = false
+            }
+          )
+    const pollFrame = async () => {
+      const started = performance.now()
+      try {
+        // 有推流时不再重复截图；无推流时按完成耗时排期，不额外叠加固定 400ms。
+        if (
+          (!streaming || performance.now() - lastStreamFrame > 1200) &&
+          surface.current?.clientWidth &&
+          document.visibilityState !== "hidden"
+        ) {
+          const previousStreamFrame = lastStreamFrame
+          const image = await egoRequest<EgoFrame>({
+            method: "frame",
+            sessionId,
+            tabId: activeId,
+            metadata: videoMode || rtcMode || pixelMode,
+          })
+          if (lastStreamFrame === previousStreamFrame) receive(image)
+        }
+      } catch (reason) {
+        if (!stopped) setError(egoError(reason))
+      } finally {
+        if (!stopped)
+          timer = setTimeout(
+            () => void pollFrame(),
+            videoMode || rtcMode || pixelMode
+              ? 800
+              : streaming
+                ? 500
+                : Math.max(0, 80 - (performance.now() - started))
+          )
+      }
+    }
+    void pollFrame()
+    return () => {
+      stopped = true
+      cancelStream?.()
+      clearTimeout(timer)
+    }
+  }, [sessionId, activeId, ready, videoMode, rtcMode, pixelMode])
   const choose = (id: string) => {
+    cancelLongPress()
+    pointerState.current = null
+    contextPosition.current = null
+    setContextMenu(null)
     active.current = id
     setActiveId(id)
     setFrame(null)
@@ -417,8 +785,11 @@ export function EgoBrowserView({
     void send(action, id).catch(() => {})
   }
   const transition = async (method: "return" | "restore") => {
+    cancelLongPress()
+    pointerState.current = null
+    closeContextMenu()
     try {
-      await queue.current
+      await queue.current.idle()
       const next = await egoRequest<EgoSession>({
         method,
         sessionId,
@@ -464,8 +835,21 @@ export function EgoBrowserView({
     if (upload.current) upload.current.value = ""
   }
   const pointer = (event: React.PointerEvent<HTMLDivElement>, type: string) => {
+    // 右键由 contextmenu 统一发送一次，避免 pointer 与菜单事件重复触发网页逻辑。
+    if (event.button === 2) {
+      if (type === "mousePressed") rightPointer.current = event.pointerId
+      else if (type === "mouseReleased") rightPointer.current = null
+      return
+    }
+    if (rightPointer.current === event.pointerId) return
+    if (pointerState.current && pointerState.current.id !== event.pointerId) {
+      cancelLongPress()
+      pointerState.current.moved = true
+      return
+    }
+    if (type === "mousePressed") closeContextMenu()
     if (!editable || !frame || frame.tabId !== active.current) return
-    const image = event.currentTarget.querySelector("img")
+    const image = event.currentTarget.querySelector('[data-ego-surface="true"]')
     if (!image) return
     const bounds = image.getBoundingClientRect()
     if (
@@ -491,6 +875,7 @@ export function EgoBrowserView({
       )
     )
     if (type === "mousePressed") {
+      cancelLongPress()
       event.preventDefault()
       pointerState.current = {
         id: event.pointerId,
@@ -498,19 +883,63 @@ export function EgoBrowserView({
         y,
         touch: event.pointerType === "touch",
         moved: false,
+        held: false,
+        tabId: active.current!,
+        clientX: event.clientX,
+        clientY: event.clientY,
       }
       event.currentTarget.setPointerCapture(event.pointerId)
-      keyboard.current?.focus({ preventScroll: true })
+      if (event.pointerType !== "touch")
+        keyboard.current?.focus({ preventScroll: true })
+      else {
+        const pressed = pointerState.current
+        const version = inputVersion.current
+        const clientX = event.clientX
+        const clientY = event.clientY
+        longPress.current = setTimeout(() => {
+          longPress.current = null
+          if (
+            !mounted.current ||
+            pointerState.current !== pressed ||
+            pressed.moved ||
+            active.current !== pressed.tabId ||
+            version !== inputVersion.current
+          )
+            return
+          pressed.held = true
+          contextPosition.current = {
+            tabId: pressed.tabId,
+            x: Math.max(0, Math.min(clientX, window.innerWidth - 224)),
+            y: Math.max(0, Math.min(clientY - 48, window.innerHeight - 320)),
+          }
+          // 不模拟整页双击，避免长按链接时发生导航；选区由真实 Ego 页面建立。
+          act({ kind: "selectWord", x: pressed.x, y: pressed.y }, pressed.tabId)
+        }, 500)
+      }
     }
     const state = pointerState.current
     if (type === "mouseMoved") {
+      if (
+        state?.touch &&
+        !state.held &&
+        Math.hypot(
+          event.clientX - state.clientX,
+          event.clientY - state.clientY
+        ) >= 6
+      ) {
+        // 先取消长按再节流；不能漏掉 35ms 内的快速滑动而误弹选词菜单。
+        cancelLongPress()
+        state.moved = true
+      }
       if (!state && session?.control.owner !== clientId) return
       if (Date.now() - lastMove.current < 35) return
       lastMove.current = Date.now()
       if (state?.touch) {
+        if (state.held) return
         const deltaX = state.x - x
         const deltaY = state.y - y
-        if (Math.abs(deltaX) + Math.abs(deltaY) < 6 && !state.moved) return
+        if (!state.moved) return
+        cancelLongPress()
         state.moved = true
         state.x = x
         state.y = y
@@ -528,8 +957,11 @@ export function EgoBrowserView({
     }
     if (event.pointerType === "touch") {
       if (type !== "mouseReleased") return
+      cancelLongPress()
       pointerState.current = null
-      if (state?.moved) return
+      if (!state || state.moved || state.held || state.tabId !== active.current)
+        return
+      keyboard.current?.focus({ preventScroll: true })
       act({
         kind: "pointer",
         type: "mousePressed",
@@ -545,9 +977,109 @@ export function EgoBrowserView({
       type,
       x,
       y,
-      button: ["left", "middle", "right"][event.button] ?? "none",
+      // pointermove 的 button=-1 表示本次没有按键变化，不代表没有按住鼠标；拖选必须看 buttons。
+      button:
+        type === "mouseMoved"
+          ? event.buttons & 1
+            ? "left"
+            : event.buttons & 2
+              ? "right"
+              : event.buttons & 4
+                ? "middle"
+                : "none"
+          : (["left", "middle", "right"][event.button] ?? "none"),
       buttons: event.buttons,
     })
+  }
+  const openContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    // 触屏长按已有明确选词动作，忽略平台随后合成的右键，避免清除选区。
+    if (
+      pointerState.current?.touch ||
+      (event.nativeEvent as PointerEvent).pointerType === "touch"
+    )
+      return
+    rightPointer.current = null
+    if (
+      !editable ||
+      !frame ||
+      frame.tabId !== active.current ||
+      !active.current
+    )
+      return
+    const image = event.currentTarget.querySelector('[data-ego-surface="true"]')
+    if (!image) return
+    const bounds = image.getBoundingClientRect()
+    if (
+      !bounds.width ||
+      !bounds.height ||
+      event.clientX < bounds.left ||
+      event.clientX > bounds.right ||
+      event.clientY < bounds.top ||
+      event.clientY > bounds.bottom
+    )
+      return
+    contextPosition.current = {
+      tabId: active.current,
+      x: Math.max(0, Math.min(event.clientX, window.innerWidth - 224)),
+      y: Math.max(0, Math.min(event.clientY, window.innerHeight - 320)),
+    }
+    setContextMenu(null)
+    act({
+      kind: "context",
+      x: Math.min(
+        frame.width - 1,
+        ((event.clientX - bounds.left) * frame.width) / bounds.width
+      ),
+      y: Math.min(
+        frame.height - 1,
+        ((event.clientY - bounds.top) * frame.height) / bounds.height
+      ),
+      modifiers:
+        Number(event.altKey) +
+        Number(event.ctrlKey) * 2 +
+        Number(event.metaKey) * 4 +
+        Number(event.shiftKey) * 8,
+    })
+  }
+  const copyContextText = async (text: string) => {
+    if (!editable || !contextMenu || contextMenu.tabId !== active.current)
+      return
+    setCopyNotice("")
+    try {
+      const legacyCopy = () => {
+        // 局域网 HTTP 没有 Clipboard API，保留本设备复制入口，不读写执行机剪贴板。
+        const field = document.createElement("textarea")
+        field.value = text
+        field.readOnly = true
+        field.style.position = "fixed"
+        field.style.opacity = "0"
+        field.style.fontSize = "16px"
+        container.current?.append(field)
+        try {
+          field.focus({ preventScroll: true })
+          field.select()
+          field.setSelectionRange(0, text.length)
+          if (!document.execCommand("copy"))
+            throw new Error("当前设备不允许复制，请使用 HTTPS 后重试。")
+        } finally {
+          field.remove()
+        }
+      }
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(text)
+        } catch {
+          legacyCopy()
+        }
+      } else legacyCopy()
+      setCopyNotice("已复制到当前设备")
+      setError("")
+      closeContextMenu()
+    } catch (reason) {
+      setCopyFallback(text)
+      setError(egoError(reason))
+    }
   }
   const key = (
     event: React.KeyboardEvent<HTMLTextAreaElement>,
@@ -621,8 +1153,13 @@ export function EgoBrowserView({
     }
   }
 
-  return (
-    <div className="flex h-full min-h-0 flex-col text-xs">
+  const content = (
+    <div
+      ref={container}
+      role="region"
+      aria-label="Ego 浏览器"
+      className={`flex min-h-0 flex-col bg-background text-xs ${fullscreen ? "fixed inset-0 z-[100] h-dvh w-full" : "h-full"}`}
+    >
       <div className="flex h-8 shrink-0 items-center gap-1 border-b px-2">
         <span className="min-w-0 flex-1 truncate text-muted-foreground">
           会话 {sessionId} ·{" "}
@@ -651,7 +1188,114 @@ export function EgoBrowserView({
             交还 Agent
           </Button>
         )}
+        <span
+          className="hidden shrink-0 text-muted-foreground sm:inline"
+          aria-label="当前画面通道"
+        >
+          {rtcMode || videoMode || pixelMode
+            ? videoPlaying || pixelPlaying
+              ? "实时画面"
+              : "正在连接…"
+            : "兼容画面"}
+        </span>
+        <Button
+          variant="ghost"
+          className={actionClass}
+          aria-expanded={displaySettings}
+          aria-label="显示设置"
+          onClick={() => setDisplaySettings(!displaySettings)}
+        >
+          <Settings2 className="size-3.5" />
+          显示
+        </Button>
+        <Button
+          variant="ghost"
+          className={actionClass}
+          aria-label={fullscreen ? "退出 Ego 全屏" : "全屏显示 Ego"}
+          title={fullscreen ? "退出全屏（Esc）" : "全屏显示 Ego"}
+          aria-pressed={fullscreen}
+          onClick={() => void toggleFullscreen()}
+        >
+          {fullscreen ? (
+            <Minimize className="size-3.5" />
+          ) : (
+            <Maximize className="size-3.5" />
+          )}
+          {fullscreen ? "退出全屏" : "全屏"}
+        </Button>
       </div>
+      {displaySettings && (
+        <div
+          role="region"
+          aria-label="显示设置"
+          className="shrink-0 space-y-2 border-b px-3 py-2"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-muted-foreground">画面模式</span>
+            {[
+              { label: "实时（推荐）", mode: "rtc" },
+              { label: "兼容画面", mode: "image" },
+            ].map(({ label, mode }) => (
+              <Button
+                key={mode}
+                variant="ghost"
+                className={actionClass}
+                aria-pressed={
+                  mode === "rtc"
+                    ? rtcMode || pixelMode
+                    : !rtcMode && !videoMode && !pixelMode
+                }
+                onClick={() => {
+                  if (
+                    mode === "rtc"
+                      ? rtcMode || pixelMode
+                      : !rtcMode && !videoMode && !pixelMode
+                  )
+                    return
+                  // 切换只重连显示，不改变页面归属，也不替用户交还 Agent。
+                  setVideoTab(null)
+                  setVideoNotice("")
+                  setVideoDiagnostics(null)
+                  setVideoMode(false)
+                  setPixelTab(null)
+                  setPixelMode(mode === "rtc" && pixelDisplay)
+                  setRtcMode(mode === "rtc" && !pixelDisplay)
+                }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <p className="text-muted-foreground">
+            默认使用低延迟实时画面；连接失败会自动回退，无需选择技术通道。
+          </p>
+          <details className="text-muted-foreground">
+            <summary className="cursor-pointer">高级排障</summary>
+            <Button
+              variant="ghost"
+              className={actionClass}
+              aria-pressed={videoMode}
+              onClick={() => {
+                if (videoMode) return
+                setVideoTab(null)
+                setVideoNotice("")
+                setVideoDiagnostics(null)
+                setRtcMode(false)
+                setPixelMode(false)
+                setPixelTab(null)
+                setVideoMode(true)
+              }}
+            >
+              兼容视频（仅排障）
+            </Button>
+          </details>
+        </div>
+      )}
+      {videoNotice && (
+        <p role="status" className="border-b px-3 py-1 text-muted-foreground">
+          {videoNotice}
+        </p>
+      )}
       {session?.control.recoveryRequired && (
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <span className="flex-1">
@@ -957,14 +1601,22 @@ export function EgoBrowserView({
         onPointerUp={(event) => pointer(event, "mouseReleased")}
         onPointerMove={(event) => pointer(event, "mouseMoved")}
         onPointerCancel={(event) => {
+          cancelLongPress()
+          closeContextMenu()
           if (pointerState.current && !pointerState.current.touch)
             pointer(event, "mouseReleased")
           pointerState.current = null
         }}
-        onContextMenu={(event) => event.preventDefault()}
+        onLostPointerCapture={() => {
+          cancelLongPress()
+          pointerState.current = null
+        }}
+        onContextMenu={openContextMenu}
         onWheel={(event) => {
           if (!editable || !frame) return
-          const image = event.currentTarget.querySelector("img")
+          const image = event.currentTarget.querySelector(
+            '[data-ego-surface="true"]'
+          )
           if (!image) return
           const bounds = image.getBoundingClientRect()
           if (
@@ -988,12 +1640,16 @@ export function EgoBrowserView({
         {frame && frame.tabId === activeId ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={`data:image/jpeg;base64,${frame.data}`}
+            data-ego-surface={!videoPlaying && !pixelPlaying}
+            src={`data:image/${frame.format === "png" ? "png" : "jpeg"};base64,${frame.data}`}
             alt="Ego 执行端真实页面"
             draggable={false}
             className="h-auto max-h-full w-auto max-w-full select-none object-contain"
             width={frame.width}
             height={frame.height}
+            style={
+              videoPlaying || pixelPlaying ? { display: "none" } : undefined
+            }
           />
         ) : (
           <p className="px-4 text-center text-muted-foreground">
@@ -1005,6 +1661,31 @@ export function EgoBrowserView({
                   ? "页面暂不可用，请查看上方连接提示并确认恢复。"
                   : "正在获取真实页面…"}
           </p>
+        )}
+        {pixelMode && ready && activeId && (
+          <canvas
+            key={`pixels-${activeId}`}
+            ref={pixels}
+            data-ego-surface={pixelPlaying}
+            aria-label="Ego 执行端真实页面画面"
+            className="h-auto max-h-full w-auto max-w-full select-none object-contain"
+            style={pixelPlaying ? undefined : { position: "absolute" }}
+          />
+        )}
+        {(videoMode || rtcMode) && ready && activeId && (
+          <video
+            key={activeId}
+            ref={video}
+            data-ego-surface={videoPlaying}
+            aria-label="Ego 执行端视频画面"
+            autoPlay
+            muted
+            playsInline
+            className="h-auto max-h-full w-auto max-w-full select-none object-contain"
+            width={frame?.width}
+            height={frame?.height}
+            style={videoPlaying ? undefined : { position: "absolute" }}
+          />
         )}
         <textarea
           ref={keyboard}
@@ -1033,6 +1714,55 @@ export function EgoBrowserView({
           }}
         />
       </div>
+      {contextMenu && editable && contextMenu.tabId === activeId && (
+        <EgoContextMenu
+          menu={contextMenu}
+          portal={
+            fullscreen && container.current ? container.current : document.body
+          }
+          onClose={closeContextMenu}
+          onAction={act}
+          onCopy={(text) => void copyContextText(text)}
+          copyFallback={copyFallback}
+        />
+      )}
+      {copyNotice && (
+        <p
+          role="status"
+          className="shrink-0 border-t px-3 py-1 text-muted-foreground"
+        >
+          {copyNotice}
+        </p>
+      )}
+      {(videoMode || rtcMode || videoNotice) && (
+        <details className="shrink-0 border-t px-3 py-1 text-muted-foreground">
+          <summary className="cursor-pointer">连接诊断</summary>
+          <p className="break-all py-1">
+            当前访问：{typeof location !== "undefined" ? location.origin : ""} ·{" "}
+            {rtcMode
+              ? "WebRTC 媒体与输入通道"
+              : egoVideoUnavailableReason() || "视频能力可用"}
+          </p>
+          {videoDiagnostics && (
+            <p>
+              {videoDiagnostics.stage} · 第 {videoDiagnostics.attempt} 次连接 ·{" "}
+              {videoDiagnostics.width}×{videoDiagnostics.height} ·{" "}
+              {videoDiagnostics.fps == null
+                ? "帧率待确认"
+                : `${videoDiagnostics.fps.toFixed(1)} fps`}{" "}
+              · 缓冲 {Math.round(videoDiagnostics.bufferMs)}ms · 已收{" "}
+              {Math.round(videoDiagnostics.bytes / 1024)}KB
+              {videoDiagnostics.reason ? ` · ${videoDiagnostics.reason}` : ""}
+              {videoDiagnostics.transport
+                ? ` · ${videoDiagnostics.transport}`
+                : ""}
+              {videoDiagnostics.roundTripMs != null
+                ? ` · RTT ${Math.round(videoDiagnostics.roundTripMs)}ms`
+                : ""}
+            </p>
+          )}
+        </details>
+      )}
       {!!session?.downloads.length && (
         <div className="max-h-28 shrink-0 overflow-auto border-t px-2 py-1">
           {session.downloads.map((download) => (
@@ -1062,4 +1792,6 @@ export function EgoBrowserView({
       )}
     </div>
   )
+  // 工作区 Pane 可能裁剪或变换子元素；网页内全屏必须越过该布局边界。
+  return fullscreen ? createPortal(content, document.body) : content
 }

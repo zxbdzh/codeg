@@ -44,6 +44,32 @@ pub struct EgoService {
 }
 
 impl EgoService {
+    pub async fn stream(&self, request: Value) -> Result<reqwest::Response, String> {
+        // 先走同一监督器确认当前桥接；只读 session 不会接管或恢复任务。
+        self.request(json!({"method": "session", "sessionId": request["sessionId"]}))
+            .await?;
+        let (port, token) = {
+            let runtime = self.runtime.lock().await;
+            let bridge = runtime.as_ref().ok_or("Ego 桥接未启动。")?;
+            (bridge.port, bridge.token.clone())
+        };
+        let response = tokio::time::timeout(
+            Duration::from_secs(10),
+            self.client
+                .post(format!("http://127.0.0.1:{port}/"))
+                .bearer_auth(token)
+                .json(&request)
+                .send(),
+        )
+        .await
+        .map_err(|_| "Ego 画面通道启动超时。".to_string())?
+        .map_err(|_| "无法连接 Ego 画面通道。".to_string())?;
+        if !response.status().is_success() {
+            return Err("Ego 页面尚未就绪，请确认恢复后重试。".into());
+        }
+        Ok(response)
+    }
+
     pub fn shared(data_dir: &Path) -> Arc<Self> {
         static SERVICES: OnceLock<Mutex<HashMap<PathBuf, Arc<EgoService>>>> = OnceLock::new();
         let root = data_dir.join("ego");
@@ -120,6 +146,17 @@ impl EgoService {
             ("broker.mjs", include_str!("../../ego/broker.mjs")),
             ("control.mjs", include_str!("../../ego/control.mjs")),
             ("cdp.mjs", include_str!("../../ego/cdp.mjs")),
+            ("video.mjs", include_str!("../../ego/video.mjs")),
+            ("rtc.mjs", include_str!("../../ego/rtc.mjs")),
+            (
+                "pixel-stream.mjs",
+                include_str!("../../ego/pixel-stream.mjs"),
+            ),
+            ("pixel-png.mjs", include_str!("../../ego/pixel-png.mjs")),
+            (
+                "context-menu.mjs",
+                include_str!("../../ego/context-menu.mjs"),
+            ),
             (
                 "agent.bundle.js",
                 include_str!("../browser/js/agent.bundle.js"),
@@ -140,6 +177,12 @@ impl EgoService {
             "dataDir": self.root.join("sessions"), "endpoint": config.endpoint,
             "token": token, "readyPath": ready, "leasePath": lease,
             "agentBundlePath": runtime_dir.join("agent.bundle.js"),
+            // Ego CLI 的隔离 Node 环境不保证继承环境变量，执行路径通过可信启动配置传入。
+            "videoEncoder": std::env::var("CODEG_EGO_VIDEO_ENCODER").ok(),
+            "pixelCodec": std::env::var("CODEG_EGO_PIXEL_CODEC").ok(),
+            "rtcIceServers": std::env::var("CODEG_EGO_ICE_SERVERS")
+                .ok().and_then(|value| serde_json::from_str::<Value>(&value).ok())
+                .filter(Value::is_array).unwrap_or_else(|| json!([])),
         });
         let module = reqwest::Url::from_file_path(runtime_dir.join("broker.mjs"))
             .map_err(|_| "Ego 桥接脚本路径无效。")?;

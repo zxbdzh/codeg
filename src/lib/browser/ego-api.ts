@@ -1,4 +1,5 @@
 import { getTransport } from "@/lib/transport"
+import { randomUUID } from "@/lib/utils"
 
 export interface EgoConfig {
   enabled: boolean
@@ -7,6 +8,12 @@ export interface EgoConfig {
 }
 
 export interface EgoSession {
+  contextMenu?: {
+    handled: boolean
+    linkUrl: string | null
+    selection: string
+    editable: boolean
+  }
   views?: Record<string, string | null>
   revision: number
   sessionId: number
@@ -27,6 +34,7 @@ export interface EgoSession {
 
 export interface EgoFrame {
   data: string
+  format?: "jpeg" | "png"
   width: number
   height: number
   chooser: { mode: string } | null
@@ -44,12 +52,13 @@ export function egoClientId(): string {
   try {
     let client = localStorage.getItem(key)
     if (!client) {
-      client = crypto.randomUUID()
+      // 局域网 HTTP 没有原生 randomUUID；复用兼容实现，避免面板初始化时崩溃。
+      client = randomUUID()
       localStorage.setItem(key, client)
     }
     return client
   } catch {
-    fallbackClient ??= crypto.randomUUID()
+    fallbackClient ??= randomUUID()
     return fallbackClient
   }
 }
