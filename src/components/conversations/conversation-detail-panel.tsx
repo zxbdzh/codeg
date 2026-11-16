@@ -75,6 +75,10 @@ import {
   type ConversationForkTarget,
 } from "@/stores/conversation-fork-store"
 import { ConversationForkProgress } from "@/components/conversations/conversation-fork-progress"
+import { ConversationUndoDialog } from "@/components/conversations/conversation-undo-dialog"
+import { useConversationUndo } from "@/hooks/use-conversation-undo"
+import type { ConversationUndoResult } from "@/lib/conversation-undo"
+import { isConnectionBusy } from "@/lib/connection-teardown"
 import { openForkConversation } from "@/lib/research-branch-navigation"
 import {
   consumeForkConversationPrompt,
@@ -1407,6 +1411,70 @@ const ConversationTabView = memo(function ConversationTabView({
   const promptForkRequestRef = useRef(false)
   const [promptForking, setPromptForking] = useState(false)
   const tResearch = useTranslations("ResearchBranch")
+  const tUndo = useTranslations("ConversationUndo")
+  const handleUndoComplete = useCallback(
+    async (result: ConversationUndoResult, text: string) => {
+      // 先保存回填，再清除旧连接；重连失败也不会丢掉要重发的原文。
+      parkForkConversationPrompt(result.conversationId, text)
+      if (conn.connectionId) {
+        try {
+          await conn.disconnect()
+        } catch (error) {
+          console.warn("[ConversationUndo] old connection cleanup:", error)
+        }
+      }
+      refetchDetail(effectiveConversationId)
+      void refreshConversations()
+      try {
+        await conn.connect(
+          selectedAgent,
+          workingDirForConnection,
+          result.sessionId,
+          result.conversationId
+        )
+      } catch {
+        toast.info(tUndo("reconnectFailed"))
+      }
+    },
+    [
+      conn,
+      effectiveConversationId,
+      refetchDetail,
+      refreshConversations,
+      selectedAgent,
+      tUndo,
+      workingDirForConnection,
+    ]
+  )
+  const handleUndoFailure = useCallback(
+    async (failedConversationId: number) => {
+      refetchDetail(effectiveConversationId)
+      void refreshConversations()
+      const sessionId = detail?.summary.external_id ?? sessionIdRef.current
+      if (!sessionId || !workingDirForConnection) return
+      await conn.connect(
+        selectedAgent,
+        workingDirForConnection,
+        sessionId,
+        failedConversationId
+      )
+    },
+    [
+      conn,
+      detail?.summary.external_id,
+      effectiveConversationId,
+      refetchDetail,
+      refreshConversations,
+      selectedAgent,
+      workingDirForConnection,
+    ]
+  )
+  const conversationUndo = useConversationUndo({
+    conversationId: dbConversationId,
+    busy: promptForking || isConnectionBusy(conn),
+    onComplete: handleUndoComplete,
+    onFailure: handleUndoFailure,
+  })
   // 独立连接创建分支，主行、主连接和草稿保持原样；历史提示词只进入新分支的输入框。
   const handleForkFromPrompt = useCallback(
     async (
@@ -2269,6 +2337,14 @@ const ConversationTabView = memo(function ConversationTabView({
           availableCommands={connectionCommands}
           connStatus={connStatus}
           forkPromptBusy={promptForking}
+          undoPromptBusy={conversationUndo.pending}
+          onUndoFromPrompt={
+            selectedAgent === "codex" &&
+            hasPersistedConversation &&
+            !conn.isViewer
+              ? conversationUndo.requestUndo
+              : undefined
+          }
           isActive={isActive}
           sendSignal={sendSignal}
           detailLoading={detailLoading}
@@ -2405,6 +2481,12 @@ const ConversationTabView = memo(function ConversationTabView({
       topBanner={
         <>
           <ConversationForkProgress open={promptForking} />
+          <ConversationUndoDialog
+            open={conversationUndo.selection !== null}
+            pending={conversationUndo.pending}
+            onCancel={conversationUndo.cancelUndo}
+            onConfirm={() => void conversationUndo.confirmUndo()}
+          />
           <SessionConfigStaleBanner contextKey={tabId} />
           <PiProjectTrustBanner
             contextKey={tabId}

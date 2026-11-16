@@ -1,4 +1,16 @@
 {
+  "ConversationUndo": {
+    "action": "Undo from this message",
+    "title": "Undo this message and later conversation?",
+    "description": "Remove this message and everything after it from the current conversation. Its text returns to the composer for you to edit and resend. Workspace files and external actions are not restored.",
+    "cancel": "Cancel",
+    "confirm": "Undo",
+    "pending": "Undoing…",
+    "busy": "Wait for this conversation and its background tasks to finish before undoing.",
+    "done": "Undone. The original text is back in the composer and has not been sent.",
+    "failed": "Undo did not complete. Refresh and try again. Choose a saved turn's first message in a Codex session that supports native undo.",
+    "reconnectFailed": "Undone, but reconnecting failed. Reconnect to continue."
+  },
   "ConversationPanes": {
     "label": "Pane",
     "create": "New Pane",

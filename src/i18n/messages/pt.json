@@ -1,4 +1,16 @@
 {
+  "ConversationUndo": {
+    "action": "Desfazer a partir desta mensagem",
+    "title": "Desfazer esta mensagem e a conversa posterior?",
+    "description": "Remove esta mensagem e as seguintes da conversa atual. O texto original volta ao campo de entrada para editar e reenviar. Os arquivos e as ações externas não são restaurados.",
+    "cancel": "Cancelar",
+    "confirm": "Desfazer",
+    "pending": "Desfazendo…",
+    "busy": "Aguarde a conclusão da conversa e das tarefas em segundo plano.",
+    "done": "Desfeito. O texto original está no campo de entrada e não foi enviado.",
+    "failed": "Não foi possível concluir. Atualize e tente novamente. Selecione a primeira mensagem salva de um turno em uma sessão Codex compatível.",
+    "reconnectFailed": "Desfeito, mas a reconexão falhou. Conecte-se novamente para continuar."
+  },
   "ConversationPanes": {
     "label": "Pane",
     "create": "Novo Pane",

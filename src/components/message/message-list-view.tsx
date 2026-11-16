@@ -88,6 +88,7 @@ import {
   Plus,
   RefreshCw,
   ListTodo,
+  Undo2,
 } from "lucide-react"
 import { useCreateTaskFromMessage } from "./use-create-task-from-message"
 import { Button } from "@/components/ui/button"
@@ -234,6 +235,8 @@ interface MessageListViewProps {
     sourcePrompt?: ForkPromptSnapshot
   ) => void
   forkPromptBusy?: boolean
+  onUndoFromPrompt?: MessageListViewProps["onForkFromPrompt"]
+  undoPromptBusy?: boolean
   /**
    * Fork the session at a rendered assistant turn ("fork from here"). Undefined
    * hides the affordance everywhere in this view — pass it only where a fork
@@ -1271,6 +1274,27 @@ const UserMessageForkButton = memo(function UserMessageForkButton({
   )
 })
 
+const UserMessageUndoButton = memo(function UserMessageUndoButton({
+  disabled,
+  onUndo,
+}: {
+  disabled: boolean
+  onUndo: () => void
+}) {
+  const t = useTranslations("ConversationUndo")
+  return (
+    <MessageAction
+      tooltip={t(disabled ? "busy" : "action")}
+      className="opacity-0 group-hover/user-msg:opacity-100 group-focus-within/user-msg:opacity-100 transition-opacity self-end [@media(hover:none)]:opacity-100"
+      disabled={disabled}
+      onClick={onUndo}
+      size="icon-xs"
+    >
+      <Undo2 size={12} aria-hidden="true" />
+    </MessageAction>
+  )
+})
+
 /**
  * Flag the thread's last rendered element, which is where the backend's tail
  * fork would land — a user message or a compaction divider after the newest
@@ -1371,6 +1395,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   foldEpoch = 0,
   onForkFromTurn,
   onForkFromPrompt,
+  onUndoFromPrompt,
   promptFromStart = false,
   forkDisabled = false,
   isThreadTail = false,
@@ -1392,6 +1417,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
     fromStart?: boolean,
     sourcePrompt?: ForkPromptSnapshot
   ) => void
+  onUndoFromPrompt?: MessageListViewProps["onUndoFromPrompt"]
   promptFromStart?: boolean
   forkDisabled?: boolean
   /** Whether nothing follows this group in the thread — the one position where
@@ -1443,6 +1469,22 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
         ) : null}
         {group.role === "user" ? (
           <div className="group/user-msg flex w-fit ml-auto max-w-full items-start gap-1">
+            {onUndoFromPrompt &&
+            promptTurn &&
+            canForkPrompt &&
+            isResponseComplete ? (
+              <UserMessageUndoButton
+                disabled={forkDisabled}
+                onUndo={() =>
+                  onUndoFromPrompt(
+                    promptTurn.source_turn_id ?? promptTurn.id,
+                    promptText,
+                    promptFromStart,
+                    snapshotForkPrompt(promptTurn)
+                  )
+                }
+              />
+            ) : null}
             {onForkFromPrompt &&
             promptTurn &&
             canForkPrompt &&
@@ -1652,6 +1694,8 @@ export function MessageListView({
   onForkFromTurn,
   onForkFromPrompt,
   forkPromptBusy = false,
+  onUndoFromPrompt,
+  undoPromptBusy = false,
   liveRuns = null,
 }: MessageListViewProps) {
   const t = useTranslations("Folder.chat.messageList")
@@ -1971,7 +2015,8 @@ export function MessageListView({
   // the host keeps `onForkFromTurn` set for the whole "prompting" window (see
   // its gate in `conversation-detail-panel`), and every reply's footer says
   // "not right now" instead of dropping its button and shifting the icon row.
-  const forkBusy = connStatus === "prompting" || forkPromptBusy
+  const forkBusy =
+    connStatus === "prompting" || forkPromptBusy || undoPromptBusy
 
   const renderThreadItem = useCallback(
     (item: ThreadRenderItem) => {
@@ -2012,6 +2057,11 @@ export function MessageListView({
                 onRoundOpenChange={handleRoundOpenChange}
                 foldEpoch={fold.epoch}
                 onForkFromTurn={onForkFromTurn}
+                onUndoFromPrompt={
+                  item.phase === "persisted" && item.isResponseComplete
+                    ? onUndoFromPrompt
+                    : undefined
+                }
                 onForkFromPrompt={
                   onForkFromPrompt &&
                   supportsPromptFork(agentType) &&
@@ -2067,6 +2117,7 @@ export function MessageListView({
       handleRoundOpenChange,
       onForkFromTurn,
       onForkFromPrompt,
+      onUndoFromPrompt,
       agentType,
       forkAnchorTurns,
       detail,

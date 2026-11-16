@@ -1,4 +1,16 @@
 {
+  "ConversationUndo": {
+    "action": "Ab dieser Nachricht zurücknehmen",
+    "title": "Diese Nachricht und den weiteren Verlauf zurücknehmen?",
+    "description": "Diese Nachricht und alles danach werden aus dem aktuellen Gespräch entfernt. Der Originaltext wird zum Bearbeiten und erneuten Senden ins Eingabefeld übernommen. Dateien und externe Aktionen werden nicht wiederhergestellt.",
+    "cancel": "Abbrechen",
+    "confirm": "Zurücknehmen",
+    "pending": "Wird zurückgenommen…",
+    "busy": "Warte, bis das Gespräch und seine Hintergrundaufgaben abgeschlossen sind.",
+    "done": "Zurückgenommen. Der Originaltext steht ungesendet im Eingabefeld.",
+    "failed": "Die Rücknahme wurde nicht abgeschlossen. Aktualisiere das Gespräch und versuche es erneut. Wähle die erste gespeicherte Nachricht einer Runde in einer unterstützten Codex-Sitzung.",
+    "reconnectFailed": "Zurückgenommen, aber die Verbindung ist fehlgeschlagen. Verbinde dich erneut."
+  },
   "ConversationPanes": {
     "label": "Pane",
     "create": "Neues Pane",

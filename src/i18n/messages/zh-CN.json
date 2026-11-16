@@ -1,4 +1,16 @@
 {
+  "ConversationUndo": {
+    "action": "撤回到此消息之前（Undo）",
+    "title": "撤回这条消息及后续对话？",
+    "description": "在当前会话中移除这条消息及其后的对话，将原文放回输入框，由你修改后重新发送。工作区文件和已经执行的外部操作不会恢复。",
+    "cancel": "取消",
+    "confirm": "确认撤回",
+    "pending": "正在撤回…",
+    "busy": "请等待当前会话和后台任务完成后再撤回。",
+    "done": "已撤回，原文已放回输入框，尚未发送。",
+    "failed": "撤回未完成，请刷新会话后重试。需要支持原生回退的 Codex 会话，并选择已保存的轮首消息。",
+    "reconnectFailed": "已撤回，但重新连接失败。请重新连接后继续。"
+  },
   "ConversationPanes": {
     "label": "Pane",
     "create": "新建 Pane",

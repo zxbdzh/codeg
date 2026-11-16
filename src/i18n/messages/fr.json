@@ -1,4 +1,16 @@
 {
+  "ConversationUndo": {
+    "action": "Annuler depuis ce message",
+    "title": "Annuler ce message et la suite de la conversation ?",
+    "description": "Supprime ce message et les suivants de la conversation actuelle. Le texte revient dans la zone de saisie pour être modifié et renvoyé. Les fichiers et les actions externes ne sont pas restaurés.",
+    "cancel": "Annuler",
+    "confirm": "Confirmer",
+    "pending": "Annulation…",
+    "busy": "Attendez la fin de la conversation et de ses tâches en arrière-plan.",
+    "done": "Annulé. Le texte original est dans la zone de saisie et n’a pas été envoyé.",
+    "failed": "L’annulation n’a pas abouti. Actualisez puis réessayez. Sélectionnez le premier message enregistré d’un tour dans une session Codex compatible.",
+    "reconnectFailed": "Annulé, mais la reconnexion a échoué. Reconnectez-vous pour continuer."
+  },
   "ConversationPanes": {
     "label": "Pane",
     "create": "Nouveau Pane",

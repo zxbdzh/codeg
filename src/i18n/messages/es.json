@@ -1,4 +1,16 @@
 {
+  "ConversationUndo": {
+    "action": "Deshacer desde este mensaje",
+    "title": "¿Deshacer este mensaje y la conversación posterior?",
+    "description": "Elimina este mensaje y los posteriores de la conversación actual. El texto original vuelve al editor para modificarlo y reenviarlo. Los archivos y las acciones externas no se restauran.",
+    "cancel": "Cancelar",
+    "confirm": "Deshacer",
+    "pending": "Deshaciendo…",
+    "busy": "Espera a que terminen la conversación y sus tareas en segundo plano.",
+    "done": "Deshecho. El texto original está en el editor y no se ha enviado.",
+    "failed": "No se pudo completar. Actualiza y vuelve a intentarlo. Elige el primer mensaje guardado de un turno en una sesión de Codex compatible.",
+    "reconnectFailed": "Deshecho, pero no se pudo reconectar. Vuelve a conectarte para continuar."
+  },
   "ConversationPanes": {
     "label": "Pane",
     "create": "Nuevo Pane",
