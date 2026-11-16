@@ -13,7 +13,7 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react"
-import { motion, useReducedMotion } from "motion/react"
+import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { useTranslations } from "next-intl"
 import { useTabStore } from "@/stores/tab-store"
 import { useHistoryBackDismiss } from "@/hooks/use-history-back-dismiss"
@@ -514,46 +514,132 @@ export function ConversationPaneSwitcher({
               )}
             >
               <span className="flex min-w-0 items-center gap-1.5">
-                {activity == null ? (
-                  <Layers2 className="size-3 shrink-0 text-muted-foreground" />
-                ) : (
-                  <span
-                    data-pane-activity={activity.kind}
-                    className="relative flex size-3 shrink-0 items-center justify-center"
-                    aria-hidden="true"
-                  >
-                    {activity.kind === "running" ? (
-                      <Activity className="size-3 text-primary" />
-                    ) : activity.kind === "waiting" ? (
-                      <span className="size-1.5 rounded-full bg-amber-500 ring-2 ring-amber-500/10" />
-                    ) : activity.kind === "error" ? (
-                      <AlertCircle className="size-3 text-destructive" />
-                    ) : (
-                      <Check className="size-3 text-emerald-600 dark:text-emerald-400" />
-                    )}
-                  </span>
-                )}
+                <AnimatePresence initial={false}>
+                  {activity == null ? (
+                    <motion.span
+                      key="idle"
+                      initial={{ opacity: 0, scale: 0.82 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.82 }}
+                      transition={{ duration: reduceMotion ? 0 : 0.14 }}
+                      className="relative flex size-3 shrink-0 items-center justify-center"
+                      aria-hidden="true"
+                    >
+                      <Layers2 className="size-3 text-muted-foreground" />
+                    </motion.span>
+                  ) : (
+                    <motion.span
+                      key={activity.kind}
+                      data-pane-activity={activity.kind}
+                      initial={{ opacity: 0, scale: 0.78 }}
+                      animate={
+                        reduceMotion
+                          ? { opacity: 1, scale: 1 }
+                          : activity.kind === "error"
+                            ? {
+                                opacity: 1,
+                                scale: [0.82, 1.06, 1],
+                                x: [0, -2, 2, 0],
+                              }
+                            : activity.kind === "completed"
+                              ? {
+                                  opacity: 1,
+                                  scale: [0.8, 1.14, 1],
+                                }
+                              : { opacity: 1, scale: 1 }
+                      }
+                      exit={{ opacity: 0, scale: 0.78 }}
+                      transition={{
+                        duration: reduceMotion
+                          ? 0
+                          : activity.kind === "error"
+                            ? 0.38
+                            : activity.kind === "completed"
+                              ? 0.32
+                              : 0.18,
+                        ease: "easeOut",
+                      }}
+                      className="relative flex size-3 shrink-0 items-center justify-center"
+                      aria-hidden="true"
+                    >
+                      {activity.kind === "running" ? (
+                        // 运行中保持图形方向稳定，只用轻微呼吸提示持续工作，
+                        // 避免高频旋转抢走对话内容的注意力。
+                        <motion.span
+                          animate={
+                            reduceMotion
+                              ? { opacity: 1, scale: 1 }
+                              : {
+                                  opacity: [0.78, 1, 0.78],
+                                  scale: [0.94, 1, 0.94],
+                                }
+                          }
+                          transition={
+                            reduceMotion
+                              ? { duration: 0 }
+                              : {
+                                  duration: 1.8,
+                                  ease: "easeInOut",
+                                  repeat: Infinity,
+                                }
+                          }
+                        >
+                          <Activity className="size-3 text-primary" />
+                        </motion.span>
+                      ) : activity.kind === "waiting" ? (
+                        <motion.span
+                          animate={
+                            reduceMotion
+                              ? { opacity: 1, scale: 1 }
+                              : {
+                                  opacity: [0.64, 1, 0.64],
+                                  scale: [0.82, 1, 0.82],
+                                }
+                          }
+                          transition={
+                            reduceMotion
+                              ? { duration: 0 }
+                              : {
+                                  duration: 1.4,
+                                  ease: "easeInOut",
+                                  repeat: Infinity,
+                                }
+                          }
+                          className="size-1.5 rounded-full bg-amber-500 ring-2 ring-amber-500/10"
+                        />
+                      ) : activity.kind === "error" ? (
+                        <AlertCircle className="size-3 text-destructive" />
+                      ) : (
+                        <Check className="size-3 text-emerald-600 dark:text-emerald-400" />
+                      )}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
                 <span className="truncate">{active.name}</span>
               </span>
               {activityLabel && (
                 <>
                   <span className="h-2.5 w-px shrink-0 bg-border" aria-hidden />
-                  <motion.span
-                    key={`${activity?.kind}-${activity?.count}`}
-                    initial={reduceMotion ? false : { opacity: 0, y: 2 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={cn(
-                      "shrink-0 truncate text-[10px] font-normal tabular-nums",
-                      mobile ? "max-w-16" : "max-w-28",
-                      activity?.kind === "error"
-                        ? "text-destructive"
-                        : activity?.kind === "waiting"
-                          ? "text-amber-600 dark:text-amber-400"
-                          : "text-muted-foreground"
-                    )}
-                  >
-                    {activityLabel}
-                  </motion.span>
+                  <AnimatePresence initial={false}>
+                    <motion.span
+                      key={`${activity?.kind}-${activity?.count}`}
+                      initial={reduceMotion ? false : { opacity: 0, y: 2 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: reduceMotion ? 0 : -2 }}
+                      transition={{ duration: reduceMotion ? 0 : 0.14 }}
+                      className={cn(
+                        "shrink-0 truncate text-[10px] font-normal tabular-nums",
+                        mobile ? "max-w-16" : "max-w-28",
+                        activity?.kind === "error"
+                          ? "text-destructive"
+                          : activity?.kind === "waiting"
+                            ? "text-amber-600 dark:text-amber-400"
+                            : "text-muted-foreground"
+                      )}
+                    >
+                      {activityLabel}
+                    </motion.span>
+                  </AnimatePresence>
                 </>
               )}
             </motion.button>

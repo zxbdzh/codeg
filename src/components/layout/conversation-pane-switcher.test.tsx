@@ -299,7 +299,7 @@ describe("浮动 Pane 切换栏", () => {
         useTabStore.getState().rawTabs
       ),
     })
-    render(
+    const { container } = render(
       <NextIntlClientProvider locale="zh-CN" messages={messages}>
         <StaticConnectionStoreProvider store={store}>
           <ConversationPaneSwitcher />
@@ -307,6 +307,9 @@ describe("浮动 Pane 切换栏", () => {
       </NextIntlClientProvider>
     )
     expect(screen.getByText("进行中")).toBeInTheDocument()
+    expect(
+      container.querySelector('[data-pane-activity="running"]')
+    ).toBeInTheDocument()
     act(() => {
       connection = {
         ...connection,
@@ -319,6 +322,9 @@ describe("浮动 Pane 切换栏", () => {
       listeners.forEach((listener) => listener())
     })
     expect(screen.getByText("待处理")).toBeInTheDocument()
+    expect(
+      container.querySelector('[data-pane-activity="waiting"]')
+    ).toBeInTheDocument()
     expect(screen.queryByRole("tab", { name: "Pane 1" })).toBeNull()
   })
 
