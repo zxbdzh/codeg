@@ -2698,13 +2698,10 @@ function SplitStripCornerReserve({ side }: { side: "left" | "right" }) {
   const isMobile = useIsMobile()
   const { isOpen: sidebarOpen } = useSidebarContext()
   const { isOpen: auxOpen } = useAuxPanelContext()
-  const { mode, conversationMaximized, focusedTabId } = useWorkspaceView()
+  const { mode, conversationMaximized } = useWorkspaceView()
   const { isMac, isWindows, isLinux } = usePlatform()
   const { zoomLevel } = useZoomLevel()
   if (isMobile) return null
-  // Zoom 的内容层已经覆盖整个工作区；继续给窗口按钮预留空白会让
-  // 聚焦标签条左右缩进，视觉上像仍停留在原来的分屏列里。
-  if (focusedTabId !== null) return null
   const holdsRight = mode === "conversation" || conversationMaximized
   if (side === "right" && !holdsRight) return null
   const width =

@@ -110,9 +110,9 @@ describe("corner reserve slide", () => {
     expect(start).toBeGreaterThan(-1)
     const body = panel.slice(start, panel.indexOf("\n}\n", start))
     expect(body).toContain(
-      "const { mode, conversationMaximized, focusedTabId } = useWorkspaceView()"
+      "const { mode, conversationMaximized } = useWorkspaceView()"
     )
-    expect(body).toContain("if (focusedTabId !== null) return null")
+    expect(body).not.toContain("if (focusedTabId !== null) return null")
     expect(body).toContain(
       'const holdsRight = mode === "conversation" || conversationMaximized'
     )
@@ -126,37 +126,28 @@ describe("corner reserve slide", () => {
   // 留下左侧空白，视觉上像一列窄文件编辑器飘在右边。
   it("covers the workspace when a file tab is focused", () => {
     expect(layout).toMatch(
-      /fileFocused &&\s*"absolute inset-0 z-30 w-\[100vw\] bg-background ws-transparent-bg/
+      /fileFocused &&\s*"absolute inset-0 z-30 w-full bg-background ws-transparent-bg/
     )
     expect(layout).toContain(
       'filesMaximized || fileFocused ? "absolute" : "relative"'
     )
   })
 
-  // 单标签聚焦时，侧栏、辅助面板、状态栏和顶层窗口 chrome 都退出布局；
-  // 只留下标签条自身的退出按钮。否则右上角的固定按钮会与会话头部动作
-  // 叠成上下两排，退出按钮也因旧预留宽度而偏离窗口右缘。
-  it("leaves only the focused tab strip chrome visible", () => {
+  // 单标签聚焦只改变中间内容列；左右侧栏、辅助面板、状态栏和窗口 chrome
+  // 继续保留，用户可以在聚焦会话时切换项目或打开旁问。
+  it("keeps the surrounding workspace chrome visible while focused", () => {
     expect(layout).toContain("const focusActive = focusedTabId !== null")
-    expect(layout).toContain("{!focusActive && <StatusBar />}")
-    expect(layout).toContain("{!isMobile && !focusActive && (")
+    expect(layout).toContain("const sidebarOpen = baseSidebarOpen")
+    expect(layout).toContain("const auxOpen = auxOpenRequested")
+    expect(layout).toContain("const terminalOpen = terminalOpenRequested")
+    expect(layout).toContain("<StatusBar />")
+    expect(layout).toContain("{!isMobile && (")
+    expect(layout).not.toContain("FocusHideSurface")
     expect(layout).toMatch(
-      /const leftReserve = focusActive\s*\? 0\s*: leftChromeReserve\(/
+      /const leftReserve = leftChromeReserve\(/
     )
     expect(layout).toMatch(
-      /const rightReserve = focusActive\s*\? 0\s*: rightChromeReserve\(/
-    )
-  })
-
-  // 窗口级聚焦与标签条各自计算过 chrome 预留；两处都要收零，否则退出按钮
-  // 虽然可见，却仍被原先给终端/辅助面板/窗口按钮留出的空白推离右缘。
-  it("drops both strip reserves while a tab is focused", () => {
-    expect(layout).toContain("const focusActive = focusedTabId !== null")
-    expect(layout).toMatch(
-      /const leftReserve = focusActive\s*\?\s*0\s*: leftChromeReserve\(/
-    )
-    expect(layout).toMatch(
-      /const rightReserve = focusActive\s*\?\s*0\s*: rightChromeReserve\(/
+      /const rightReserve = rightChromeReserve\(/
     )
   })
 
@@ -183,11 +174,12 @@ describe("corner reserve slide", () => {
     expect(layout).toContain("filesMaximized || fileFocused")
   })
 
-  // 外层 shell 用固定 px 锁定侧栏/辅助面板宽度；只改面板组比例仍会把中间
-  // 工作区挤窄。聚焦期间两侧宽度必须一起归零，退出后由原状态恢复。
-  it("releases the outer shell side panels while focused", () => {
-    expect(layout).toContain("if (focusActive) {")
-    expect(layout).toContain(
+  // 外层 shell 用固定 px 锁定侧栏/辅助面板宽度；聚焦时只重排中间内容，
+  // 不能把两侧面板压成 0，否则用户会失去导航和旁问入口。
+  it("keeps outer shell side panels while focused", () => {
+    expect(layout).toContain("const requestedLeft = sidebarOpen")
+    expect(layout).toContain("const requestedRight = auxOpen")
+    expect(layout).not.toContain(
       "return { left: 0, right: 0, totalWidth: shellPanelsWidth }"
     )
   })
