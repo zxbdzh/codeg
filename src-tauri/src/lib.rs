@@ -64,6 +64,7 @@ pub mod process;
 #[cfg(all(feature = "tauri-runtime", target_os = "macos"))]
 mod relaunch;
 pub mod research_branch;
+pub mod conversation_undo;
 pub mod runtime_lock;
 pub mod side_question;
 pub mod supervise;
@@ -1980,6 +1981,7 @@ mod tauri_app {
                 commit_message_commands::delete_commit_message_settings,
                 side_question_commands::side_question_ask,
                 research_branch_commands::conversation_fork,
+                research_branch_commands::conversation_undo,
                 side_question_commands::side_question_cancel,
                 folders::git_rollback_file,
                 folders::git_add_files,

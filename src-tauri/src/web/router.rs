@@ -775,6 +775,10 @@ pub fn build_router_with_proxy_auth(
             post(handlers::research_branch::conversation_fork),
         )
         .route(
+            "/conversation_undo",
+            post(handlers::research_branch::conversation_undo),
+        )
+        .route(
             "/side_question_cancel",
             post(handlers::side_question::side_question_cancel),
         )

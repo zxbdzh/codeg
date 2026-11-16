@@ -29,3 +29,30 @@ pub async fn conversation_fork(
     )
     .await
 }
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn conversation_undo(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, crate::db::AppDatabase>,
+    manager: tauri::State<'_, crate::acp::manager::ConnectionManager>,
+    conversation_id: i32,
+    source_turn_id: String,
+    source_prompt: crate::research_branch::PromptSnapshot,
+) -> Result<crate::conversation_undo::UndoResult, crate::app_error::AppCommandError> {
+    use tauri::Manager;
+    let directory = app.path().app_data_dir().map_err(|error| {
+        crate::app_error::AppCommandError::task_execution_failed(error.to_string())
+    })?;
+    crate::conversation_undo::undo(
+        &db,
+        &manager,
+        &crate::paths::resolve_effective_data_dir(&directory),
+        crate::conversation_undo::UndoRequest {
+            conversation_id,
+            source_turn_id,
+            source_prompt,
+        },
+    )
+    .await
+}

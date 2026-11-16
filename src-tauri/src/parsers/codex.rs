@@ -216,6 +216,17 @@ impl CodexParser {
         }
     }
 
+    pub(crate) fn undo_turn_id(
+        &self,
+        conversation_id: &str,
+        prompt: &MessageTurn,
+    ) -> Result<Option<String>, ParseError> {
+        let path = self
+            .find_current_rollout(conversation_id)
+            .ok_or_else(|| ParseError::ConversationNotFound(conversation_id.to_string()))?;
+        Ok(undo_turn_id(&self.rollout_lines(&path)?, prompt))
+    }
+
     /// Test-only constructor that lets callers point the parser at a fixture
     /// directory instead of `~/.codex/sessions`.
     #[cfg(any(test, feature = "test-utils"))]
@@ -7144,6 +7155,53 @@ fn decode_user_text(raw: &str) -> std::borrow::Cow<'_, str> {
 /// path that compares or counts it.
 fn normalize_user_text(raw: &str) -> String {
     strip_blocked_resource_mentions(&decode_user_text(raw))
+}
+
+fn undo_turn_id(lines: &[String], prompt: &MessageTurn) -> Option<String> {
+    let text = prompt
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut current_turn = None;
+    let mut has_prompt = false;
+    let mut matches = Vec::new();
+    for line in lines {
+        let record: serde_json::Value = serde_json::from_str(line).ok()?;
+        if record["type"] != "event_msg" {
+            continue;
+        }
+        let payload = &record["payload"];
+        match payload["type"].as_str() {
+            Some("task_started") => {
+                current_turn = payload["turn_id"].as_str().map(str::to_owned);
+                has_prompt = false;
+            }
+            Some("user_message") => {
+                let raw = payload["message"].as_str().unwrap_or_default();
+                if parse_codex_timestamp(&record) == Some(prompt.timestamp)
+                    && normalize_user_text(raw) == text
+                {
+                    // 原生回退以整轮为单位，不能把轮中追加消息误当作轮首而多撤回前文。
+                    if has_prompt || current_turn.is_none() {
+                        return None;
+                    }
+                    matches.push(current_turn.clone()?);
+                }
+                has_prompt = true;
+            }
+            Some("task_complete" | "turn_aborted") => {
+                current_turn = None;
+            }
+            _ => {}
+        }
+    }
+    // 重复文本可以靠时间定位；身份仍有歧义时拒绝操作，绝不猜测回退点。
+    (matches.len() == 1).then(|| matches.remove(0))
 }
 
 fn strip_blocked_resource_mentions(input: &str) -> String {
@@ -17840,6 +17898,67 @@ mod tests {
             summary_of("cfg-update-sum", &records(true)).message_count,
             summary_of("cfg-plain-sum", &records(false)).message_count
         );
+    }
+
+    #[test]
+    fn undo_turn_id_only_accepts_the_first_prompt_in_a_turn() {
+        let line = |timestamp: &str, payload: serde_json::Value| {
+            serde_json::json!({
+                "timestamp": timestamp,
+                "type": "event_msg",
+                "payload": payload,
+            })
+            .to_string()
+        };
+        let lines = vec![
+            line(
+                "2026-11-16T10:00:00Z",
+                serde_json::json!({"type": "task_started", "turn_id": "turn-1"}),
+            ),
+            line(
+                "2026-11-16T10:00:01Z",
+                serde_json::json!({"type": "user_message", "message": "first"}),
+            ),
+            line(
+                "2026-11-16T10:00:02Z",
+                serde_json::json!({"type": "agent_message", "message": "answer"}),
+            ),
+            line(
+                "2026-11-16T10:00:03Z",
+                serde_json::json!({"type": "task_complete", "turn_id": "turn-1"}),
+            ),
+            line(
+                "2026-11-16T10:01:00Z",
+                serde_json::json!({"type": "task_started", "turn_id": "turn-2"}),
+            ),
+            line(
+                "2026-11-16T10:01:01Z",
+                serde_json::json!({"type": "user_message", "message": "target"}),
+            ),
+        ];
+        let prompt = MessageTurn {
+            id: "turn-1".to_string(),
+            role: TurnRole::User,
+            blocks: vec![ContentBlock::Text {
+                text: "target".to_string(),
+            }],
+            timestamp: "2026-11-16T10:01:01Z".parse().unwrap(),
+            usage: None,
+            duration_ms: None,
+            model: None,
+            completed_at: None,
+            agent_message_id: None,
+        };
+        assert_eq!(
+            super::undo_turn_id(&lines, &prompt),
+            Some("turn-2".to_string())
+        );
+
+        let steer = MessageTurn {
+            timestamp: "2026-11-16T10:00:01Z".parse().unwrap(),
+            ..prompt
+        };
+        assert_eq!(super::undo_turn_id(&lines, &steer), None);
     }
 
     /// #948: built with an agent's launch env, the parser reads where THAT
