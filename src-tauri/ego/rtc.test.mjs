@@ -7,7 +7,7 @@ import { EgoBroker } from "./broker.mjs";
 test("文字画面保留采集分辨率，不再强制缩成 1080p，仍限制帧率与码率", async () => {
   let parameters;
   const track = { requestFrame() {}, stop() {} };
-  const context = { drawImage() {} };
+  const context = { drawImage() {}, fillRect() {} };
   const canvas = {
     getContext: () => context,
     captureStream: () => ({ getVideoTracks: () => [track] }),
@@ -33,12 +33,52 @@ test("文字画面保留采集分辨率，不再强制缩成 1080p，仍限制�
   sandbox.__codegRtc.frame({ data: "data", width: 2548, height: 1330 });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(canvas.width, 2548);
-  assert.equal(canvas.height, 1330);
+  assert.equal(canvas.height, 1332);
   assert.equal(track.contentHint, "text");
   assert.equal(parameters.encodings[0].scaleResolutionDownBy, 1);
   assert.equal(parameters.encodings[0].maxFramerate, 30);
   assert.equal(parameters.encodings[0].maxBitrate, 16000000);
   assert.equal(parameters.degradationPreference, "maintain-resolution");
+});
+
+test("奇数像素画面只补齐编码边缘，不缩小或重采样小字，坐标包含补齐区域", async () => {
+  const draws = [];
+  const messages = [];
+  let heartbeat;
+  class Peer {
+    static instance;
+    iceGatheringState = "complete";
+    localDescription = { type: "answer", sdp: "answer" };
+    constructor() { Peer.instance = this; }
+    async setRemoteDescription() {}
+    addTrack() { return { getParameters: () => ({}), async setParameters() {} }; }
+    async createAnswer() { return this.localDescription; }
+    async setLocalDescription() {}
+  }
+  const canvas = { getContext: () => ({
+    drawImage: (...args) => draws.push(args.slice(1)),
+    fillRect() {},
+  }), captureStream: () => ({ getVideoTracks: () => [{ requestFrame() {} }] }) };
+  const sandbox = {
+    document: { createElement: () => canvas },
+    setInterval: callback => { heartbeat = callback; return 1; },
+    clearInterval() {}, atob: () => "image", Blob, RTCPeerConnection: Peer,
+    createImageBitmap: async () => ({ width: 469, height: 657, close() {} }),
+  };
+  runInNewContext(rtcSenderSource, sandbox);
+  await sandbox.__codegRtc.open({ type: "offer", sdp: "offer" }, []);
+  Peer.instance.ondatachannel({ channel: {
+    label: "codeg-input", readyState: "open",
+    send: message => messages.push(JSON.parse(message)),
+  } });
+  sandbox.__codegRtc.frame({ data: "data", width: 390, height: 546, format: "png" });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(canvas.width, 472, "只补齐边缘，不压成468像素");
+  assert.equal(canvas.height, 660);
+  assert.deepEqual(draws.at(-1), [0, 0, 469, 657]);
+  heartbeat();
+  assert.equal(messages.at(-1).width, 390 * 472 / 469);
+  assert.equal(messages.at(-1).height, 546 * 660 / 657);
 });
 
 test("WebRTC 发送目标隐藏且不激活窗口，失败也清理自己的目标", async () => {
@@ -81,11 +121,22 @@ function fixture() {
     if (id !== "page") throw new Error("wrong target");
     return { tab: group.tabs[0] };
   };
-  broker.watchFrames = async () => () => {};
+  const frameRequests = [];
+  broker.watchFrames = async request => { frameRequests.push(request); return () => {}; };
   broker.humanAction = async (_group, _page, action) => action.kind === "context"
     ? { selection: "private", linkUrl: null, handled: false } : undefined;
-  return { broker, group, input: payload => input(JSON.stringify(payload)) };
+  return { broker, group, frameRequests, input: payload => input(JSON.stringify(payload)) };
 }
+
+test("WebRTC 采集使用原像素PNG，避免JPEG与视频双重有损编码", async () => {
+  const state = fixture();
+  await state.broker.rtcOffer({ sessionId: 7, clientId: "device-first", tabId: "page", offer: { type: "offer", sdp: "offer" } });
+  try {
+    assert.equal(state.frameRequests[0].captureFormat, "png");
+  } finally {
+    await state.broker.rtcClose({ sessionId: 7, clientId: "device-first", id: "rtc-one" });
+  }
+});
 
 test("观看 WebRTC 不接管，数据输入逐次校验 epoch 和设备，不接受自报 target", async () => {
   const state = fixture();

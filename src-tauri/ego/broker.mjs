@@ -1024,7 +1024,8 @@ export class EgoBroker {
       connected = await rtc.start(request.offer, this.rtcIceServers);
       group.control.checkRecovery();
       if (!group.tabs.some(tab => tab.id === request.tabId && tab.live)) fail("no_such_tab", "原页面已关闭。");
-      stopFrames = await this.watchFrames(request, observer);
+      // 页面小字先保留原像素，再交给视频编码，避免JPEG与视频连续丢失笔画。
+      stopFrames = await this.watchFrames({ ...request, captureFormat: "png" }, observer);
       if (rtc.closed) { stopFrames(); fail("rtc_closed", "实时通道已结束。"); }
       timer = setInterval(() => {
         if (Date.now() - lastSeen > 15000 || this.disconnected || group.control.recoveryRequired) void rtc.close();

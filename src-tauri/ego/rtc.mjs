@@ -21,14 +21,22 @@ export const rtcSenderSource = `(() => {
       if (closed) { image.close(); return; }
       // CDP 已限制采集尺寸；不要再缩到 1080p，否则小字在编码前就不可逆地丢失笔画。
       const scale = Math.min(1, 2560 / image.width, 1600 / image.height);
-      const nextWidth = Math.max(2, Math.floor(image.width * scale / 2) * 2);
-      const nextHeight = Math.max(2, Math.floor(image.height * scale / 2) * 2);
+      const drawWidth = Math.round(image.width * scale);
+      const drawHeight = Math.round(image.height * scale);
+      const nextWidth = Math.max(4, Math.ceil(drawWidth / 4) * 4);
+      const nextHeight = Math.max(4, Math.ceil(drawHeight / 4) * 4);
       if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
         canvas.width = nextWidth; canvas.height = nextHeight;
       }
+      // 四像素对齐避免浏览器视频管线再缩放奇数宽度；只补白边，不重采样正文。
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
       context.imageSmoothingQuality = "high";
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      image.close(); width = frame.width; height = frame.height;
+      context.drawImage(image, 0, 0, drawWidth, drawHeight);
+      image.close();
+      // 补齐区域也计入坐标范围，避免右侧白边导致人工点击逐渐偏移。
+      width = frame.width * canvas.width / drawWidth;
+      height = frame.height * canvas.height / drawHeight;
       track.requestFrame();
     } finally { decoding = false; if (pending) void draw(); }
   };
