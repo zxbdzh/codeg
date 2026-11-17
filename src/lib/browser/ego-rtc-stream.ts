@@ -106,6 +106,12 @@ export function watchEgoRtc(
     let presentedBefore = 0
     let ended = false
     const valid = () => !stopped && current === generation
+    const markPlaying = () => {
+      if (!valid() || ended || seenFrame) return
+      seenFrame = true
+      retries = 0
+      onPlaying()
+    }
     const fail = (reason: string) => {
       if (!valid() || ended) return
       ended = true
@@ -173,6 +179,8 @@ export function watchEgoRtc(
           frameCallback = video.requestVideoFrameCallback(() => {
             if (!valid() || ended) return
             presentedFrames++
+            // 呈现回调已证明真实画面到达，不应再等下一秒的诊断采样才显示。
+            markPlaying()
             observe()
           })
         }
@@ -290,9 +298,7 @@ export function watchEgoRtc(
               (typeof video.requestVideoFrameCallback !== "function" ||
                 presentedFrames > 0)
             ) {
-              seenFrame = true
-              retries = 0
-              onPlaying()
+              markPlaying()
             }
             if ((!seenFrame && now - start > 10000) || now - lastPacket > 9000)
               fail("WebRTC 等待画面超时，未自动改变页面或控制权")
