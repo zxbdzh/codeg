@@ -296,7 +296,10 @@ fn collect(
             if raw.len() > MAX_JSON_BYTES {
                 return Err(invalid("Collection attachments exceed 10 MB"));
             }
-            Some(if encoded {
+            Some(if let Some(uri) = uri.as_deref().filter(|_| raw.is_empty()) {
+                // Undo 的空正文代表受控附件副本；再次收藏必须复制原字节，不能把发送标记当成空文件。
+                read_asset(uri, uploads_root, allow_local_paths)?
+            } else if encoded {
                 STANDARD
                     .decode(raw)
                     .map_err(|_| invalid("Invalid attachment base64"))?

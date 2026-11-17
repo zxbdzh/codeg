@@ -20,9 +20,14 @@ use crate::research_branch::PromptSnapshot;
 
 mod cleanup;
 mod codex;
+mod deepseek;
 mod gemini;
+mod hermes;
 mod history;
+mod input;
+mod opencode;
 pub(crate) mod operations;
+mod pi;
 mod stop;
 pub use cleanup::{cleanup_expired, cleanup_task};
 pub use history::{
@@ -64,6 +69,7 @@ pub struct UndoPreview {
     pub affected_turns: usize,
     pub affected_user_messages: usize,
     pub prompt: MessageTurn,
+    pub input: Vec<crate::acp::types::PromptInputBlock>,
     pub issues: Vec<UndoIssue>,
     pub tasks: Vec<UndoTask>,
 }
@@ -118,9 +124,22 @@ pub async fn preview(
             .map_err(|error| failed(error.to_string()))?;
         let issues = match row.agent_type {
             AgentType::ClaudeCode =>
-                history::attachment_issues(&env, &session_id, &detail.turns[index])?,
+                history::attachment_issues(row.agent_type, &env, &session_id, &detail.turns[index])?,
             AgentType::Gemini => gemini::issues(&env, &session_id, &detail.turns[index])?,
-            _ => Vec::new(),
+            AgentType::Pi => pi::issues(&env, &session_id, &detail.turns[index])?,
+            AgentType::Hermes => hermes::issues(&env, &session_id, &detail.turns[index])?,
+            AgentType::OpenCode => opencode::issues(&env, &session_id, &detail.turns[index])?,
+            AgentType::DeepSeek => deepseek::issues(&env, &session_id, &detail.turns[index])?,
+            AgentType::Codex => Vec::new(),
+            _ => vec![UndoIssue {
+                code: "unsupported_native_undo".into(),
+                label: "This agent has no verified exact native history rewind. Its conversation has been kept.".into(),
+            }],
+        };
+        let input = if row.agent_type == AgentType::ClaudeCode && issues.is_empty() {
+            history::claude_input(row.agent_type, &env, &session_id, &detail.turns[index])?
+        } else {
+            input::from_turn(&detail.turns[index])
         };
         Ok(UndoPreview {
             conversation_id: request.conversation_id,
@@ -134,6 +153,7 @@ pub async fn preview(
                 .filter(|turn| matches!(turn.role, TurnRole::User))
                 .count(),
             prompt: detail.turns[index].clone(),
+            input,
             issues,
             tasks,
         })

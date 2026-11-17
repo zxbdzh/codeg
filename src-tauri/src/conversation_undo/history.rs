@@ -34,6 +34,7 @@ pub struct CommitResult {
     pub conversation_id: i32,
     pub session_id: String,
     pub prompt: MessageTurn,
+    pub input: Vec<crate::acp::types::PromptInputBlock>,
 }
 
 #[derive(Deserialize)]
@@ -108,7 +109,14 @@ pub async fn redo_status(
         _ => None,
     };
     let available = native
-        .and_then(|path| std::fs::read(path).ok())
+        .and_then(|path| {
+            read_native(
+                row.agent_type,
+                &path,
+                row.external_id.as_deref().unwrap_or_default(),
+            )
+            .ok()
+        })
         .is_some_and(|current| backup["revertedDigest"] == digest(&current));
     Ok(RedoStatus {
         available: available && expires_at.is_some(),
@@ -195,7 +203,7 @@ pub async fn redo(
     if backup["path"].as_str() != path.to_str() {
         return Err(conflict());
     }
-    let current = std::fs::read(&path).map_err(AppCommandError::io)?;
+    let current = read_native(row.agent_type, &path, &session_id)?;
     if backup["revertedDigest"] != digest(&current) {
         return Err(conflict());
     }
@@ -260,10 +268,10 @@ pub async fn redo(
         .map_err(|_| failed("The previous session is still shutting down"))?;
     }
     // 已续聊或被原生 CLI 改动的历史不能被备份覆盖，退出旧连接后再核对一次。
-    if std::fs::read(&path).map_err(AppCommandError::io)? != current {
+    if read_native(row.agent_type, &path, &session_id)? != current {
         return Err(conflict());
     }
-    atomic_write(&path, original)?;
+    publish_native(row.agent_type, &path, &session_id, &current, original)?;
     if let Err(error) = std::fs::remove_file(&backup_file) {
         // 历史已恢复，清理失败不把成功恢复报告为失败；指纹校验会阻止再次恢复。
         tracing::warn!(%error, "could not consume Redo backup");
@@ -345,7 +353,13 @@ pub async fn commit(
     if request.stop_confirmed
         && matches!(
             row.agent_type,
-            AgentType::ClaudeCode | AgentType::Codex | AgentType::Gemini
+            AgentType::ClaudeCode
+                | AgentType::Codex
+                | AgentType::Gemini
+                | AgentType::Pi
+                | AgentType::Hermes
+                | AgentType::OpenCode
+                | AgentType::DeepSeek
         )
     {
         super::stop::stop_work(db, manager, row.agent_type, &selected.session_id).await?;
@@ -402,6 +416,16 @@ pub async fn commit(
         }
         AgentType::Gemini => {
             super::gemini::replacement(&env, &selected.session_id, &selected.prompt)?
+        }
+        AgentType::Pi => super::pi::replacement(&env, &selected.session_id, &selected.prompt)?,
+        AgentType::Hermes => {
+            super::hermes::replacement(&env, &selected.session_id, &selected.prompt)?
+        }
+        AgentType::OpenCode => {
+            super::opencode::replacement(&env, &selected.session_id, &selected.prompt)?
+        }
+        AgentType::DeepSeek => {
+            super::deepseek::replacement(&env, &selected.session_id, &selected.prompt)?
         }
         _ => {
             return Err(AppCommandError::invalid_input(
@@ -471,7 +495,7 @@ pub async fn commit(
         .await
         .map_err(|_| failed("The previous session is still shutting down"))?;
     }
-    if std::fs::read(&path).map_err(AppCommandError::io)? != original {
+    if read_native(row.agent_type, &path, &selected.session_id)? != original {
         return Err(conflict());
     }
     if let Some(draft) = request.current_draft {
@@ -487,6 +511,7 @@ pub async fn commit(
         .await?;
     }
     let now = Utc::now();
+    let input = super::input::snapshot(data_dir, selected.input)?;
     // 原生历史落盘前先持久化原文；备份失败时绝不截断有效对话。
     let backup = json!({
         "version": 1,
@@ -504,14 +529,21 @@ pub async fn commit(
         &backup_path(data_dir, request.conversation_id),
         &serde_json::to_vec(&backup).map_err(|error| failed(error.to_string()))?,
     )?;
-    if std::fs::read(&path).map_err(AppCommandError::io)? != original {
+    if read_native(row.agent_type, &path, &selected.session_id)? != original {
         return Err(conflict());
     }
-    atomic_write(&path, &replacement)?;
+    publish_native(
+        row.agent_type,
+        &path,
+        &selected.session_id,
+        &original,
+        &replacement,
+    )?;
     Ok(CommitResult {
         conversation_id: request.conversation_id,
         session_id: selected.session_id,
         prompt: selected.prompt,
+        input,
     })
 }
 
@@ -526,9 +558,46 @@ fn native_path(
             session_id,
         ),
         AgentType::Gemini => super::gemini::path(env, session_id),
+        AgentType::Pi => super::pi::path(env, session_id),
+        AgentType::Hermes => Ok(super::hermes::path(env)),
+        AgentType::OpenCode => super::opencode::path(env),
+        AgentType::DeepSeek => super::deepseek::path(env, session_id),
         _ => Err(AppCommandError::invalid_input(
             "Precise history Undo has not been verified for this agent",
         )),
+    }
+}
+
+fn read_native(
+    agent: AgentType,
+    path: &Path,
+    session_id: &str,
+) -> Result<Vec<u8>, AppCommandError> {
+    match agent {
+        AgentType::Hermes => super::hermes::read(path, session_id),
+        AgentType::OpenCode => super::opencode::read(path, session_id),
+        AgentType::DeepSeek => super::deepseek::read(path),
+        _ => std::fs::read(path).map_err(AppCommandError::io),
+    }
+}
+
+fn publish_native(
+    agent: AgentType,
+    path: &Path,
+    session_id: &str,
+    expected: &[u8],
+    replacement: &[u8],
+) -> Result<(), AppCommandError> {
+    match agent {
+        AgentType::Hermes => super::hermes::publish(path, session_id, expected, replacement),
+        AgentType::OpenCode => super::opencode::publish(path, session_id, expected, replacement),
+        AgentType::DeepSeek => super::deepseek::publish(path, expected, replacement),
+        _ => {
+            if read_native(agent, path, session_id)? != expected {
+                return Err(conflict());
+            }
+            atomic_write(path, replacement)
+        }
     }
 }
 
@@ -556,15 +625,13 @@ fn claude_path(projects: &Path, session_id: &str) -> Result<PathBuf, AppCommandE
 }
 
 pub(super) fn attachment_issues(
+    agent_type: AgentType,
     env: &crate::parsers::AgentEnv,
     session_id: &str,
     prompt: &MessageTurn,
 ) -> Result<Vec<super::UndoIssue>, AppCommandError> {
     use base64::Engine;
-    let path = claude_path(
-        &crate::parsers::claude::resolve_claude_projects_dir_for_env(env),
-        session_id,
-    )?;
+    let path = native_path(agent_type, env, session_id)?;
     let original = std::fs::read(path).map_err(AppCommandError::io)?;
     let prefix = match claude_prefix(&original, prompt) {
         Ok(prefix) => prefix,
@@ -595,7 +662,7 @@ pub(super) fn attachment_issues(
             .or_else(|| block["title"].as_str())
             .map(str::to_owned)
             .unwrap_or_else(|| format!("{kind} #{}", index + 1));
-        if kind == "image" {
+        if kind == "image" || kind == "document" {
             // 只认可历史中的原始字节，不拿同一路径后来修改的文件冒充原附件。
             let data = block["source"]["data"]
                 .as_str()
@@ -605,10 +672,11 @@ pub(super) fn attachment_issues(
                 .strip_prefix("data:")
                 .and_then(|data| data.split_once(";base64,").map(|(_, data)| data))
                 .unwrap_or(data);
-            if data.is_empty()
-                || base64::engine::general_purpose::STANDARD
-                    .decode(data)
-                    .is_err()
+            if !(kind == "document" && block["source"]["type"] == "text" && !data.is_empty())
+                && (data.is_empty()
+                    || base64::engine::general_purpose::STANDARD
+                        .decode(data)
+                        .is_err())
             {
                 issues.push(super::UndoIssue {
                     code: "missing_original_attachment".into(),
@@ -623,6 +691,63 @@ pub(super) fn attachment_issues(
         }
     }
     Ok(issues)
+}
+
+pub(super) fn claude_input(
+    agent_type: AgentType,
+    env: &crate::parsers::AgentEnv,
+    session_id: &str,
+    prompt: &MessageTurn,
+) -> Result<Vec<crate::acp::types::PromptInputBlock>, AppCommandError> {
+    use crate::acp::types::PromptInputBlock;
+    let original =
+        std::fs::read(native_path(agent_type, env, session_id)?).map_err(AppCommandError::io)?;
+    let prefix = claude_prefix(&original, prompt)?;
+    let source = std::str::from_utf8(&original[prefix.len()..])
+        .map_err(|error| failed(error.to_string()))?;
+    let record: Value = serde_json::from_str(source.lines().next().unwrap_or_default())
+        .map_err(|error| failed(error.to_string()))?;
+    let mut input = Vec::new();
+    for block in record["message"]["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        match block["type"].as_str() {
+            Some("text") => input.push(PromptInputBlock::Text {
+                text: block["text"].as_str().unwrap_or_default().to_owned(),
+            }),
+            Some("image") => {
+                let source = &block["source"];
+                input.push(PromptInputBlock::Image {
+                    data: source["data"].as_str().unwrap_or_default().to_owned(),
+                    mime_type: source["media_type"]
+                        .as_str()
+                        .unwrap_or("image/png")
+                        .to_owned(),
+                    uri: None,
+                });
+            }
+            Some("document") => {
+                let source = &block["source"];
+                let text = (source["type"] == "text")
+                    .then(|| source["data"].as_str().unwrap_or_default().to_owned());
+                input.push(PromptInputBlock::Resource {
+                    uri: format!(
+                        "attachment://{}",
+                        block["title"].as_str().unwrap_or("attachment.bin")
+                    ),
+                    mime_type: source["media_type"].as_str().map(str::to_owned),
+                    blob: text
+                        .is_none()
+                        .then(|| source["data"].as_str().unwrap_or_default().to_owned()),
+                    text,
+                });
+            }
+            _ => {}
+        }
+    }
+    Ok(input)
 }
 
 fn claude_prefix(original: &[u8], prompt: &MessageTurn) -> Result<Vec<u8>, AppCommandError> {

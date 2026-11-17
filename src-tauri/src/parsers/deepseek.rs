@@ -204,6 +204,10 @@ impl DeepSeekParser {
         }
     }
 
+    pub(crate) fn undo_log_path(&self, session_id: &str) -> Option<PathBuf> {
+        resolve_generation_log_path(&self.find_session_dir(session_id)?).map(|(path, _)| path)
+    }
+
     /// Construct a parser pointed at an explicit sessions directory (test
     /// fixtures).
     ///

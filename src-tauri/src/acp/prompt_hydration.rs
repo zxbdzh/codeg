@@ -1,4 +1,4 @@
-//! Server-side re-hydration of uploaded image attachments.
+//! Server-side re-hydration of uploaded and restored attachments.
 //!
 //! In web / remote-workspace mode the composer does NOT inline image bytes
 //! into the `/acp_prompt` JSON body — a couple of screenshots of base64 would
@@ -11,8 +11,8 @@
 //! a complete ACP image block (multimodal understanding is preserved — a bare
 //! ResourceLink would leave it to the model to maybe-read the file as text).
 //!
-//! Two marker shapes exist, mirroring the two wire encodings the composer's
-//! `imageAttachmentToPromptBlock` picks from the agent's prompt capabilities:
+//! Image markers mirror the wire encodings the composer picks from the
+//! agent's prompt capabilities:
 //!
 //! - `Image { data: "", uri: Some("file://…") }` — agents that accept native
 //!   image content.
@@ -20,10 +20,13 @@
 //!   — agents that reject images but take embedded context (e.g. Grok). The
 //!   client already chose the caps-correct shape, so hydration only fills
 //!   bytes and never converts between shapes.
+//! Undo also restores binary resources with `blob: Some("")` and text
+//! resources with `text: Some("")`; both refer to a private attachment copy
+//! under an allowed Codeg directory.
 //!
 //! Anything else — a block whose payload is already populated (the desktop
 //! local path, which inlines over Tauri IPC where no body limit exists), a
-//! non-`file://` uri (`clipboard://…` synth ids), a non-image resource — is
+//! non-`file://` uri (`clipboard://…` synth ids), or a resource link — is
 //! left untouched, so the desktop flow is byte-identical to before.
 //!
 //! Security: only files under `codeg_uploads_root()` are readable here. The
@@ -76,7 +79,7 @@ pub const HYDRATION_TOTAL_MAX_BYTES: u64 = 64 * 1024 * 1024;
 /// semaphore`, never the reverse, so it cannot deadlock.
 static HYDRATION_CONCURRENCY: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
-/// Fill empty image payloads whose uri points at an uploaded file.
+/// Fill empty attachment payloads whose uri points at a controlled file.
 ///
 /// Two passes: first resolve + validate every marker (jail, regular-file,
 /// per-file cap, aggregate cap) WITHOUT reading any content, then read and
@@ -98,13 +101,12 @@ pub async fn hydrate_prompt_blocks_from_roots(
 ) -> Result<(), AcpError> {
     // Pass 1: resolve each marker to a validated canonical path.
     let mut resolved: Vec<(usize, std::path::PathBuf)> = Vec::new();
-    let canonical_roots: Vec<std::path::PathBuf> = futures_util::future::join_all(
-        allowed_roots.iter().map(tokio::fs::canonicalize),
-    )
-    .await
-    .into_iter()
-    .filter_map(Result::ok)
-    .collect();
+    let canonical_roots: Vec<std::path::PathBuf> =
+        futures_util::future::join_all(allowed_roots.iter().map(tokio::fs::canonicalize))
+            .await
+            .into_iter()
+            .filter_map(Result::ok)
+            .collect();
     let mut total_bytes: u64 = 0;
     for (idx, block) in blocks.iter().enumerate() {
         let uri = match block {
@@ -115,10 +117,15 @@ pub async fn hydrate_prompt_blocks_from_roots(
             } if data.is_empty() => uri,
             PromptInputBlock::Resource {
                 uri,
-                mime_type: Some(mime),
                 blob: Some(blob),
                 ..
-            } if blob.is_empty() && mime.starts_with("image/") => uri,
+            } if blob.is_empty() => uri,
+            PromptInputBlock::Resource {
+                uri,
+                text: Some(text),
+                blob: None,
+                ..
+            } if text.is_empty() => uri,
             _ => continue,
         };
         let Some(path) = file_uri_to_path(uri) else {
@@ -135,7 +142,10 @@ pub async fn hydrate_prompt_blocks_from_roots(
                 path.display()
             ))
         })?;
-        if !canonical_roots.iter().any(|root| canonical.starts_with(root)) {
+        if !canonical_roots
+            .iter()
+            .any(|root| canonical.starts_with(root))
+        {
             return Err(AcpError::protocol(format!(
                 "image attachment unavailable: {} is outside Codeg attachment directories",
                 canonical.display()
@@ -195,6 +205,13 @@ pub async fn hydrate_prompt_blocks_from_roots(
             PromptInputBlock::Resource {
                 blob: Some(blob), ..
             } => *blob = BASE64.encode(&bytes),
+            PromptInputBlock::Resource {
+                text: Some(text), ..
+            } => {
+                // 文本附件恢复原来的文本编码，不能把它变成二进制附件或重读工作区文件。
+                *text = String::from_utf8(bytes)
+                    .map_err(|_| AcpError::protocol("restored text attachment is not UTF-8"))?;
+            }
             _ => unreachable!("resolved indices only point at marker blocks"),
         }
     }

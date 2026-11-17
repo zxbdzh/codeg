@@ -196,6 +196,7 @@ pub(super) async fn commit(
         &serde_json::to_vec(&detail.turns[..index]).map_err(|error| failed(error.to_string()))?,
     );
     let now = Utc::now();
+    let input = super::input::snapshot(data_dir, selected.input)?;
     let mut backup = json!({
         "version": 1, "strategy": "codex-native",
         "conversationId": request.conversation_id, "agentType": "codex",
@@ -240,6 +241,7 @@ pub(super) async fn commit(
         conversation_id: request.conversation_id,
         session_id: selected.session_id,
         prompt: selected.prompt,
+        input,
     })
 }
 
