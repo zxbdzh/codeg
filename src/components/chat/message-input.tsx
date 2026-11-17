@@ -95,10 +95,13 @@ import { isPrimaryPointerCoarse } from "@/hooks/use-is-coarse-pointer"
 import { useAgentVocabulary } from "@/hooks/use-agent-vocabulary"
 import {
   clearMessageInputDraftV2,
+  flushMessageInputDrafts,
   loadMessageInputDraftV2,
+  privateDraftImagePath,
   saveMessageInputDraftV2,
   setLiveComposerContent,
 } from "@/lib/message-input-draft"
+import { readFileBase64, UPLOAD_MAX_BYTES } from "@/lib/api"
 import { rankByTextMatch } from "@/lib/fuzzy-text-match"
 import {
   RichComposer,
@@ -313,29 +316,6 @@ interface MessageInputProps {
 // sanitize/harden pipeline, so it renders as an inert file badge, not a blocked
 // link — see {@link buildEmbeddedReferenceUri} / {@link isEmbeddedReferenceUri}.
 
-/** Drop embedded-attachment reference badges from a draft document before it is
- *  persisted: their bytes live only in the in-memory `embeddedPayloadsRef` map
- *  (never serialized into the draft), so a restored badge would send nothing.
- *  Identified purely by the unambiguous `codeg://embedded/…` display uri (no map
- *  needed) — a real `file://` attachment is never matched. Stripping at save
- *  keeps the live badge visible this session but matches the pre-existing
- *  behavior where out-of-band pasted bytes don't survive a draft round-trip. */
-function stripEmbeddedReferences(doc: JSONContent): JSONContent {
-  if (!doc.content) return doc
-  const content: JSONContent[] = []
-  for (const child of doc.content) {
-    if (
-      child.type === "reference" &&
-      typeof child.attrs?.uri === "string" &&
-      isEmbeddedReferenceUri(child.attrs.uri)
-    ) {
-      continue
-    }
-    content.push(stripEmbeddedReferences(child))
-  }
-  return { ...doc, content }
-}
-
 /** The notice for a send held while the agent is still responding (see
  *  `handleSend`), under one id: pressing Enter into the hold again updates the
  *  toast on screen instead of stacking another copy of it. */
@@ -525,6 +505,8 @@ export function MessageInput({
   })
   const {
     attachments,
+    setAttachments,
+    beginIntake,
     embeddedPayloadsRef,
     clearAttachments,
     hasUploadingImage,
@@ -594,19 +576,22 @@ export function MessageInput({
   // Markdown) ~300ms after the last change so inline reference badges survive a
   // reload — a Markdown round-trip would downgrade them to plain links.
   const draftSaveTimerRef = useRef<number | null>(null)
+  const draftAttachmentsRef = useRef(attachments)
+  draftAttachmentsRef.current = attachments
   /** Persist (or clear) the draft from the document as it stands right now. */
   const writeDraftNow = useCallback(() => {
     const ed = editorRef.current
     if (!ed || !effectiveDraftStorageKey) return
-    if (ed.isEmpty()) {
+    const currentAttachments = draftAttachmentsRef.current
+    if (ed.isEmpty() && currentAttachments.length === 0) {
       clearMessageInputDraftV2(effectiveDraftStorageKey)
     } else {
-      saveMessageInputDraftV2(
-        effectiveDraftStorageKey,
-        stripEmbeddedReferences(ed.getJSON())
-      )
+      saveMessageInputDraftV2(effectiveDraftStorageKey, ed.getJSON(), {
+        attachments: currentAttachments,
+        embeddedPayloads: Object.fromEntries(embeddedPayloadsRef.current),
+      })
     }
-  }, [effectiveDraftStorageKey])
+  }, [effectiveDraftStorageKey, embeddedPayloadsRef])
   const scheduleDraftSave = useCallback(() => {
     if (typeof window === "undefined") return
     if (!effectiveDraftStorageKey || isEditingQueueItem) return
@@ -631,6 +616,20 @@ export function MessageInput({
     draftSaveTimerRef.current = null
     writeDraftNow()
   }, [writeDraftNow])
+
+  useEffect(() => {
+    const persistBeforeLeaving = () => {
+      // 页面离开可能早于 300ms 防抖；先采集编辑器，再同步落盘，不能等空闲回调。
+      flushDraftSave()
+      flushMessageInputDrafts()
+    }
+    window.addEventListener("pagehide", persistBeforeLeaving)
+    return () => window.removeEventListener("pagehide", persistBeforeLeaving)
+  }, [flushDraftSave])
+
+  useEffect(() => {
+    if (hydratedRef.current) scheduleDraftSave()
+  }, [attachments, scheduleDraftSave])
 
   useEffect(() => {
     return () => {
@@ -680,6 +679,49 @@ export function MessageInput({
       } else if (effectiveDraftStorageKey) {
         const loaded = loadMessageInputDraftV2(effectiveDraftStorageKey)
         if (loaded?.kind === "doc") {
+          if (loaded.assets) {
+            for (const [key, block] of Object.entries(
+              loaded.assets.embeddedPayloads
+            ))
+              embeddedPayloadsRef.current.set(key, block)
+            const restoredAttachments = loaded.assets.attachments
+            setAttachments(restoredAttachments)
+            for (const attachment of restoredAttachments) {
+              if (attachment.type !== "image" || attachment.data) continue
+              const path = privateDraftImagePath(attachment.uri)
+              if (!path) continue
+              const settle = beginIntake()
+              setAttachments((current) =>
+                current.map((item) =>
+                  item.id === attachment.id
+                    ? { ...item, uploading: true }
+                    : item
+                )
+              )
+              void readFileBase64(path, UPLOAD_MAX_BYTES)
+                .then((data) => {
+                  // 只补回同一附件；读取期间的文字编辑或手动移除不能被旧恢复覆盖。
+                  setAttachments((current) =>
+                    current.map((item) =>
+                      item.id === attachment.id
+                        ? { ...item, data, uploading: false }
+                        : item
+                    )
+                  )
+                })
+                .catch((error) => {
+                  setAttachments((current) =>
+                    current.map((item) =>
+                      item.id === attachment.id
+                        ? { ...item, uploading: false }
+                        : item
+                    )
+                  )
+                  toast.error(toErrorMessage(error))
+                })
+                .finally(settle)
+            }
+          }
           ed.setDoc(loaded.doc)
         } else if (loaded?.kind === "legacyMarkdown") {
           ed.setText(loaded.markdown)
@@ -697,6 +739,9 @@ export function MessageInput({
     editingDraftBlocks,
     effectiveDraftStorageKey,
     hydrateFromBlocks,
+    setAttachments,
+    beginIntake,
+    embeddedPayloadsRef,
   ])
 
   // Focus the composer the moment the editor exists and this tab is active, so

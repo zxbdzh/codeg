@@ -218,7 +218,7 @@ import type {
   SessionConfigOptionInfo,
 } from "@/lib/types"
 
-import { MessageInput } from "./message-input"
+import { MessageInput, type ComposerHistoryHandle } from "./message-input"
 import {
   composerBoxMinHeight,
   composerEditableMinHeight,
@@ -266,6 +266,80 @@ const nextFrame = () =>
 
 describe("MessageInput (RichComposer integration)", () => {
   afterEach(() => cleanup())
+
+  it("keeps restored images and documents with the edited draft after remount", async () => {
+    const draftKey = "conv:undo-full-draft"
+    clearMessageInputDraftV2(draftKey)
+    const historyHandle = { current: null as ComposerHistoryHandle | null }
+    const onSend = vi.fn()
+    const first = renderInput({
+      draftStorageKey: draftKey,
+      historyHandleRef: historyHandle,
+      onSend,
+    })
+    await waitFor(() =>
+      expect(composerHandle.current?.getEditor()).toBeTruthy()
+    )
+    await nextFrame()
+    act(() => {
+      historyHandle.current!.restore(
+        {
+          id: "original-input",
+          role: "user",
+          timestamp: "2026-11-17T01:00:00Z",
+          blocks: [{ type: "text", text: "Original prompt" }],
+        },
+        [
+          { type: "text", text: "Original prompt" },
+          { type: "image", data: "QUJD", mime_type: "image/png" },
+          {
+            type: "resource",
+            uri: "attachment://original-notes.txt",
+            mime_type: "text/plain",
+            text: "Original attachment bytes",
+            blob: null,
+          },
+        ]
+      )
+    })
+    act(() =>
+      composerHandle.current!.getEditor()!.commands.insertContent(" edited")
+    )
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350))
+    })
+    first.unmount()
+    const second = renderInput({ draftStorageKey: draftKey, onSend })
+    await waitFor(() =>
+      expect(composerHandle.current?.getEditor()).toBeTruthy()
+    )
+    await nextFrame()
+    expect(screen.getByAltText("image.png")).toBeInTheDocument()
+    expect(
+      second.container.querySelector('[role="textbox"]')
+    ).toHaveTextContent("edited")
+    expect(
+      second.container.querySelector('[role="textbox"]')
+    ).toHaveTextContent("original-notes.txt")
+    const send = second.container.querySelector<HTMLButtonElement>(
+      `button[title="${enMessages.Folder.chat.messageInput.send}"]`
+    )
+    fireEvent.click(send!)
+    expect(onSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ type: "image", data: "QUJD" }),
+          expect.objectContaining({
+            type: "resource",
+            text: "Original attachment bytes",
+          }),
+        ]),
+      }),
+      null
+    )
+    second.unmount()
+    clearMessageInputDraftV2(draftKey)
+  })
 
   it("mounts and renders the rich-text composer surface", async () => {
     const { container } = renderInput({})
