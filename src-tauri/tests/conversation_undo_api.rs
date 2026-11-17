@@ -451,6 +451,93 @@ async fn preview_returns_original_image_and_exact_range_without_changing_history
 }
 
 #[tokio::test]
+#[ignore = "requires CODEG_TEST_CLAUDE_SDK matching the installed native Claude runtime"]
+async fn native_claude_undo_and_redo_reload_the_original_parent_uuid_chain() {
+    let fixture = Fixture::new().await;
+    let home = fixture.root.path().join("claude");
+    let project = home.join("projects/undo-project");
+    let session = "bfcc62fe-ab35-4b73-90ef-4b78a8515bc1";
+    let records = std::fs::read_to_string(project.join("undo-session.jsonl")).unwrap();
+    let records = records
+        .replace("undo-session", session)
+        .replace("user-1", "11111111-1111-4111-8111-111111111111")
+        .replace("reply-1", "22222222-2222-4222-8222-222222222222")
+        .replace("user-2", "33333333-3333-4333-8333-333333333333")
+        .replace("reply-2", "44444444-4444-4444-8444-444444444444");
+    std::fs::write(project.join(format!("{session}.jsonl")), records).unwrap();
+    std::fs::remove_file(project.join("undo-session.jsonl")).unwrap();
+    conversation_service::bind_external_id(
+        &fixture.state.db.conn,
+        fixture.conversation_id,
+        session,
+        &[],
+    )
+    .await
+    .unwrap();
+    async fn native(home: &std::path::Path, session: &str) -> Value {
+        let module = std::env::var("CODEG_TEST_CLAUDE_SDK").expect("native Claude SDK path");
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            codeg_lib::process::tokio_command("node")
+                .arg("--input-type=module")
+                .arg("-e")
+                .arg(include_str!("fixtures/conversation_undo/native_claude.mjs"))
+                .arg(module)
+                .arg(session)
+                .env("CLAUDE_CONFIG_DIR", home)
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice(&output.stdout).unwrap()
+    }
+    assert_eq!(
+        native(&home, session).await,
+        json!({"messages":[
+            {"id":"11111111-1111-4111-8111-111111111111","role":"user"},
+            {"id":"22222222-2222-4222-8222-222222222222","role":"assistant"},
+            {"id":"33333333-3333-4333-8333-333333333333","role":"user"},
+            {"id":"44444444-4444-4444-8444-444444444444","role":"assistant"},
+        ]})
+    );
+    let preview = fixture.preview().await;
+    let result=fixture.server.post("/api/conversation_undo_commit")
+        .add_header("authorization",format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id,"sourceTurnId":preview["sourceTurnId"],"historyRevision":preview["historyRevision"]}))
+        .await;
+    assert_eq!(result.status_code(), 200, "{}", result.text());
+    assert_eq!(
+        native(&home, session).await,
+        json!({"messages":[
+            {"id":"11111111-1111-4111-8111-111111111111","role":"user"},
+            {"id":"22222222-2222-4222-8222-222222222222","role":"assistant"},
+        ]})
+    );
+    let restored = fixture
+        .reopen()
+        .post("/api/conversation_redo")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(restored.status_code(), 200, "{}", restored.text());
+    assert_eq!(
+        native(&home, session).await["messages"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
+    assert_eq!(fixture.history().await["summary"]["external_id"], session);
+}
+
+#[tokio::test]
 async fn confirmed_image_prompt_is_undone_in_the_same_session_and_returned_whole() {
     let fixture = Fixture::new().await;
     let preview = fixture.preview().await;
@@ -676,6 +763,110 @@ async fn matching_text_and_timestamp_never_erase_an_earlier_user_message() {
 }
 
 #[tokio::test]
+async fn claude_reconnect_metadata_keeps_redo_available_and_preserves_current_runtime_settings() {
+    use std::io::Write;
+    let fixture = Fixture::new().await;
+    let preview = fixture.preview().await;
+    let committed=fixture.server.post("/api/conversation_undo_commit")
+        .add_header("authorization",format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id,"sourceTurnId":preview["sourceTurnId"],"historyRevision":preview["historyRevision"]})).await;
+    assert_eq!(committed.status_code(), 200, "{}", committed.text());
+    let path = fixture
+        .root
+        .path()
+        .join("claude/projects/undo-project/undo-session.jsonl");
+    let latch =
+        json!({"type":"atis-latch","atis":"current-runtime-setting","sessionId":"undo-session"});
+    writeln!(
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap(),
+        "{latch}"
+    )
+    .unwrap();
+    let status = fixture
+        .server
+        .post("/api/conversation_redo_status")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(status.status_code(), 200, "{}", status.text());
+    assert_eq!(status.json::<Value>()["available"], true);
+    let redone = fixture
+        .server
+        .post("/api/conversation_redo")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(redone.status_code(), 200, "{}", redone.text());
+    assert_eq!(
+        fixture.history().await["turns"].as_array().unwrap().len(),
+        4
+    );
+    let restored_native = std::fs::read_to_string(path).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(restored_native.lines().last().unwrap()).unwrap(),
+        latch
+    );
+}
+
+#[tokio::test]
+async fn changing_a_native_document_after_preview_cancels_undo_even_when_display_is_unchanged() {
+    let fixture = Fixture::new().await;
+    let path = fixture
+        .root
+        .path()
+        .join("claude/projects/undo-project/undo-session.jsonl");
+    let mut records = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    records[2]["message"]["content"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "type":"document","title":"original.txt",
+            "source":{"type":"text","media_type":"text/plain","data":"Original document"}
+        }));
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n",
+            records
+                .iter()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+    )
+    .unwrap();
+    let before = fixture.history().await;
+    let preview = fixture.preview().await;
+    records[2]["message"]["content"][2]["source"]["data"] =
+        json!("An external client changed the native document");
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n",
+            records
+                .iter()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+    )
+    .unwrap();
+    assert_eq!(fixture.history().await["turns"], before["turns"]);
+    let response=fixture.server.post("/api/conversation_undo_commit")
+        .add_header("authorization",format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id,"sourceTurnId":preview["sourceTurnId"],"historyRevision":preview["historyRevision"]})).await;
+    assert_eq!(response.status_code(), 400, "{}", response.text());
+    assert_eq!(fixture.history().await["turns"], before["turns"]);
+}
+
+#[tokio::test]
 async fn missing_original_image_is_listed_and_pauses_undo_without_changing_history() {
     let fixture = Fixture::new().await;
     let native = fixture
@@ -761,6 +952,140 @@ async fn expired_redo_is_cleaned_after_seven_days_without_touching_active_histor
     assert_eq!(status.status_code(), 200, "{}", status.text());
     assert_eq!(status.json::<Value>()["available"], false);
     assert_eq!(fixture.history().await["turns"], before["turns"]);
+}
+
+#[tokio::test]
+async fn an_unbound_delegated_child_is_listed_and_must_stop_before_undo() {
+    use codeg_lib::acp::connection::ConnectionCommand;
+    use codeg_lib::acp::types::{AcpEvent, ConnectionStatus};
+    let fixture = Fixture::new().await;
+    let manager = &fixture.state.connection_manager;
+    let mut parent_commands = manager
+        .insert_test_connection_live(
+            "unbound-parent",
+            AgentType::ClaudeCode,
+            None,
+            fixture.state.emitter.clone(),
+        )
+        .await;
+    let child_commands = manager
+        .insert_test_connection_live(
+            "unbound-child",
+            AgentType::Codex,
+            None,
+            fixture.state.emitter.clone(),
+        )
+        .await;
+    let parent = manager.get_state("unbound-parent").await.unwrap();
+    {
+        let mut snapshot = parent.write().await;
+        snapshot.external_id = Some("undo-session".into());
+        snapshot.delegated_children.insert("unbound-child".into());
+    }
+    {
+        let child = manager.get_state("unbound-child").await.unwrap();
+        let mut snapshot = child.write().await;
+        snapshot.external_id = Some("unbound-child-session".into());
+        snapshot.turn_in_flight = true;
+        snapshot.status = ConnectionStatus::Prompting;
+    }
+    let parent_worker = tokio::spawn(async move {
+        while let Some(command) = parent_commands.recv().await {
+            match command {
+                ConnectionCommand::Cancel => {
+                    parent.write().await.apply_event(&AcpEvent::TurnComplete {
+                        session_id: "undo-session".into(),
+                        stop_reason: "cancelled".into(),
+                        agent_type: "claude_code".into(),
+                    });
+                }
+                ConnectionCommand::Disconnect => break,
+                _ => {}
+            }
+        }
+    });
+    let original = fixture.history().await;
+    let preview = fixture.preview().await;
+    assert!(
+        preview["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|task| task["kind"] == "delegation"),
+        "{preview}"
+    );
+    let response=fixture.server.post("/api/conversation_undo_commit")
+        .add_header("authorization",format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id,"sourceTurnId":preview["sourceTurnId"],"historyRevision":preview["historyRevision"],"stopConfirmed":true})).await;
+    assert_eq!(response.status_code(), 409, "{}", response.text());
+    assert_eq!(fixture.history().await["turns"], original["turns"]);
+    manager.disconnect("unbound-parent").await.unwrap();
+    manager.disconnect("unbound-child").await.unwrap();
+    drop(child_commands);
+    parent_worker.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_refused_background_task_stop_keeps_the_original_history() {
+    use codeg_lib::acp::connection::ConnectionCommand;
+    use codeg_lib::acp::types::{AcpEvent, ConnectionStatus};
+    let fixture = Fixture::new().await;
+    let manager = &fixture.state.connection_manager;
+    let mut commands = manager
+        .insert_test_connection_live(
+            "refusing-task-agent",
+            AgentType::ClaudeCode,
+            None,
+            fixture.state.emitter.clone(),
+        )
+        .await;
+    let state = manager.get_state("refusing-task-agent").await.unwrap();
+    {
+        let mut snapshot = state.write().await;
+        snapshot.external_id = Some("undo-session".into());
+        snapshot.status = ConnectionStatus::Prompting;
+        snapshot.turn_in_flight = true;
+        snapshot.async_tasks.insert(
+            "refuses-stop".into(),
+            serde_json::from_value(json!({
+                "task_id":"refuses-stop","name":"Keep this running","state":"running",
+                "task_type":"shell","description":"A running background command",
+                "show_in_transcript":true,"can_stop":true,
+            }))
+            .unwrap(),
+        );
+    }
+    let worker = tokio::spawn(async move {
+        while let Some(command) = commands.recv().await {
+            match command {
+                ConnectionCommand::StopAsyncTask { reply, .. } => {
+                    let _ = reply.send(Ok(false));
+                }
+                ConnectionCommand::Cancel => {
+                    let mut snapshot = state.write().await;
+                    snapshot.async_tasks.clear();
+                    snapshot.apply_event(&AcpEvent::TurnComplete {
+                        session_id: "undo-session".into(),
+                        stop_reason: "cancelled".into(),
+                        agent_type: "claude_code".into(),
+                    });
+                }
+                ConnectionCommand::Disconnect => break,
+                _ => {}
+            }
+        }
+    });
+    let original = fixture.history().await;
+    let preview = fixture.preview().await;
+    assert!(!preview["tasks"].as_array().unwrap().is_empty());
+    let response = fixture.server.post("/api/conversation_undo_commit")
+        .add_header("authorization",format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id,"sourceTurnId":preview["sourceTurnId"],"historyRevision":preview["historyRevision"],"stopConfirmed":true}))
+        .await;
+    assert_eq!(response.status_code(), 409, "{}", response.text());
+    assert_eq!(fixture.history().await["turns"], original["turns"]);
+    manager.disconnect("refusing-task-agent").await.unwrap();
+    worker.await.unwrap();
 }
 
 #[tokio::test]
@@ -1051,14 +1376,19 @@ async fn history_changed_while_stopping_cancels_undo_and_keeps_the_latest_histor
 
 #[tokio::test]
 async fn gemini_undo_and_redo_preserve_the_original_session_and_image() {
-    check_gemini_undo_and_redo(None).await;
+    check_gemini_undo_and_redo(None, false).await;
+}
+
+#[tokio::test]
+async fn gemini_restores_the_original_pdf_alongside_its_image() {
+    check_gemini_undo_and_redo(None, true).await;
 }
 
 #[tokio::test]
 #[ignore = "requires CODEG_TEST_GEMINI_READER pointing at the installed Gemini native reader module"]
 async fn native_gemini_undo_and_redo_reload_the_same_original_session() {
     let module = std::env::var("CODEG_TEST_GEMINI_READER").expect("native reader module");
-    check_gemini_undo_and_redo(Some(std::path::Path::new(&module))).await;
+    check_gemini_undo_and_redo(Some(std::path::Path::new(&module)), true).await;
 }
 
 async fn read_native_gemini(module: &std::path::Path, path: &std::path::Path) -> Value {
@@ -1085,12 +1415,12 @@ async fn read_native_gemini(module: &std::path::Path, path: &std::path::Path) ->
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
-async fn check_gemini_undo_and_redo(native: Option<&std::path::Path>) {
+async fn check_gemini_undo_and_redo(native: Option<&std::path::Path>, document: bool) {
     let mut fixture = Fixture::new().await;
     let home = fixture.root.path().join("gemini-home");
     let chats = home.join(".gemini/tmp/undo-project/chats");
     std::fs::create_dir_all(&chats).unwrap();
-    let record = json!({
+    let mut record = json!({
         "sessionId": "gemini-undo-session",
         "projectHash": "undo-project",
         "startTime": "2026-11-17T01:00:00Z",
@@ -1109,6 +1439,11 @@ async fn check_gemini_undo_and_redo(native: Option<&std::path::Path>) {
              "content": "Remove this Gemini answer"}
         ]
     });
+    if document {
+        record["messages"][2]["content"].as_array_mut().unwrap().push(
+            json!({"inlineData":{"mimeType":"application/pdf","data":"JVBERi1vcmlnaW5hbA==","displayName":"original.pdf"}})
+        );
+    }
     let native_path = chats.join("session-native-check.jsonl");
     std::fs::write(&native_path, format!("{}\n", json!({"$set": record}))).unwrap();
     let db = &fixture.state.db;
@@ -1147,6 +1482,22 @@ async fn check_gemini_undo_and_redo(native: Option<&std::path::Path>) {
         );
     }
     let preview = fixture.preview_text("Undo this Gemini image").await;
+    if document {
+        assert!(
+            preview["issues"].as_array().unwrap().is_empty(),
+            "{preview}"
+        );
+        assert!(
+            preview["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|block| block["type"] == "resource"
+                    && block["blob"] == "JVBERi1vcmlnaW5hbA=="
+                    && block["mime_type"] == "application/pdf"),
+            "{preview}"
+        );
+    }
     let result = fixture
         .server
         .post("/api/conversation_undo_commit")

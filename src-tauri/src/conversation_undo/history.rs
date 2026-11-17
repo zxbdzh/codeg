@@ -117,7 +117,7 @@ pub async fn redo_status(
             )
             .ok()
         })
-        .is_some_and(|current| backup["revertedDigest"] == digest(&current));
+        .is_some_and(|current| reverted_matches(row.agent_type, &current, &backup));
     Ok(RedoStatus {
         available: available && expires_at.is_some(),
         has_backup: true,
@@ -204,7 +204,7 @@ pub async fn redo(
         return Err(conflict());
     }
     let current = read_native(row.agent_type, &path, &session_id)?;
-    if backup["revertedDigest"] != digest(&current) {
+    if !reverted_matches(row.agent_type, &current, &backup) {
         return Err(conflict());
     }
     let connections = {
@@ -238,6 +238,7 @@ pub async fn redo(
             || state.live_message.is_some()
             || !state.active_tool_calls.is_empty()
             || !state.active_delegations.is_empty()
+            || !state.delegated_children.is_empty()
             || state.background_outstanding > 0
             || state.pending_permission.is_some()
             || state.pending_question.is_some()
@@ -268,10 +269,24 @@ pub async fn redo(
         .map_err(|_| failed("The previous session is still shutting down"))?;
     }
     // 已续聊或被原生 CLI 改动的历史不能被备份覆盖，退出旧连接后再核对一次。
-    if read_native(row.agent_type, &path, &session_id)? != current {
+    let latest = read_native(row.agent_type, &path, &session_id)?;
+    if history_digest(row.agent_type, &latest) != history_digest(row.agent_type, &current) {
         return Err(conflict());
     }
-    publish_native(row.agent_type, &path, &session_id, &current, original)?;
+    let mut restored = original.to_vec();
+    if row.agent_type == AgentType::ClaudeCode {
+        for line in latest
+            .split_inclusive(|byte| *byte == b'\n')
+            .filter(|line| runtime_latch(line))
+        {
+            // Redo 只恢复对话；保留重连时写入的最新运行设置，不能恢复旧实验分配。
+            if !restored.ends_with(b"\n") {
+                restored.push(b'\n');
+            }
+            restored.extend_from_slice(line);
+        }
+    }
+    publish_native(row.agent_type, &path, &session_id, &latest, &restored)?;
     if let Err(error) = std::fs::remove_file(&backup_file) {
         // 历史已恢复，清理失败不把成功恢复报告为失败；指纹校验会阻止再次恢复。
         tracing::warn!(%error, "could not consume Redo backup");
@@ -289,6 +304,56 @@ pub(super) fn conflict() -> AppCommandError {
 
 pub(super) fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+fn runtime_latch(line: &[u8]) -> bool {
+    #[derive(Deserialize)]
+    struct RecordKind {
+        #[serde(rename = "type")]
+        kind: String,
+    }
+    serde_json::from_slice::<RecordKind>(line).is_ok_and(|record| record.kind == "atis-latch")
+}
+
+fn history_digest(agent: AgentType, bytes: &[u8]) -> String {
+    if agent != AgentType::ClaudeCode {
+        return digest(bytes);
+    }
+    let mut hasher = Sha256::new();
+    for line in bytes.split_inclusive(|byte| *byte == b'\n') {
+        // 仅排除本机官方读取器验证不会进入对话链的启动记录；其他原生字段仍须参与冲突检查。
+        if !runtime_latch(line) {
+            hasher.update(line);
+        }
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+fn reverted_matches(agent: AgentType, current: &[u8], backup: &Value) -> bool {
+    let Some(expected) = backup["revertedDigest"].as_str() else {
+        return false;
+    };
+    let actual = history_digest(agent, current);
+    if actual == expected || digest(current) == expected {
+        return true;
+    }
+    if agent != AgentType::ClaudeCode {
+        return false;
+    }
+    let Some(original) = backup["original"].as_str() else {
+        return false;
+    };
+    let mut hasher = Sha256::new();
+    let mut offset = 0;
+    // 兼容七天内已保存的旧备份：从已校验的原文找到旧指纹对应的前缀，不猜测恢复边界。
+    for line in original.as_bytes().split_inclusive(|byte| *byte == b'\n') {
+        hasher.update(line);
+        offset += line.len();
+        if format!("{:x}", hasher.clone().finalize()) == expected {
+            return history_digest(agent, &original.as_bytes()[..offset]) == actual;
+        }
+    }
+    false
 }
 
 pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), AppCommandError> {
@@ -466,6 +531,7 @@ pub async fn commit(
             || state.live_message.is_some()
             || !state.active_tool_calls.is_empty()
             || !state.active_delegations.is_empty()
+            || !state.delegated_children.is_empty()
             || state.background_outstanding > 0
             || state.pending_permission.is_some()
             || state.pending_question.is_some()
@@ -523,7 +589,7 @@ pub async fn commit(
         "path": path,
         "original": String::from_utf8(original.clone()).map_err(|error| failed(error.to_string()))?,
         "originalDigest": digest(&original),
-        "revertedDigest": digest(&replacement),
+        "revertedDigest": history_digest(row.agent_type, &replacement),
     });
     atomic_write(
         &backup_path(data_dir, request.conversation_id),
@@ -545,6 +611,54 @@ pub async fn commit(
         prompt: selected.prompt,
         input,
     })
+}
+
+pub(super) fn native_revision(
+    agent: AgentType,
+    env: &crate::parsers::AgentEnv,
+    session: &str,
+) -> Result<String, AppCommandError> {
+    if agent == AgentType::Codex {
+        // Codex 允许受确认的当前回复继续落盘，沿用它的语义版本和原生发布锁。
+        return Ok(String::new());
+    }
+    if !matches!(
+        agent,
+        AgentType::ClaudeCode
+            | AgentType::Gemini
+            | AgentType::Pi
+            | AgentType::Hermes
+            | AgentType::OpenCode
+            | AgentType::DeepSeek
+    ) {
+        return Ok(String::new());
+    }
+    let path = native_path(agent, env, session)?;
+    Ok(history_digest(agent, &read_native(agent, &path, session)?))
+}
+
+pub(super) fn native_anchor_revision(
+    agent: AgentType,
+    env: &crate::parsers::AgentEnv,
+    session: &str,
+    latest_input: &MessageTurn,
+) -> Result<String, AppCommandError> {
+    if agent != AgentType::ClaudeCode {
+        return native_revision(agent, env, session);
+    }
+    let path = native_path(agent, env, session)?;
+    let bytes = std::fs::read(path).map_err(AppCommandError::io)?;
+    let prefix = match claude_prefix(&bytes, latest_input) {
+        Ok(prefix) => prefix,
+        // 预览已经列出边界问题；版本采集不能把可展示的问题变成整个预览失败。
+        Err(_) => return Ok(history_digest(agent, &bytes)),
+    };
+    let input_end = bytes[prefix.len()..]
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map_or(bytes.len(), |position| prefix.len() + position + 1);
+    // 只有最后输入之后的回复可以在停止时追加；之前的任何原生附件或元数据变化都要重新确认。
+    Ok(history_digest(agent, &bytes[..input_end]))
 }
 
 fn native_path(

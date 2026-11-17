@@ -17,6 +17,7 @@ fn has_work(state: &SessionState) -> bool {
         || state.live_message.is_some()
         || !state.active_tool_calls.is_empty()
         || !state.active_delegations.is_empty()
+        || !state.delegated_children.is_empty()
         || state.background_outstanding > 0
         || state.pending_permission.is_some()
         || state.pending_question.is_some()
@@ -100,6 +101,21 @@ pub(super) async fn session_tasks(
                 label: Some(format!("{}: {}", task.agent_type, task.task_preview)),
             });
         }
+        for child in &state.delegated_children {
+            if state
+                .active_delegations
+                .values()
+                .any(|task| &task.child_connection_id == child)
+            {
+                continue;
+            }
+            // 没有匹配到工具卡片的委托同样会回写结果，不能从确认范围中漏掉。
+            tasks.push(super::UndoTask {
+                id: format!("{connection_id}:delegate:{child}"),
+                kind: "delegation".into(),
+                label: Some(format!("Delegated task {child}")),
+            });
+        }
         if state.background_outstanding > 0
             && seen.is_empty()
             && state.active_delegations.is_empty()
@@ -152,13 +168,49 @@ pub(super) async fn stop_work(
             .filter(|task| !crate::acp::types::async_task_state_is_terminal(&task.state))
             .map(|task| task.task_id.clone())
             .collect::<Vec<_>>();
+        let mut child_ids = snapshot.delegated_children.clone();
+        child_ids.extend(
+            snapshot
+                .active_delegations
+                .values()
+                .map(|task| task.child_connection_id.clone()),
+        );
         drop(snapshot);
+        let mut children = Vec::new();
+        let mut visited = std::collections::BTreeSet::from([connection_id.clone()]);
+        while let Some(child_id) = child_ids.pop_first() {
+            if !visited.insert(child_id.clone()) {
+                continue;
+            }
+            let child = {
+                let connections = manager.connections.lock().await;
+                connections
+                    .get(&child_id)
+                    .map(|child| (child.state.clone(), child.child_pid.clone()))
+            };
+            if let Some((state, pid)) = child {
+                let child = state.read().await;
+                child_ids.extend(child.delegated_children.iter().cloned());
+                child_ids.extend(
+                    child
+                        .active_delegations
+                        .values()
+                        .map(|task| task.child_connection_id.clone()),
+                );
+                drop(child);
+                children.push((state, pid));
+            }
+        }
         let stopped = tokio::time::timeout(Duration::from_secs(5), async {
             for task_id in tasks {
-                manager
+                let accepted = manager
                     .stop_async_task(&connection_id, &task_id)
                     .await
                     .map_err(|error| stop_failed(error.to_string()))?;
+                if !accepted {
+                    // 原生适配器明确拒绝停止时，不能用稍后的空闲状态冒充全部停止成功。
+                    return Err(stop_failed(format!("Task {task_id} refused to stop")));
+                }
             }
             manager
                 .cancel(&db.conn, &connection_id)
@@ -169,7 +221,16 @@ pub(super) async fn stop_work(
                     let snapshot = state.read().await;
                     has_work(&snapshot)
                 };
-                if !busy {
+                let mut children_busy = false;
+                for (state, pid) in &children {
+                    let snapshot = state.read().await;
+                    // 委托结束事件可能早于进程回收；保留 PID 单元，直到真实退出后才允许改原生历史。
+                    if pid.load(std::sync::atomic::Ordering::SeqCst) != 0 || has_work(&snapshot) {
+                        children_busy = true;
+                        break;
+                    }
+                }
+                if !busy && !children_busy {
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(25)).await;

@@ -136,17 +136,33 @@ pub async fn preview(
                 label: "This agent has no verified exact native history rewind. Its conversation has been kept.".into(),
             }],
         };
-        let input = if row.agent_type == AgentType::ClaudeCode && issues.is_empty() {
-            history::claude_input(row.agent_type, &env, &session_id, &detail.turns[index])?
-        } else {
-            input::from_turn(&detail.turns[index])
+        let input = match row.agent_type {
+            AgentType::ClaudeCode if issues.is_empty() =>
+                history::claude_input(row.agent_type, &env, &session_id, &detail.turns[index])?,
+            AgentType::Gemini if issues.is_empty() =>
+                gemini::input(&env, &session_id, &detail.turns[index])?,
+            _ => input::from_turn(&detail.turns[index]),
         };
+        let revision = format!("{:x}", Sha256::digest(history));
+        let native_revision = history::native_revision(row.agent_type, &env, &session_id)?;
+        let history_revision = if native_revision.is_empty() {
+            revision
+        } else {
+            format!("{revision}:{native_revision}")
+        };
+        let native_anchor_revision = history::native_anchor_revision(
+            row.agent_type,
+            &env,
+            &session_id,
+            &detail.turns[input_end.saturating_sub(1)],
+        )?;
         Ok(UndoPreview {
             conversation_id: request.conversation_id,
             session_id,
             source_turn_id: request.source_turn_id,
-            history_revision: format!("{:x}", Sha256::digest(history)),
-            history_anchor_revision: format!("{:x}", Sha256::digest(anchor)),
+            // 投影会省略文档字节与原生元数据；确认版本必须同时覆盖它们，不能只比较界面文字。
+            history_revision,
+            history_anchor_revision: format!("{:x}:{native_anchor_revision}", Sha256::digest(anchor)),
             affected_turns: detail.turns.len() - index,
             affected_user_messages: detail.turns[index..]
                 .iter()

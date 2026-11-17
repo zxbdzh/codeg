@@ -90,7 +90,7 @@ pub(super) fn issues(
                 .or_else(|| inline["mime_type"].as_str())
                 .unwrap_or_default();
             let data = inline["data"].as_str().unwrap_or_default();
-            mime.starts_with("image/")
+            !mime.is_empty()
                 && !data.is_empty()
                 && base64::engine::general_purpose::STANDARD
                     .decode(data)
@@ -104,6 +104,61 @@ pub(super) fn issues(
         }
     }
     Ok(issues)
+}
+
+pub(super) fn input(
+    env: &AgentEnv,
+    session_id: &str,
+    prompt: &MessageTurn,
+) -> Result<Vec<crate::acp::types::PromptInputBlock>, AppCommandError> {
+    use crate::acp::types::PromptInputBlock;
+    let (_, _, value) = document(env, session_id)?;
+    let message = selected(&value, prompt)?;
+    if let Some(text) = message["content"].as_str() {
+        return Ok(vec![PromptInputBlock::Text {
+            text: text.to_owned(),
+        }]);
+    }
+    let mut blocks = Vec::new();
+    for part in message["content"].as_array().into_iter().flatten() {
+        if let Some(text) = part["text"].as_str() {
+            blocks.push(PromptInputBlock::Text {
+                text: text.to_owned(),
+            });
+            continue;
+        }
+        let inline = part
+            .get("inlineData")
+            .or_else(|| part.get("inline_data"))
+            .ok_or_else(|| {
+                AppCommandError::invalid_input("The original Gemini attachment is unavailable")
+            })?;
+        let mime = inline["mimeType"]
+            .as_str()
+            .or_else(|| inline["mime_type"].as_str())
+            .unwrap_or_default()
+            .to_owned();
+        let data = inline["data"].as_str().unwrap_or_default().to_owned();
+        if mime.starts_with("image/") {
+            blocks.push(PromptInputBlock::Image {
+                data,
+                mime_type: mime,
+                uri: None,
+            });
+        } else {
+            // 直接恢复原生 inlineData 的原始字节；解析器显示文本不是附件原文的替代品。
+            blocks.push(PromptInputBlock::Resource {
+                uri: format!(
+                    "attachment://{}",
+                    inline["displayName"].as_str().unwrap_or("attachment.bin")
+                ),
+                mime_type: Some(mime),
+                blob: Some(data),
+                text: None,
+            });
+        }
+    }
+    Ok(blocks)
 }
 
 pub(super) fn replacement(

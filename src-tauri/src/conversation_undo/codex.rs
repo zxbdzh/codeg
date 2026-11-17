@@ -93,6 +93,7 @@ async fn disconnect_idle(
             || state.live_message.is_some()
             || !state.active_tool_calls.is_empty()
             || !state.active_delegations.is_empty()
+            || !state.delegated_children.is_empty()
             || state.background_outstanding > 0
             || state.pending_permission.is_some()
             || state.pending_question.is_some()
