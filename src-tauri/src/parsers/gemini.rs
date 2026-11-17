@@ -324,6 +324,31 @@ impl GeminiParser {
 
         files.sort();
         files.dedup();
+        let mut superseded = std::collections::HashSet::new();
+        for path in &files {
+            if path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let legacy = path.with_extension("json");
+            if files.binary_search(&legacy).is_err() {
+                continue;
+            }
+            let current = fs::read_to_string(path)
+                .ok()
+                .and_then(|raw| Self::parse_chat_value(path, &raw));
+            let original = fs::read_to_string(&legacy)
+                .ok()
+                .and_then(|raw| Self::parse_chat_value(&legacy, &raw));
+            if let (Some(current), Some(original)) = (current, original) {
+                if current["sessionId"].is_string()
+                    && current["sessionId"] == original["sessionId"]
+                {
+                    // 原生重连会留下旧 JSON 并创建同名 JSONL；有效历史应跟随其迁移目标。
+                    superseded.insert(legacy);
+                }
+            }
+        }
+        files.retain(|path| !superseded.contains(path));
         files
     }
 

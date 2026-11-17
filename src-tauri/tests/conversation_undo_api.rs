@@ -1376,19 +1376,120 @@ async fn history_changed_while_stopping_cancels_undo_and_keeps_the_latest_histor
 
 #[tokio::test]
 async fn gemini_undo_and_redo_preserve_the_original_session_and_image() {
-    check_gemini_undo_and_redo(None, false).await;
+    check_gemini_undo_and_redo(None, false, false).await;
 }
 
 #[tokio::test]
 async fn gemini_restores_the_original_pdf_alongside_its_image() {
-    check_gemini_undo_and_redo(None, true).await;
+    check_gemini_undo_and_redo(None, true, false).await;
+}
+
+#[tokio::test]
+async fn gemini_legacy_json_undo_and_redo_preserve_the_original_session() {
+    check_gemini_undo_and_redo(None, false, true).await;
+}
+
+#[tokio::test]
+async fn legacy_gemini_memory_that_cannot_be_rewound_pauses_undo() {
+    let (fixture, path) = check_gemini_undo_and_redo(None, false, true).await;
+    let mut original: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    original["memoryScratchpad"] = json!("Memory includes the question selected for Undo");
+    let bytes = serde_json::to_vec(&original).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+    let preview = fixture.preview_text("Undo this Gemini image").await;
+    assert!(preview["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|issue| issue["code"] == "unsupported_native_context"));
+    let rejected = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId": fixture.conversation_id,
+            "sourceTurnId": preview["sourceTurnId"],
+            "historyRevision": preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(rejected.status_code(), 400, "{}", rejected.text());
+    assert_eq!(std::fs::read(path).unwrap(), bytes);
+}
+
+#[tokio::test]
+async fn new_gemini_messages_after_legacy_migration_disable_redo_and_remain_untouched() {
+    let (fixture, path) = check_gemini_undo_and_redo(None, false, true).await;
+    let preview = fixture.preview_text("Undo this Gemini image").await;
+    let committed = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId": fixture.conversation_id,
+            "sourceTurnId": preview["sourceTurnId"],
+            "historyRevision": preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(committed.status_code(), 200, "{}", committed.text());
+    let mut metadata: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let messages = metadata
+        .as_object_mut()
+        .unwrap()
+        .remove("messages")
+        .unwrap();
+    let mut records = vec![metadata];
+    records.extend(messages.as_array().unwrap().iter().cloned());
+    records.push(json!({"$set": {"sessionId": "gemini-undo-session"}}));
+    records.push(json!({
+        "id": "u3", "type": "user", "timestamp": "2026-11-17T01:02:00Z",
+        "content": [{"text": "Keep this new instruction after native restart"}],
+    }));
+    let current = format!(
+        "{}\n",
+        records
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    let migrated = path.with_extension("jsonl");
+    std::fs::write(&migrated, &current).unwrap();
+    let before = fixture.history().await;
+    assert_eq!(
+        before["turns"].as_array().unwrap().last().unwrap()["blocks"][0]["text"],
+        "Keep this new instruction after native restart"
+    );
+    let status = fixture
+        .server
+        .post("/api/conversation_redo_status")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId": fixture.conversation_id}))
+        .await;
+    assert_eq!(status.status_code(), 200, "{}", status.text());
+    assert_eq!(status.json::<Value>()["available"], false);
+    let rejected = fixture
+        .server
+        .post("/api/conversation_redo")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId": fixture.conversation_id}))
+        .await;
+    assert_eq!(rejected.status_code(), 400, "{}", rejected.text());
+    assert_eq!(std::fs::read_to_string(migrated).unwrap(), current);
+    assert_eq!(fixture.history().await["turns"], before["turns"]);
 }
 
 #[tokio::test]
 #[ignore = "requires CODEG_TEST_GEMINI_READER pointing at the installed Gemini native reader module"]
 async fn native_gemini_undo_and_redo_reload_the_same_original_session() {
     let module = std::env::var("CODEG_TEST_GEMINI_READER").expect("native reader module");
-    check_gemini_undo_and_redo(Some(std::path::Path::new(&module)), true).await;
+    check_gemini_undo_and_redo(Some(std::path::Path::new(&module)), true, false).await;
+}
+
+#[tokio::test]
+#[ignore = "requires CODEG_TEST_GEMINI_READER pointing at the installed Gemini native reader module"]
+async fn native_gemini_legacy_json_undo_and_redo_reload_the_same_session() {
+    let module = std::env::var("CODEG_TEST_GEMINI_READER").expect("native reader module");
+    check_gemini_undo_and_redo(Some(std::path::Path::new(&module)), false, true).await;
 }
 
 async fn read_native_gemini(module: &std::path::Path, path: &std::path::Path) -> Value {
@@ -1415,7 +1516,44 @@ async fn read_native_gemini(module: &std::path::Path, path: &std::path::Path) ->
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
-async fn check_gemini_undo_and_redo(native: Option<&std::path::Path>, document: bool) {
+async fn resume_native_gemini(module: &std::path::Path, path: &std::path::Path) {
+    let script = r#"
+        const {ChatRecordingService, loadConversationRecord} = await import(process.argv[1]);
+        const filePath = process.argv[2];
+        const conversation = await loadConversationRecord(filePath);
+        const service = new ChatRecordingService({
+            promptId: conversation.sessionId,
+            config: {getProjectRoot: () => process.argv[3]},
+        });
+        await service.initialize({filePath, conversation});
+    "#;
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        codeg_lib::process::tokio_command("node")
+            .arg("--input-type=module")
+            .arg("-e")
+            .arg(script)
+            .arg(url::Url::from_file_path(module).unwrap().as_str())
+            .arg(path)
+            .arg(path.parent().unwrap())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+async fn check_gemini_undo_and_redo(
+    native: Option<&std::path::Path>,
+    document: bool,
+    legacy_json: bool,
+) -> (Fixture, std::path::PathBuf) {
     let mut fixture = Fixture::new().await;
     let home = fixture.root.path().join("gemini-home");
     let chats = home.join(".gemini/tmp/undo-project/chats");
@@ -1444,8 +1582,17 @@ async fn check_gemini_undo_and_redo(native: Option<&std::path::Path>, document: 
             json!({"inlineData":{"mimeType":"application/pdf","data":"JVBERi1vcmlnaW5hbA==","displayName":"original.pdf"}})
         );
     }
-    let native_path = chats.join("session-native-check.jsonl");
-    std::fs::write(&native_path, format!("{}\n", json!({"$set": record}))).unwrap();
+    let native_path = if legacy_json {
+        chats.join("session-legacy-native-check.json")
+    } else {
+        chats.join("session-native-check.jsonl")
+    };
+    let native_contents = if legacy_json {
+        record.to_string()
+    } else {
+        format!("{}\n", json!({"$set": record}))
+    };
+    std::fs::write(&native_path, native_contents).unwrap();
     let db = &fixture.state.db;
     fixture.conversation_id = seed_conversation(db, 1, AgentType::Gemini).await;
     conversation_service::bind_external_id(
@@ -1524,6 +1671,33 @@ async fn check_gemini_undo_and_redo(native: Option<&std::path::Path>, document: 
             json!({"id":"gemini-undo-session","messages":["u1","a1"]})
         );
     }
+    let current_path = if let Some(module) = native {
+        resume_native_gemini(module, &native_path).await;
+        let active = if legacy_json {
+            native_path.with_extension("jsonl")
+        } else {
+            native_path.clone()
+        };
+        assert_eq!(
+            read_native_gemini(module, &active).await,
+            json!({"id":"gemini-undo-session","messages":["u1","a1"]})
+        );
+        let status = fixture
+            .reopen()
+            .post("/api/conversation_redo_status")
+            .add_header("authorization", format!("Bearer {TOKEN}"))
+            .json(&json!({"conversationId": fixture.conversation_id}))
+            .await;
+        assert_eq!(status.status_code(), 200, "{}", status.text());
+        assert_eq!(
+            status.json::<Value>()["available"],
+            true,
+            "Native restart must retain Redo"
+        );
+        active
+    } else {
+        native_path.clone()
+    };
     let restored = fixture
         .reopen()
         .post("/api/conversation_redo")
@@ -1534,10 +1708,11 @@ async fn check_gemini_undo_and_redo(native: Option<&std::path::Path>, document: 
     assert_eq!(fixture.history().await["turns"], original["turns"]);
     if let Some(module) = native {
         assert_eq!(
-            read_native_gemini(module, &native_path).await,
+            read_native_gemini(module, &current_path).await,
             json!({"id":"gemini-undo-session","messages":["u1","a1","u2","a2"]})
         );
     }
+    (fixture, native_path)
 }
 
 #[tokio::test]

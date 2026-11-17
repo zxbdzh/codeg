@@ -200,7 +200,10 @@ pub async fn redo(
     }
     let env = agent_setting_service::load_agent_env(&db.conn, row.agent_type).await;
     let path = native_path(row.agent_type, &env, &session_id)?;
-    if backup["path"].as_str() != path.to_str() {
+    if backup["path"].as_str() != path.to_str()
+        && !(row.agent_type == AgentType::Gemini
+            && super::gemini::is_legacy_migration(&path, &backup))
+    {
         return Err(conflict());
     }
     let current = read_native(row.agent_type, &path, &session_id)?;
@@ -273,7 +276,13 @@ pub async fn redo(
     if history_digest(row.agent_type, &latest) != history_digest(row.agent_type, &current) {
         return Err(conflict());
     }
-    let mut restored = original.to_vec();
+    let mut restored = if row.agent_type == AgentType::Gemini
+        && super::gemini::is_legacy_migration(&path, &backup)
+    {
+        super::gemini::migrated_restore(original)?
+    } else {
+        original.to_vec()
+    };
     if row.agent_type == AgentType::ClaudeCode {
         for line in latest
             .split_inclusive(|byte| *byte == b'\n')
@@ -316,6 +325,9 @@ fn runtime_latch(line: &[u8]) -> bool {
 }
 
 fn history_digest(agent: AgentType, bytes: &[u8]) -> String {
+    if agent == AgentType::Gemini {
+        return super::gemini::history_digest(bytes);
+    }
     if agent != AgentType::ClaudeCode {
         return digest(bytes);
     }
@@ -336,6 +348,9 @@ fn reverted_matches(agent: AgentType, current: &[u8], backup: &Value) -> bool {
     let actual = history_digest(agent, current);
     if actual == expected || digest(current) == expected {
         return true;
+    }
+    if agent == AgentType::Gemini {
+        return super::gemini::migrated_reverted_matches(current, backup);
     }
     if agent != AgentType::ClaudeCode {
         return false;
@@ -579,7 +594,7 @@ pub async fn commit(
     let now = Utc::now();
     let input = super::input::snapshot(data_dir, selected.input)?;
     // 原生历史落盘前先持久化原文；备份失败时绝不截断有效对话。
-    let backup = json!({
+    let mut backup = json!({
         "version": 1,
         "conversationId": request.conversation_id,
         "agentType": row.agent_type,
@@ -591,6 +606,13 @@ pub async fn commit(
         "originalDigest": digest(&original),
         "revertedDigest": history_digest(row.agent_type, &replacement),
     });
+    if row.agent_type == AgentType::Gemini
+        && path.extension().and_then(|value| value.to_str()) == Some("json")
+    {
+        // 保留可校验的迁移前状态；原生重连生成 JSONL 后，Redo 仍须证明对话没有新增内容。
+        backup["geminiLegacyReverted"] =
+            serde_json::from_slice(&replacement).map_err(|error| failed(error.to_string()))?;
+    }
     atomic_write(
         &backup_path(data_dir, request.conversation_id),
         &serde_json::to_vec(&backup).map_err(|error| failed(error.to_string()))?,
