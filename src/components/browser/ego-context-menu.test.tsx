@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { act, fireEvent, render, screen } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { EgoContextMenu, type EgoContextMenuState } from "./ego-context-menu"
 
@@ -13,6 +13,53 @@ const menu: EgoContextMenuState = {
 }
 
 describe("Ego Web 右键菜单", () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it("菜单在手机软键盘和横屏可见区域内定位，查看不发送远端动作", () => {
+    const viewport = Object.assign(new EventTarget(), {
+      width: 320,
+      height: 260,
+      offsetTop: 20,
+      offsetLeft: 0,
+    })
+    vi.stubGlobal("visualViewport", viewport)
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      left: 300,
+      top: 700,
+      width: 224,
+      height: 220,
+      right: 524,
+      bottom: 920,
+      x: 300,
+      y: 700,
+      toJSON: () => ({}),
+    })
+    const action = vi.fn()
+    render(
+      <EgoContextMenu
+        menu={{ ...menu, x: 300, y: 700 }}
+        portal={document.body}
+        onClose={vi.fn()}
+        onAction={action}
+        onCopy={vi.fn()}
+      />
+    )
+    const element = screen.getByRole("menu")
+    expect(element).toHaveStyle({
+      left: "88px",
+      top: "52px",
+      maxHeight: "244px",
+    })
+    act(() => {
+      viewport.height = 180
+      viewport.dispatchEvent(new Event("resize"))
+    })
+    expect(element).toHaveStyle({ top: "28px", maxHeight: "164px" })
+    expect(action).not.toHaveBeenCalled()
+  })
   it("手动复制框保留本设备原生长按菜单和键盘选区操作", () => {
     render(
       <EgoContextMenu

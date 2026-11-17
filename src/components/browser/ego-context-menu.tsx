@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useLayoutEffect, useRef } from "react"
 import { createPortal } from "react-dom"
 
 import { Button } from "@/components/ui/button"
@@ -30,6 +30,31 @@ export function EgoContextMenu({
   copyFallback?: string | null
 }) {
   const element = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const position = () => {
+      const node = element.current
+      if (!node) return
+      const viewport = window.visualViewport
+      const left = viewport?.offsetLeft ?? 0
+      const top = viewport?.offsetTop ?? 0
+      const width = viewport?.width ?? window.innerWidth
+      const height = viewport?.height ?? window.innerHeight
+      node.style.maxHeight = `${Math.max(44, height - 16)}px`
+      const bounds = node.getBoundingClientRect()
+      // 菜单必须留在软键盘以上的可见区域，横屏或窄屏也不能裁掉复制入口。
+      node.style.left = `${Math.max(left + 8, Math.min(menu.x, left + width - bounds.width - 8))}px`
+      node.style.top = `${Math.max(top + 8, Math.min(menu.y, top + height - bounds.height - 8))}px`
+    }
+    position()
+    window.addEventListener("resize", position)
+    window.visualViewport?.addEventListener("resize", position)
+    window.visualViewport?.addEventListener("scroll", position)
+    return () => {
+      window.removeEventListener("resize", position)
+      window.visualViewport?.removeEventListener("resize", position)
+      window.visualViewport?.removeEventListener("scroll", position)
+    }
+  }, [menu.x, menu.y, copyFallback])
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
     element.current?.querySelector<HTMLButtonElement>("button")?.focus({
@@ -70,14 +95,14 @@ export function EgoContextMenu({
     onAction(action, menu.tabId)
     onClose()
   }
-  const itemClass = "h-10 justify-start rounded-lg px-2 text-xs sm:h-8"
+  const itemClass = "h-11 shrink-0 justify-start rounded-lg px-2 text-xs sm:h-8"
 
   return createPortal(
     <div
       ref={element}
       role="menu"
       aria-label="Ego 页面右键菜单"
-      className="fixed z-[110] flex max-h-[min(400px,90dvh)] w-56 flex-col overflow-y-auto rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
+      className="fixed z-[110] flex max-h-[min(400px,90dvh)] w-56 max-w-[calc(100vw-16px)] flex-col overflow-y-auto overscroll-contain rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
       style={{ left: menu.x, top: menu.y }}
       onContextMenu={(event) => {
         // 手动复制框属于本设备，必须保留手机系统自己的长按复制菜单。

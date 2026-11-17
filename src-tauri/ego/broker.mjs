@@ -311,7 +311,7 @@ export class EgoBroker {
     }
   }
 
-  async open(group, address, replacedTabId = null) {
+  async open(group, address, replacedTabId = null, viewport = null) {
     const url = webUrl(address);
     await this.ensureSpace(group);
     const anchor = await this.attach(group, { id: group.anchorId, url: "about:blank", live: true });
@@ -347,6 +347,7 @@ export class EgoBroker {
     try {
       const page = await this.attach(group, tab);
       tab.url = url;
+      if (viewport) await this.humanAction(group, page, { ...viewport, kind: "viewport" });
       await this.call(page, "Page.navigate", { url });
     } catch (error) {
       if (replacedTab) await this.save();
@@ -385,6 +386,10 @@ export class EgoBroker {
 
   async human(request) {
     const group = this.group(request.sessionId);
+    // 设备尺寸同步只属于当前人工端；观看和切换本地全屏不能抢走 Agent 或其他设备的控制权。
+    if (request.action.kind === "viewport" && group.control.owner !== request.clientId) {
+      fail("read_only", "页面尺寸由当前接管设备控制，请先接管后再调整。");
+    }
     const previousEpoch = group.control.epoch;
     let pauseSave;
     const operation = group.control.runHuman(
@@ -400,7 +405,7 @@ export class EgoBroker {
         await this.handOff(group);
         if (request.action.kind === "takeover") return;
         if (request.action.kind === "open") {
-          const opened = await this.open(group, request.action.url);
+          const opened = await this.open(group, request.action.url, null, request.action.viewport);
           if (typeof request.viewId === "string" && request.viewId.length <= 256) group.views[request.viewId] = opened.id;
           await this.handOff(group);
           return;
@@ -432,6 +437,46 @@ export class EgoBroker {
 
   async humanAction(group, page, action, source = "web-page") {
     switch (action.kind) {
+      case "viewport": {
+        if (!["mobile", "desktop"].includes(action.mode) ||
+            !Number.isInteger(action.width) || action.width < 280 || action.width > 1920 ||
+            !Number.isInteger(action.height) || action.height < 240 || action.height > 1600) {
+          fail("invalid_viewport", "页面尺寸无效。");
+        }
+        const signature = `${action.mode}:${action.width}:${action.height}`;
+        if (page.viewportSignature === signature) return;
+        const mobile = action.mode === "mobile";
+        if (mobile) {
+          this.browserVersion ??= await this.browser.call("Browser.getVersion");
+          const version = this.browserVersion.product?.split("/")[1] ?? "156.0.0.0";
+          await this.call(page, "Emulation.setUserAgentOverride", {
+            userAgent: `Mozilla/5.0 (Linux; Android 13; Codeg Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version} Mobile Safari/537.36`,
+            platform: "Linux armv8l",
+            userAgentMetadata: {
+              brands: [{ brand: "Chromium", version: version.split(".")[0] }],
+              fullVersionList: [{ brand: "Chromium", version }],
+              platform: "Android", platformVersion: "13.0.0", architecture: "arm",
+              model: "Codeg Mobile", mobile: true, bitness: "64",
+            },
+          });
+        } else {
+          await this.call(page, "Emulation.setUserAgentOverride", { userAgent: "" });
+        }
+        await this.call(page, "Emulation.setTouchEmulationEnabled", { enabled: mobile, maxTouchPoints: mobile ? 5 : 1 });
+        await this.call(page, "Emulation.setDeviceMetricsOverride", {
+          width: action.width, height: action.height, deviceScaleFactor: mobile ? 2 : 1,
+          mobile, screenWidth: action.width, screenHeight: action.height,
+          screenOrientation: action.width >= action.height
+            ? { type: "landscapePrimary", angle: 90 }
+            : { type: "portraitPrimary", angle: 0 },
+        });
+        // 不刷新或激活源页面，保留当前表单；后续导航会使用相应移动/桌面身份。
+        page.viewportSignature = signature;
+        page.tab.viewport = { mode: action.mode, width: action.width, height: action.height };
+        page.lastFrame = null;
+        await this.save();
+        return;
+      }
       case "context":
       case "selectWord":
         if (!Number.isFinite(action.x) || !Number.isFinite(action.y) ||
@@ -467,6 +512,7 @@ export class EgoBroker {
         return;
       }
       case "navigate":
+        if (action.viewport) await this.humanAction(group, page, { ...action.viewport, kind: "viewport" });
         await this.call(page, "Page.navigate", { url: webUrl(action.url) });
         return;
       case "reload":
@@ -1186,7 +1232,7 @@ export class EgoBroker {
           await this.handOff(group);
           // 同一视图重连复用真实 target；已关闭的映射保留为空，避免刷新复活页面。
           if (!Object.hasOwn(group.views, request.viewId)) {
-            const opened = await this.open(group, request.url);
+            const opened = await this.open(group, request.url, null, request.viewport);
             await this.handOff(group);
             group.views[request.viewId] = opened.id;
             group.visits.push(request.viewId);

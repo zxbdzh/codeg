@@ -96,14 +96,36 @@ describe("Ego 会话页面与控制权", () => {
             dialog: null,
           }
         if (request.method === "human") {
-          const action = request.action as { kind: string }
+          const action = request.action as {
+            kind: string
+            mode?: "mobile" | "desktop"
+            width?: number
+            height?: number
+          }
+          if (action.kind === "viewport") {
+            current.tabs = current.tabs.map((tab) =>
+              tab.id === request.tabId
+                ? {
+                    ...tab,
+                    viewport: {
+                      mode: action.mode!,
+                      width: action.width!,
+                      height: action.height!,
+                    },
+                  }
+                : tab
+            )
+            return structuredClone(current)
+          }
           current = {
             ...current,
             revision: current.revision + 1,
             control: {
               ...current.control,
               owner: "device-current",
-              epoch: current.control.epoch + 1,
+              epoch:
+                current.control.epoch +
+                Number(current.control.owner !== "device-current"),
             },
             tabs:
               action.kind === "close"
@@ -173,6 +195,234 @@ describe("Ego 会话页面与控制权", () => {
     return { mounted, touch }
   }
 
+  function mobileDevice() {
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: () => true,
+    }))
+  }
+
+  it("手机已接管时默认移动页面，全屏切桌面横向，退出恢复移动页面", async () => {
+    mobileDevice()
+    vi.stubGlobal("innerWidth", 390)
+    vi.stubGlobal("innerHeight", 844)
+    current.control.owner = "device-current"
+    view()
+    await waitFor(() =>
+      expect(mocks.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "human",
+          action: {
+            kind: "viewport",
+            mode: "mobile",
+            width: 390,
+            height: 546,
+          },
+        })
+      )
+    )
+    fireEvent.click(screen.getByRole("button", { name: "全屏显示 Ego" }))
+    await waitFor(() =>
+      expect(mocks.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: {
+            kind: "viewport",
+            mode: "desktop",
+            width: 1280,
+            height: 318,
+          },
+        })
+      )
+    )
+    expect(document.querySelector('[data-ego-rotated="true"]')).toHaveStyle({
+      width: "844px",
+      height: "390px",
+    })
+    fireEvent.click(screen.getByRole("button", { name: "退出 Ego 全屏" }))
+    await waitFor(() =>
+      expect(
+        mocks.request.mock.calls.filter(
+          ([request]) =>
+            request.action?.kind === "viewport" &&
+            request.action?.mode === "mobile"
+        )
+      ).toHaveLength(2)
+    )
+    expect(current.control.owner).toBe("device-current")
+    expect(current.control.epoch).toBe(1)
+  })
+
+  it("手机只观看或其他设备接管时，不发送尺寸变化或自动暂停 Agent", async () => {
+    mobileDevice()
+    const mounted = view()
+    await screen.findByRole("tab", { name: "第一页" })
+    fireEvent.click(screen.getByRole("button", { name: "全屏显示 Ego" }))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150))
+    })
+    expect(
+      mocks.request.mock.calls.some(([request]) => request.method === "human")
+    ).toBe(false)
+    mounted.unmount()
+    current.control.owner = "other-device"
+    view()
+    await screen.findByRole("button", { name: "接管到此设备" })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150))
+    })
+    expect(
+      mocks.request.mock.calls.some(([request]) => request.method === "human")
+    ).toBe(false)
+  })
+
+  it("手机短按页面不弹键盘，显式输入按钮才聚焦并提供辅助按键", async () => {
+    mobileDevice()
+    const { touch } = await touchView()
+    const keyboard = screen.getByRole("textbox", { name: "向 Ego 页面输入" })
+    const focus = vi.spyOn(keyboard, "focus")
+    expect(keyboard).toHaveAttribute("inputmode", "none")
+    touch("pointerdown")
+    touch("pointerup")
+    expect(focus).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(
+        mocks.request.mock.calls.filter(
+          ([request]) => request.action?.kind === "pointer"
+        )
+      ).toHaveLength(2)
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "打开 Ego 输入键盘" })
+      ).toBeEnabled()
+    )
+    fireEvent.click(screen.getByRole("button", { name: "打开 Ego 输入键盘" }))
+    expect(keyboard).toHaveFocus()
+    expect(keyboard).toHaveAttribute("inputmode", "text")
+    fireEvent.change(keyboard, { target: { value: "手机中文" } })
+    await waitFor(() =>
+      expect(mocks.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tabId: "page-one",
+          action: { kind: "text", text: "手机中文" },
+        })
+      )
+    )
+    fireEvent.click(screen.getByRole("button", { name: "回车" }))
+    await waitFor(() =>
+      expect(mocks.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: expect.objectContaining({
+            kind: "key",
+            type: "keyUp",
+            key: "Enter",
+          }),
+        })
+      )
+    )
+    fireEvent.click(screen.getByRole("button", { name: "收起 Ego 输入键盘" }))
+    expect(keyboard).toHaveAttribute("inputmode", "none")
+    expect(screen.queryByLabelText("Ego 输入辅助按键")).not.toBeInTheDocument()
+  })
+
+  it("手机查看缩放和平移不接管，放大后的滑动不发送远端滚轮", async () => {
+    mobileDevice()
+    const { touch } = await touchView()
+    fireEvent.click(screen.getByRole("button", { name: "显示设置" }))
+    fireEvent.click(screen.getByRole("button", { name: "200%" }))
+    expect(screen.getByRole("button", { name: "200%" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    )
+    expect(screen.getByLabelText("Ego 页面画面区域")).toHaveClass(
+      "overflow-auto"
+    )
+    touch("pointerdown")
+    touch("pointermove", 40, 110)
+    touch("pointerup", 40, 110)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 80))
+    })
+    expect(
+      mocks.request.mock.calls.some(([request]) => request.method === "human")
+    ).toBe(false)
+    fireEvent.click(screen.getByRole("button", { name: "适应" }))
+    expect(screen.getByLabelText("Ego 页面画面区域")).toHaveClass(
+      "overflow-hidden"
+    )
+  })
+
+  it("手机切页关闭输入，地址字段禁用自动纠正且只读端不能开启键盘", async () => {
+    mobileDevice()
+    await touchView()
+    const address = screen.getByRole("textbox", { name: "Ego 页面地址" })
+    expect(address).toHaveAttribute("inputmode", "url")
+    expect(address).toHaveAttribute("autocapitalize", "none")
+    fireEvent.click(screen.getByRole("button", { name: "打开 Ego 输入键盘" }))
+    fireEvent.click(screen.getByRole("tab", { name: "第二页" }))
+    expect(
+      screen.getByRole("textbox", { name: "向 Ego 页面输入" })
+    ).toHaveAttribute("inputmode", "none")
+    current = {
+      ...current,
+      revision: current.revision + 1,
+      control: {
+        ...current.control,
+        owner: "other-device",
+        epoch: current.control.epoch + 1,
+      },
+    }
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole("button", { name: "打开 Ego 输入键盘" })
+        ).toBeDisabled(),
+      { timeout: 2000 }
+    )
+  })
+
+  it("手机网页内全屏跟随软键盘可见高度，退出后恢复原布局且不接管", async () => {
+    mobileDevice()
+    const viewport = Object.assign(new EventTarget(), {
+      width: 390,
+      height: 844,
+      offsetTop: 0,
+      offsetLeft: 0,
+      scale: 1,
+    })
+    vi.stubGlobal("visualViewport", viewport)
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    view()
+    await screen.findByRole("tab", { name: "第一页" })
+    fireEvent.click(screen.getByRole("button", { name: "全屏显示 Ego" }))
+    const region = screen.getByRole("region", { name: "Ego 浏览器" })
+    expect(region).toHaveStyle({ height: "844px", top: "0px" })
+    act(() => {
+      viewport.height = 420
+      viewport.offsetTop = 12
+      viewport.dispatchEvent(new Event("resize"))
+    })
+    expect(region).toHaveStyle({ height: "420px", top: "12px" })
+    fireEvent.click(screen.getByRole("button", { name: "退出 Ego 全屏" }))
+    expect(
+      screen.getByRole("region", { name: "Ego 浏览器" }).style.height
+    ).toBe("")
+    expect(
+      mocks.request.mock.calls.some(([request]) =>
+        ["human", "return", "restore"].includes(request.method)
+      )
+    ).toBe(false)
+  })
+
   it("WebRTC 输入结果不确认时不改用 HTTP 重发，观看和卸载不交还 Agent", async () => {
     const cancel = vi.fn()
     const send = vi.fn().mockRejectedValue(new Error("实时输入结果未确认"))
@@ -241,6 +491,44 @@ describe("Ego 会话页面与控制权", () => {
     fireEvent.click(screen.getByRole("button", { name: "实时（推荐）" }))
     expect(screen.getByText("实时画面")).toBeInTheDocument()
     expect(mocks.rtc).toHaveBeenCalledOnce()
+  })
+
+  it("手机全屏切换及真实视口更新保留媒体节点与连接，不重复协商", async () => {
+    mobileDevice()
+    vi.stubGlobal("innerWidth", 390)
+    vi.stubGlobal("innerHeight", 844)
+    vi.stubGlobal("RTCPeerConnection", class {})
+    current.control.owner = "device-current"
+    const cancel = vi.fn()
+    mocks.rtc.mockReturnValue({ cancel, send: vi.fn() })
+    const mounted = view()
+    await waitFor(() => expect(current.tabs[0].viewport?.mode).toBe("mobile"))
+    await waitFor(() => expect(mocks.rtc).toHaveBeenCalled())
+    const originalVideo = document.querySelector("video")
+    const originalCalls = mocks.rtc.mock.calls.length
+    act(() => {
+      mocks.rtc.mock.calls[originalCalls - 1][5]()
+      mocks.rtc.mock.calls[originalCalls - 1][7]({
+        data: "",
+        width: 390,
+        height: 546,
+        chooser: null,
+        dialog: null,
+      })
+    })
+    fireEvent.click(screen.getByRole("button", { name: "全屏显示 Ego" }))
+    await waitFor(() => expect(current.tabs[0].viewport?.mode).toBe("desktop"))
+    await waitFor(() => expect(originalVideo).toHaveAttribute("width", "1280"))
+    expect(originalVideo).toHaveAttribute("height", "318")
+    expect(document.querySelector("video")).toBe(originalVideo)
+    expect(mocks.rtc).toHaveBeenCalledTimes(originalCalls)
+    expect(cancel).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "退出 Ego 全屏" }))
+    await waitFor(() => expect(current.tabs[0].viewport?.mode).toBe("mobile"))
+    expect(document.querySelector("video")).toBe(originalVideo)
+    expect(mocks.rtc).toHaveBeenCalledTimes(originalCalls)
+    mounted.unmount()
+    expect(cancel).toHaveBeenCalledOnce()
   })
 
   it("手机长按选词后显示复制入口，松手不误发左键点击，也不弹输入键盘", async () => {

@@ -6,6 +6,58 @@ import path from "node:path";
 import { EventEmitter } from "node:events";
 import { EgoBroker } from "./broker.mjs";
 
+test("移动与桌面视口只改所属页面，保留表单并恢复桌面身份", async () => {
+  const broker = new EgoBroker({ dataDir: process.cwd(), endpoint: "http://127.0.0.1:9222" });
+  const calls = [];
+  const page = { tab: { id: "mobile-page" }, lastFrame: { data: "old-frame" } };
+  broker.browser = { call: async () => ({ product: "Chrome/156.0.8078.96" }) };
+  broker.call = async (selected, method, params) => {
+    assert.equal(selected, page);
+    calls.push({ method, params });
+  };
+  broker.save = async () => {};
+  await broker.humanAction({}, page, { kind: "viewport", mode: "mobile", width: 390, height: 660 });
+  assert.equal(calls.find(entry => entry.method === "Emulation.setDeviceMetricsOverride").params.mobile, true);
+  assert.match(calls.find(entry => entry.method === "Emulation.setUserAgentOverride").params.userAgent, /Mobile/);
+  const applied = calls.length;
+  await broker.humanAction({}, page, { kind: "viewport", mode: "mobile", width: 390, height: 660 });
+  assert.equal(calls.length, applied, "同尺寸同步不能重复触发布局");
+  await broker.humanAction({}, page, { kind: "viewport", mode: "desktop", width: 1280, height: 720 });
+  assert.equal(calls.findLast(entry => entry.method === "Emulation.setUserAgentOverride").params.userAgent, "");
+  assert.equal(calls.findLast(entry => entry.method === "Emulation.setDeviceMetricsOverride").params.mobile, false);
+  assert.equal(calls.some(entry => /navigate|reload|bringToFront|focus/i.test(entry.method)), false);
+});
+
+test("视口同步不能自动接管 Agent、覆盖其他设备或接受越界尺寸", async () => {
+  const broker = new EgoBroker({ dataDir: process.cwd(), endpoint: "http://127.0.0.1:9222" });
+  const group = broker.group(7);
+  for (const owner of [null, "other-device"]) {
+    group.control.owner = owner;
+    await assert.rejects(broker.human({
+      sessionId: 7, clientId: "this-device", epoch: group.control.epoch,
+      action: { kind: "viewport", mode: "mobile", width: 390, height: 660 },
+    }), error => error.code === "read_only");
+    assert.equal(group.control.owner, owner);
+  }
+  await assert.rejects(broker.humanAction({}, {}, {
+    kind: "viewport", mode: "mobile", width: 100000, height: 660,
+  }), error => error.code === "invalid_viewport");
+});
+
+test("导航前设置移动身份，首次网页请求也使用移动模式而非仅缩小旧页面", async () => {
+  const broker = new EgoBroker({ dataDir: process.cwd(), endpoint: "http://127.0.0.1:9222" });
+  const calls = [];
+  broker.browser = { call: async () => ({ product: "Chrome/156.0.8078.96" }) };
+  broker.call = async (page, method) => { calls.push(method); };
+  broker.save = async () => {};
+  await broker.humanAction({}, { tab: {} }, {
+    kind: "navigate", url: "https://example.com",
+    viewport: { mode: "mobile", width: 390, height: 546 },
+  });
+  assert.equal(calls.at(-1), "Page.navigate");
+  assert.ok(calls.indexOf("Emulation.setUserAgentOverride") < calls.indexOf("Page.navigate"));
+});
+
 test("左键拖动按 buttons 保留 CDP 按键状态，兼容旧 Web 的 button none", async () => {
   const broker = new EgoBroker({ dataDir: process.cwd(), endpoint: "http://127.0.0.1:9222" });
   const calls = [];

@@ -18,7 +18,13 @@ export interface EgoSession {
   revision: number
   sessionId: number
   spaceId: number | null
-  tabs: { id: string; url: string; title: string; live: boolean }[]
+  tabs: {
+    id: string
+    url: string
+    title: string
+    live: boolean
+    viewport?: { mode: "mobile" | "desktop"; width: number; height: number }
+  }[]
   downloads: {
     id: string
     name: string

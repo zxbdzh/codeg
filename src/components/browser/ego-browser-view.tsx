@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Download,
   Folder,
+  Keyboard,
   Maximize,
   Minimize,
   MousePointer2,
@@ -14,17 +15,28 @@ import {
   Upload,
   X,
 } from "lucide-react"
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import { createPortal, flushSync } from "react-dom"
 
 import type { BrowserWorkspaceTab } from "@/contexts/workspace-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { uploadAttachment } from "@/lib/api"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { useMobileViewport } from "@/hooks/use-mobile-viewport"
+import { useEgoDisplaySize } from "@/hooks/use-ego-display-size"
 import { normalizeTypedAddress } from "./browser-toolbar"
 import { EgoContextMenu, type EgoContextMenuState } from "./ego-context-menu"
 import { publishEgoSession, registerEgoView } from "@/lib/browser/ego-workspace"
 import { EgoInputQueue } from "@/lib/browser/ego-input-queue"
+import { egoPagePoint } from "@/lib/browser/ego-display"
 import { watchEgoFrames } from "@/lib/browser/ego-frame-stream"
 import { watchEgoPixels } from "@/lib/browser/ego-pixel-stream"
 import { watchEgoRtc, type EgoRtcHandle } from "@/lib/browser/ego-rtc-stream"
@@ -42,7 +54,10 @@ import {
   type EgoSession,
 } from "@/lib/browser/ego-api"
 
-const actionClass = "h-7 shrink-0 gap-1 px-2 text-xs"
+const actionClass =
+  "h-11 shrink-0 gap-1 px-2 text-xs sm:h-7 [@media(pointer:coarse)]:min-h-11"
+const iconClass =
+  "size-11 shrink-0 sm:size-7 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
 
 export function EgoBrowserGateway({
   tab,
@@ -112,8 +127,8 @@ export function EgoBrowserGateway({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b px-2 text-xs">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+      <div className="flex min-h-11 shrink-0 items-center gap-2 border-b px-2 text-xs sm:min-h-8">
         <span className="min-w-0 flex-1 truncate">
           {config?.enabled ? "Ego · 执行端真实页面" : "内置浏览器"}
         </span>
@@ -137,7 +152,7 @@ export function EgoBrowserGateway({
           <label className="flex items-center gap-2">
             <span className="w-24 shrink-0">执行端页面通道</span>
             <Input
-              className="h-8"
+              className="h-11 min-w-0 text-base sm:h-8 sm:text-xs"
               value={endpoint}
               onChange={(event) => setEndpoint(event.target.value)}
             />
@@ -145,7 +160,7 @@ export function EgoBrowserGateway({
           <label className="flex items-center gap-2">
             <span className="w-24 shrink-0">Ego 实例名称</span>
             <Input
-              className="h-8"
+              className="h-11 min-w-0 text-base sm:h-8 sm:text-xs"
               value={serverName}
               onChange={(event) => setServerName(event.target.value)}
               placeholder="默认实例可留空"
@@ -248,6 +263,31 @@ export function EgoBrowserView({
   const [copyNotice, setCopyNotice] = useState("")
   const [copyFallback, setCopyFallback] = useState<string | null>(null)
   const [fullscreen, setFullscreen] = useState(false)
+  const placeholder = useRef<HTMLDivElement>(null)
+  const [displayHost, setDisplayHost] = useState<HTMLDivElement | null>(null)
+  useLayoutEffect(() => {
+    const host = document.createElement("div")
+    host.className = "h-full min-h-0 w-full"
+    setDisplayHost(host)
+    return () => host.remove()
+  }, [])
+  useLayoutEffect(() => {
+    if (!displayHost) return
+    // 移动同一个 Portal 宿主越过 Pane 裁剪，保留视频节点、解码器及输入连接。
+    const parent = fullscreen ? document.body : placeholder.current
+    parent?.appendChild(displayHost)
+  }, [displayHost, fullscreen])
+  const isMobile = useIsMobile()
+  const mobileViewport = useMobileViewport(fullscreen && isMobile)
+  const displaySize = useEgoDisplaySize(isMobile)
+  const rotated = fullscreen && isMobile && displaySize.portrait
+  const orientationLocked = useRef(false)
+  const fullscreenCurrent = useRef(fullscreen)
+  fullscreenCurrent.current = fullscreen
+  const [appliedViewport, setAppliedViewport] = useState("")
+  const [viewportVersion, setViewportVersion] = useState(0)
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
+  const [displayZoom, setDisplayZoom] = useState(1)
   const [projectFiles, setProjectFiles] = useState<
     { name: string; path: string; directory: boolean }[]
   >([])
@@ -312,7 +352,18 @@ export function EgoBrowserView({
     setCopyFallback(null)
   }, [])
 
+  useEffect(
+    () => () => {
+      fullscreenCurrent.current = false
+      if (orientationLocked.current) window.screen.orientation?.unlock?.()
+    },
+    []
+  )
   useEffect(() => {
+    if (!fullscreen && orientationLocked.current) {
+      window.screen.orientation?.unlock?.()
+      orientationLocked.current = false
+    }
     const changed = () => {
       if (!document.fullscreenElement) setFullscreen(false)
     }
@@ -353,6 +404,18 @@ export function EgoBrowserView({
       flushSync(() => setFullscreen(true))
       // 仅响应用户点击；不支持原生全屏的移动端仍可在当前网页内铺满。
       await container.current?.requestFullscreen?.().catch(() => {})
+      const orientation = window.screen.orientation as ScreenOrientation & {
+        lock?: (value: string) => Promise<void>
+      }
+      if (isMobile && orientation?.lock && document.fullscreenElement) {
+        try {
+          await orientation.lock("landscape")
+          if (fullscreenCurrent.current) orientationLocked.current = true
+          else orientation.unlock?.()
+        } catch {
+          // 系统拒绝横屏时由显示层横向铺满，不激活执行端窗口。
+        }
+      }
     }
   }
 
@@ -393,6 +456,15 @@ export function EgoBrowserView({
   )
 
   const send = (action: Record<string, unknown>, tabId?: string | null) => {
+    if (["open", "navigate"].includes(String(action.kind)) && manageViewport)
+      action = {
+        ...action,
+        viewport: {
+          mode: viewportMode,
+          width: viewportWidth,
+          height: viewportHeight,
+        },
+      }
     const version = inputVersion.current
     const menuPosition = contextPosition.current
     // 排队期间用户可能切页；输入始终交付产生该输入时的真实页面。
@@ -492,15 +564,37 @@ export function EgoBrowserView({
       }
     }
     const visit = egoRequest<EgoSession>({ method: "session", sessionId }).then(
-      (state) =>
-        egoRequest<EgoSession>({
+      (state) => {
+        const mobile = window.matchMedia(
+          "(max-width: 767px), (max-width: 1023px) and (pointer: coarse)"
+        ).matches
+        const width = Math.max(
+          320,
+          Math.min(
+            480,
+            window.screen.width || window.innerWidth,
+            window.screen.height || window.innerWidth,
+            window.innerWidth
+          )
+        )
+        return egoRequest<EgoSession>({
           method: "visit",
           sessionId,
           viewId,
           url: initialUrl,
           clientId,
           epoch: state.control.epoch,
+          ...(mobile
+            ? {
+                viewport: {
+                  mode: "mobile",
+                  width,
+                  height: Math.round(width * 1.4),
+                },
+              }
+            : {}),
         })
+      }
     )
     registerEgoView(viewId, sessionId, visit)
     void visit
@@ -538,10 +632,113 @@ export function EgoBrowserView({
   const paused = session?.control.owner != null
   const ready = session?.connected && !session.control.recoveryRequired
   const editable = ready && !readOnly
+  const viewportMode = isMobile && !fullscreen ? "mobile" : "desktop"
+  const viewportWidth =
+    viewportMode === "mobile"
+      ? Math.max(320, Math.min(480, displaySize.deviceWidth))
+      : 1280
+  const viewportHeight =
+    viewportMode === "mobile"
+      ? Math.round(viewportWidth * 1.4)
+      : isMobile && fullscreen
+        ? Math.max(
+            240,
+            Math.min(
+              900,
+              Math.round(
+                (1280 * Math.max(160, displaySize.deviceWidth - 180)) /
+                  displaySize.deviceHeight
+              )
+            )
+          )
+        : 720
+  const manageViewport = isMobile || Boolean(tab?.viewport)
+  const viewportKey = `${activeId}:${session?.control.epoch}:${viewportMode}:${viewportWidth}:${viewportHeight}`
+  const viewportPending =
+    ready &&
+    session?.control.owner === clientId &&
+    manageViewport &&
+    appliedViewport !== viewportKey
+  useEffect(() => {
+    if (!viewportPending || !activeId) return
+    let disposed = false
+    const targetId = activeId
+    const timer = setTimeout(() => {
+      // 与实际输入共用队列；旧设备或已切走的页面不能迟到覆盖新视口。
+      void queue.current
+        .push(targetId, { kind: "viewport" }, async () => {
+          const current = latest.current
+          if (
+            disposed ||
+            !current ||
+            current.control.owner !== clientId ||
+            active.current !== targetId
+          )
+            return
+          const next = await egoRequest<EgoSession>({
+            method: "human",
+            sessionId,
+            clientId,
+            epoch: current.control.epoch,
+            tabId: targetId,
+            action: {
+              kind: "viewport",
+              mode: viewportMode,
+              width: viewportWidth,
+              height: viewportHeight,
+            },
+          })
+          if (disposed) return
+          accept(next)
+          // 同步更新已确认的输入坐标范围，避免清空元数据后吞掉切屏后的第一下。
+          setFrame((previous) =>
+            rtc.current
+              ? {
+                  data: "",
+                  width: viewportWidth,
+                  height: viewportHeight,
+                  chooser:
+                    previous?.tabId === targetId ? previous.chooser : null,
+                  dialog: previous?.tabId === targetId ? previous.dialog : null,
+                  tabId: targetId,
+                }
+              : null
+          )
+          // WebRTC 可在同一轨道内更新分辨率；重连反而重复协商并等待关键帧。
+          if (!rtc.current) setVideoTab(null)
+          setPixelTab(null)
+          setAppliedViewport(viewportKey)
+          setViewportVersion((value) => value + 1)
+        })
+        .catch((reason) => {
+          if (!disposed) setError(egoError(reason))
+        })
+    }, 100)
+    return () => {
+      disposed = true
+      clearTimeout(timer)
+    }
+  }, [
+    viewportPending,
+    activeId,
+    clientId,
+    sessionId,
+    viewportMode,
+    viewportWidth,
+    viewportHeight,
+    viewportKey,
+    accept,
+  ])
+  useEffect(() => {
+    setKeyboardOpen(false)
+    setDisplayZoom(1)
+    if (isMobile && document.activeElement === keyboard.current)
+      keyboard.current?.blur()
+  }, [activeId, editable, isMobile])
   useEffect(() => {
     cancelLongPress()
     pointerState.current = null
-  }, [activeId, tabUrl, editable, cancelLongPress])
+  }, [activeId, tabUrl, editable, viewportPending, fullscreen, cancelLongPress])
   useEffect(() => {
     const cancel = () => {
       cancelLongPress()
@@ -599,7 +796,15 @@ export function EgoBrowserView({
       stopped = true
       cancel?.()
     }
-  }, [pixelMode, activeId, ready, sessionId, clientId, fullscreen])
+  }, [
+    pixelMode,
+    activeId,
+    ready,
+    sessionId,
+    clientId,
+    displayHost,
+    viewportVersion,
+  ])
   useEffect(() => {
     if (!rtcMode || !activeId || !ready || !video.current) return
     let stopped = false
@@ -655,7 +860,7 @@ export function EgoBrowserView({
     viewId,
     clientId,
     accept,
-    fullscreen,
+    displayHost,
   ])
   useEffect(() => {
     if (!videoMode || !activeId || !ready || !video.current) return
@@ -688,7 +893,7 @@ export function EgoBrowserView({
       stopped = true
       cancel?.()
     }
-  }, [videoMode, activeId, ready, sessionId, fullscreen])
+  }, [videoMode, activeId, ready, sessionId, displayHost, viewportVersion])
   useEffect(() => {
     if (contextMenu && (!editable || activeId !== contextMenu.tabId || !paused))
       closeContextMenu()
@@ -761,7 +966,15 @@ export function EgoBrowserView({
       cancelStream?.()
       clearTimeout(timer)
     }
-  }, [sessionId, activeId, ready, videoMode, rtcMode, pixelMode])
+  }, [
+    sessionId,
+    activeId,
+    ready,
+    videoMode,
+    rtcMode,
+    pixelMode,
+    viewportVersion,
+  ])
   const choose = (id: string) => {
     cancelLongPress()
     pointerState.current = null
@@ -848,7 +1061,13 @@ export function EgoBrowserView({
       return
     }
     if (type === "mousePressed") closeContextMenu()
-    if (!editable || !frame || frame.tabId !== active.current) return
+    if (
+      !editable ||
+      viewportPending ||
+      !frame ||
+      frame.tabId !== active.current
+    )
+      return
     const image = event.currentTarget.querySelector('[data-ego-surface="true"]')
     if (!image) return
     const bounds = image.getBoundingClientRect()
@@ -860,23 +1079,17 @@ export function EgoBrowserView({
         event.clientY > bounds.bottom)
     )
       return
-    const x = Math.max(
-      0,
-      Math.min(
-        frame.width - 1,
-        ((event.clientX - bounds.left) * frame.width) / bounds.width
-      )
-    )
-    const y = Math.max(
-      0,
-      Math.min(
-        frame.height - 1,
-        ((event.clientY - bounds.top) * frame.height) / bounds.height
-      )
+    const { x, y } = egoPagePoint(
+      bounds,
+      frame,
+      event.clientX,
+      event.clientY,
+      rotated
     )
     if (type === "mousePressed") {
       cancelLongPress()
-      event.preventDefault()
+      if (!(isMobile && displayZoom > 1 && event.pointerType === "touch"))
+        event.preventDefault()
       pointerState.current = {
         id: event.pointerId,
         x,
@@ -888,7 +1101,8 @@ export function EgoBrowserView({
         clientX: event.clientX,
         clientY: event.clientY,
       }
-      event.currentTarget.setPointerCapture(event.pointerId)
+      if (!(isMobile && displayZoom > 1 && event.pointerType === "touch"))
+        event.currentTarget.setPointerCapture(event.pointerId)
       if (event.pointerType !== "touch")
         keyboard.current?.focus({ preventScroll: true })
       else {
@@ -936,6 +1150,8 @@ export function EgoBrowserView({
       lastMove.current = Date.now()
       if (state?.touch) {
         if (state.held) return
+        // 放大后由本设备平移画面，不能把查看细节的手势误发成远端滚动。
+        if (isMobile && displayZoom > 1) return
         const deltaX = state.x - x
         const deltaY = state.y - y
         if (!state.moved) return
@@ -961,7 +1177,9 @@ export function EgoBrowserView({
       pointerState.current = null
       if (!state || state.moved || state.held || state.tabId !== active.current)
         return
-      keyboard.current?.focus({ preventScroll: true })
+      // 手机点击按钮和链接不应每次弹出键盘；输入由明确的键盘按钮开启。
+      if (!isMobile || keyboardOpen)
+        keyboard.current?.focus({ preventScroll: true })
       act({
         kind: "pointer",
         type: "mousePressed",
@@ -1002,6 +1220,7 @@ export function EgoBrowserView({
     rightPointer.current = null
     if (
       !editable ||
+      viewportPending ||
       !frame ||
       frame.tabId !== active.current ||
       !active.current
@@ -1027,14 +1246,7 @@ export function EgoBrowserView({
     setContextMenu(null)
     act({
       kind: "context",
-      x: Math.min(
-        frame.width - 1,
-        ((event.clientX - bounds.left) * frame.width) / bounds.width
-      ),
-      y: Math.min(
-        frame.height - 1,
-        ((event.clientY - bounds.top) * frame.height) / bounds.height
-      ),
+      ...egoPagePoint(bounds, frame, event.clientX, event.clientY, rotated),
       modifiers:
         Number(event.altKey) +
         Number(event.ctrlKey) * 2 +
@@ -1087,6 +1299,7 @@ export function EgoBrowserView({
   ) => {
     if (
       !editable ||
+      viewportPending ||
       composing.current ||
       event.nativeEvent.isComposing ||
       event.keyCode === 229
@@ -1155,12 +1368,15 @@ export function EgoBrowserView({
 
   const content = (
     <div
-      ref={container}
-      role="region"
-      aria-label="Ego 浏览器"
-      className={`flex min-h-0 flex-col bg-background text-xs ${fullscreen ? "fixed inset-0 z-[100] h-dvh w-full" : "h-full"}`}
+      className={`flex min-h-0 min-w-0 flex-col overflow-hidden bg-background text-xs ${rotated ? "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-90" : "h-full w-full"}`}
+      style={
+        rotated
+          ? { width: displaySize.height, height: displaySize.width }
+          : undefined
+      }
+      data-ego-rotated={rotated || undefined}
     >
-      <div className="flex h-8 shrink-0 items-center gap-1 border-b px-2">
+      <div className="flex min-h-11 shrink-0 items-center gap-1 border-b px-2 sm:min-h-8">
         <span className="min-w-0 flex-1 truncate text-muted-foreground">
           会话 {sessionId} ·{" "}
           {readOnly
@@ -1206,7 +1422,7 @@ export function EgoBrowserView({
           onClick={() => setDisplaySettings(!displaySettings)}
         >
           <Settings2 className="size-3.5" />
-          显示
+          <span className="hidden sm:inline">显示</span>
         </Button>
         <Button
           variant="ghost"
@@ -1221,9 +1437,19 @@ export function EgoBrowserView({
           ) : (
             <Maximize className="size-3.5" />
           )}
-          {fullscreen ? "退出全屏" : "全屏"}
+          <span className="hidden sm:inline">
+            {fullscreen ? "退出全屏" : "全屏"}
+          </span>
         </Button>
       </div>
+      {viewportPending && (
+        <p
+          role="status"
+          className="shrink-0 border-b px-3 py-1 text-muted-foreground"
+        >
+          正在切换{viewportMode === "mobile" ? "移动" : "桌面"}页面…
+        </p>
+      )}
       {displaySettings && (
         <div
           role="region"
@@ -1269,6 +1495,34 @@ export function EgoBrowserView({
           <p className="text-muted-foreground">
             默认使用低延迟实时画面；连接失败会自动回退，无需选择技术通道。
           </p>
+          {isMobile && (
+            <div className="flex items-center gap-2" aria-label="画面缩放">
+              <span className="shrink-0">画面大小</span>
+              {[
+                { value: 1, label: "适应" },
+                { value: 1.5, label: "150%" },
+                { value: 2, label: "200%" },
+              ].map(({ value, label }) => (
+                <Button
+                  key={value}
+                  variant="ghost"
+                  className={actionClass}
+                  aria-pressed={displayZoom === value}
+                  onClick={() => {
+                    cancelLongPress()
+                    pointerState.current = null
+                    setDisplayZoom(value)
+                    if (surface.current) {
+                      surface.current.scrollLeft = 0
+                      surface.current.scrollTop = 0
+                    }
+                  }}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          )}
           <details className="text-muted-foreground">
             <summary className="cursor-pointer">高级排障</summary>
             <Button
@@ -1350,7 +1604,7 @@ export function EgoBrowserView({
         </div>
       )}
       <div
-        className="flex min-h-8 shrink-0 items-center gap-1 overflow-x-auto border-b px-1"
+        className="flex min-h-11 shrink-0 items-center gap-1 overflow-x-auto overscroll-x-contain border-b px-1 sm:min-h-8"
         role="tablist"
         aria-label="Ego 页面"
       >
@@ -1362,7 +1616,7 @@ export function EgoBrowserView({
             <button
               role="tab"
               aria-selected={page.id === activeId}
-              className={`truncate px-2 py-2 ${page.id === activeId ? "bg-muted text-foreground" : "text-muted-foreground"}`}
+              className={`min-h-11 min-w-0 truncate px-2 py-2 sm:min-h-8 ${page.id === activeId ? "bg-muted text-foreground" : "text-muted-foreground"}`}
               onClick={() => choose(page.id)}
             >
               {page.live ? "" : "待恢复 · "}
@@ -1371,7 +1625,7 @@ export function EgoBrowserView({
             <Button
               variant="ghost"
               size="icon"
-              className="size-7"
+              className={iconClass}
               aria-label={`关闭 ${page.title || page.url}`}
               disabled={!editable}
               onClick={() => act({ kind: "close" }, page.id)}
@@ -1383,7 +1637,7 @@ export function EgoBrowserView({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 shrink-0"
+          className={iconClass}
           aria-label="新建 Ego 页面"
           disabled={!editable}
           onClick={() => act({ kind: "open", url: "about:blank" })}
@@ -1392,7 +1646,7 @@ export function EgoBrowserView({
         </Button>
       </div>
       <form
-        className="flex h-10 shrink-0 items-center gap-1 border-b px-2"
+        className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b px-2 py-1 sm:flex"
         onSubmit={(event) => {
           event.preventDefault()
           const url =
@@ -1408,49 +1662,108 @@ export function EgoBrowserView({
           act({ kind: tab ? "navigate" : "open", url })
         }}
       >
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          aria-label="后退"
-          disabled={!editable || !tab}
-          onClick={() => act({ kind: "back" })}
-        >
-          <ArrowLeft className="size-3.5" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          aria-label="前进"
-          disabled={!editable || !tab}
-          onClick={() => act({ kind: "forward" })}
-        >
-          <ArrowRight className="size-3.5" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          aria-label="刷新"
-          disabled={!editable || !tab}
-          onClick={() => act({ kind: "reload" })}
-        >
-          <RotateCw className="size-3.5" />
-        </Button>
+        <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-1 sm:contents">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={iconClass}
+            aria-label="后退"
+            disabled={!editable || !tab}
+            onClick={() => act({ kind: "back" })}
+          >
+            <ArrowLeft className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={iconClass}
+            aria-label="前进"
+            disabled={!editable || !tab}
+            onClick={() => act({ kind: "forward" })}
+          >
+            <ArrowRight className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={iconClass}
+            aria-label="刷新"
+            disabled={!editable || !tab}
+            onClick={() => act({ kind: "reload" })}
+          >
+            <RotateCw className="size-3.5" />
+          </Button>
+          {isMobile && (
+            <Button
+              type="button"
+              variant="ghost"
+              className={`${actionClass} ml-auto`}
+              aria-label={
+                keyboardOpen ? "收起 Ego 输入键盘" : "打开 Ego 输入键盘"
+              }
+              aria-pressed={keyboardOpen}
+              disabled={!editable || viewportPending || !tab}
+              onClick={() => {
+                if (keyboardOpen) {
+                  keyboard.current?.blur()
+                  setKeyboardOpen(false)
+                } else {
+                  flushSync(() => setKeyboardOpen(true))
+                  keyboard.current?.focus({ preventScroll: true })
+                }
+              }}
+            >
+              <Keyboard className="size-4" />
+              {keyboardOpen ? "收起键盘" : "输入"}
+            </Button>
+          )}
+        </div>
         <Input
           aria-label="Ego 页面地址"
-          className="h-7 min-w-0 flex-1 text-xs"
+          className="col-start-1 row-start-1 h-11 min-w-0 flex-1 text-base sm:h-7 sm:text-xs [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:text-base"
+          inputMode="url"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           value={address}
           onChange={(event) => setAddress(event.target.value)}
         />
-        <Button className={actionClass} disabled={!editable}>
+        <Button
+          className={`${actionClass} col-start-2 row-start-1`}
+          disabled={!editable}
+        >
           前往
         </Button>
       </form>
+      {isMobile && keyboardOpen && editable && (
+        <div
+          className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-2"
+          aria-label="Ego 输入辅助按键"
+        >
+          {[
+            { label: "Tab", key: "Tab", code: "Tab", keyCode: 9 },
+            { label: "回车", key: "Enter", code: "Enter", keyCode: 13 },
+            { label: "退格", key: "Backspace", code: "Backspace", keyCode: 8 },
+            { label: "Esc", key: "Escape", code: "Escape", keyCode: 27 },
+          ].map(({ label, ...details }) => (
+            <Button
+              key={details.key}
+              variant="ghost"
+              className={actionClass}
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => {
+                act({ kind: "key", type: "keyDown", ...details })
+                act({ kind: "key", type: "keyUp", ...details })
+              }}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      )}
       {frame?.dialog && frame.tabId === activeId && (
         <div
           role="alertdialog"
@@ -1596,7 +1909,8 @@ export function EgoBrowserView({
       )}
       <div
         ref={surface}
-        className="relative flex min-h-0 flex-1 touch-none items-center justify-center overflow-hidden bg-muted/30"
+        aria-label="Ego 页面画面区域"
+        className={`relative flex min-h-0 min-w-0 flex-1 bg-muted/30 ${isMobile && displayZoom > 1 ? "touch-auto items-start justify-start overflow-auto overscroll-contain" : "touch-none items-center justify-center overflow-hidden"}`}
         onPointerDown={(event) => pointer(event, "mousePressed")}
         onPointerUp={(event) => pointer(event, "mouseReleased")}
         onPointerMove={(event) => pointer(event, "mouseMoved")}
@@ -1613,7 +1927,7 @@ export function EgoBrowserView({
         }}
         onContextMenu={openContextMenu}
         onWheel={(event) => {
-          if (!editable || !frame) return
+          if (!editable || viewportPending || !frame) return
           const image = event.currentTarget.querySelector(
             '[data-ego-surface="true"]'
           )
@@ -1630,68 +1944,89 @@ export function EgoBrowserView({
             kind: "pointer",
             type: "mouseWheel",
             button: "none",
-            x: ((event.clientX - bounds.left) * frame.width) / bounds.width,
-            y: ((event.clientY - bounds.top) * frame.height) / bounds.height,
-            deltaX: event.deltaX,
-            deltaY: event.deltaY,
+            ...egoPagePoint(
+              bounds,
+              frame,
+              event.clientX,
+              event.clientY,
+              rotated
+            ),
+            deltaX: rotated ? event.deltaY : event.deltaX,
+            deltaY: rotated ? -event.deltaX : event.deltaY,
           })
         }}
       >
-        {frame && frame.tabId === activeId ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            data-ego-surface={!videoPlaying && !pixelPlaying}
-            src={`data:image/${frame.format === "png" ? "png" : "jpeg"};base64,${frame.data}`}
-            alt="Ego 执行端真实页面"
-            draggable={false}
-            className="h-auto max-h-full w-auto max-w-full select-none object-contain"
-            width={frame.width}
-            height={frame.height}
-            style={
-              videoPlaying || pixelPlaying ? { display: "none" } : undefined
-            }
-          />
-        ) : (
-          <p className="px-4 text-center text-muted-foreground">
-            {!session
-              ? "正在连接 Ego…"
-              : !tab
-                ? "输入地址打开页面。页面会保留到您主动关闭。"
-                : !ready || !tab.live
-                  ? "页面暂不可用，请查看上方连接提示并确认恢复。"
-                  : "正在获取真实页面…"}
-          </p>
-        )}
-        {pixelMode && ready && activeId && (
-          <canvas
-            key={`pixels-${activeId}`}
-            ref={pixels}
-            data-ego-surface={pixelPlaying}
-            aria-label="Ego 执行端真实页面画面"
-            className="h-auto max-h-full w-auto max-w-full select-none object-contain"
-            style={pixelPlaying ? undefined : { position: "absolute" }}
-          />
-        )}
-        {(videoMode || rtcMode) && ready && activeId && (
-          <video
-            key={activeId}
-            ref={video}
-            data-ego-surface={videoPlaying}
-            aria-label="Ego 执行端视频画面"
-            autoPlay
-            muted
-            playsInline
-            className="h-auto max-h-full w-auto max-w-full select-none object-contain"
-            width={frame?.width}
-            height={frame?.height}
-            style={videoPlaying ? undefined : { position: "absolute" }}
-          />
-        )}
+        <div
+          className="relative flex h-full min-h-0 w-full shrink-0 items-center justify-center"
+          style={
+            isMobile && displayZoom > 1
+              ? {
+                  width: `${displayZoom * 100}%`,
+                  height: `${displayZoom * 100}%`,
+                }
+              : undefined
+          }
+        >
+          {frame && frame.tabId === activeId ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              data-ego-surface={!videoPlaying && !pixelPlaying}
+              src={`data:image/${frame.format === "png" ? "png" : "jpeg"};base64,${frame.data}`}
+              alt="Ego 执行端真实页面"
+              draggable={false}
+              className="h-auto max-h-full w-auto max-w-full select-none object-contain"
+              width={frame.width}
+              height={frame.height}
+              style={
+                videoPlaying || pixelPlaying ? { display: "none" } : undefined
+              }
+            />
+          ) : (
+            <p className="px-4 text-center text-muted-foreground">
+              {!session
+                ? "正在连接 Ego…"
+                : !tab
+                  ? "输入地址打开页面。页面会保留到您主动关闭。"
+                  : !ready || !tab.live
+                    ? "页面暂不可用，请查看上方连接提示并确认恢复。"
+                    : "正在获取真实页面…"}
+            </p>
+          )}
+          {pixelMode && ready && activeId && (
+            <canvas
+              key={`pixels-${activeId}`}
+              ref={pixels}
+              data-ego-surface={pixelPlaying}
+              aria-label="Ego 执行端真实页面画面"
+              className="h-auto max-h-full w-auto max-w-full select-none object-contain"
+              style={pixelPlaying ? undefined : { position: "absolute" }}
+            />
+          )}
+          {(videoMode || rtcMode) && ready && activeId && (
+            <video
+              key={activeId}
+              ref={video}
+              data-ego-surface={videoPlaying}
+              aria-label="Ego 执行端视频画面"
+              autoPlay
+              muted
+              playsInline
+              className="h-auto max-h-full w-auto max-w-full select-none object-contain"
+              width={frame?.width}
+              height={frame?.height}
+              style={videoPlaying ? undefined : { position: "absolute" }}
+            />
+          )}
+        </div>
         <textarea
           ref={keyboard}
           aria-label="向 Ego 页面输入"
-          className="absolute bottom-0 left-0 size-px opacity-0"
-          disabled={!editable}
+          className="absolute bottom-0 left-0 size-px text-base opacity-0"
+          inputMode={isMobile && !keyboardOpen ? "none" : "text"}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          disabled={!editable || viewportPending}
           onKeyDown={(event) => key(event, "keyDown")}
           onKeyUp={(event) => key(event, "keyUp")}
           onCompositionStart={() => {
@@ -1793,5 +2128,28 @@ export function EgoBrowserView({
     </div>
   )
   // 工作区 Pane 可能裁剪或变换子元素；网页内全屏必须越过该布局边界。
-  return fullscreen ? createPortal(content, document.body) : content
+  return (
+    <>
+      <div ref={placeholder} className="h-full min-h-0 w-full" />
+      {displayHost &&
+        createPortal(
+          <div
+            ref={(element) => {
+              container.current = element
+              mobileViewport.current = element
+            }}
+            role="region"
+            aria-label="Ego 浏览器"
+            className={
+              fullscreen
+                ? "fixed inset-0 z-[100] h-dvh w-full overflow-hidden bg-background pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
+                : "h-full min-h-0 w-full overflow-hidden bg-background"
+            }
+          >
+            {content}
+          </div>,
+          displayHost
+        )}
+    </>
+  )
 }
