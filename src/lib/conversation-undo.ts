@@ -1,6 +1,10 @@
 import { getTransport } from "@/lib/transport"
 import type { ForkPromptSnapshot } from "@/lib/research-branch"
-import type { MessageTurn, PromptStashSnapshot } from "@/lib/types"
+import type {
+  MessageTurn,
+  PromptInputBlock,
+  PromptStashSnapshot,
+} from "@/lib/types"
 
 export interface ConversationUndoPreview {
   conversationId: number
@@ -10,6 +14,7 @@ export interface ConversationUndoPreview {
   affectedTurns: number
   affectedUserMessages: number
   prompt: MessageTurn
+  input?: PromptInputBlock[]
   issues?: Array<{ code: string; label: string }>
   tasks?: Array<{ id: string; kind: string; label: string | null }>
 }
@@ -31,6 +36,7 @@ export interface ConversationUndoResult {
   conversationId: number
   sessionId: string
   prompt?: MessageTurn
+  input?: PromptInputBlock[]
 }
 
 export interface PreparedConversationUndoRequest {

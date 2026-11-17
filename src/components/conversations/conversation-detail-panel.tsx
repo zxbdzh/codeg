@@ -1436,7 +1436,7 @@ const ConversationTabView = memo(function ConversationTabView({
     ) => {
       // 先保存回填，再清除旧连接；重连失败也不会丢掉要重发的原文。
       if (original) {
-        if (!composerHistoryRef.current?.restore(original)) {
+        if (!composerHistoryRef.current?.restore(original, result.input)) {
           throw new Error(
             "Undo completed but the original input could not be restored"
           )
@@ -2376,9 +2376,7 @@ const ConversationTabView = memo(function ConversationTabView({
           forkPromptBusy={promptForking}
           undoPromptBusy={conversationUndo.pending}
           onUndoFromPrompt={
-            (selectedAgent === "codex" || selectedAgent === "claude_code") &&
-            hasPersistedConversation &&
-            !conn.isViewer
+            hasPersistedConversation && !conn.isViewer
               ? conversationUndo.requestUndo
               : undefined
           }

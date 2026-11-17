@@ -188,7 +188,7 @@ export type ComposerInjectContent =
 
 export interface ComposerHistoryHandle {
   capture: () => PromptStashSnapshot | null
-  restore: (prompt: MessageTurn) => boolean
+  restore: (prompt: MessageTurn, input?: PromptInputBlock[]) => boolean
   setLocked: (locked: boolean) => void
 }
 
@@ -1723,11 +1723,11 @@ export function MessageInput({
         }
         return stashCapture()
       },
-      restore: (prompt) => {
+      restore: (prompt, input) => {
         const editor = editorRef.current?.getEditor()
         if (!editor) return false
         const blocks: PromptInputBlock[] = []
-        for (const block of prompt.blocks) {
+        for (const block of input ? [] : prompt.blocks) {
           if (block.type === "image") {
             // 历史路径可能已经被覆盖；恢复的原图必须以历史字节发送，不能重读旧上传缓存。
             blocks.push({ ...block, uri: null })
@@ -1737,7 +1737,8 @@ export function MessageInput({
             throw new Error("The original input contains unsupported content")
           }
         }
-        hydrateFromBlocks(editor, blocks, knownInvocationsRef.current)
+        // 后端准备的输入保留完整资源块及不可变附件副本；老接口仍走文字、图片兼容路径。
+        hydrateFromBlocks(editor, input ?? blocks, knownInvocationsRef.current)
         syncComposerEmpty()
         return true
       },
