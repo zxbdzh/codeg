@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ConversationPaneSwitcher } from "./conversation-pane-switcher"
 import { resetTabStore, useTabStore } from "@/stores/tab-store"
 import {
+  emptyConversationPane,
   initialConversationPanes,
   normalizeConversationPanes,
 } from "@/lib/conversation-panes"
@@ -337,6 +338,100 @@ describe("浮动 Pane 切换栏", () => {
       waitingPane.querySelector('[data-pane-activity="waiting"] svg')
     ).not.toBeNull()
   })
+
+  it.each([false, true])(
+    "其他 Pane 出现待处理时主动提醒，点击才切换（mobile=%s）",
+    (mobile) => {
+      const tabs = [1, 2, 3].map((id) => ({
+        id: `conv-${id}`,
+        kind: "conversation" as const,
+        folderId: 1,
+        conversationId: id,
+        agentType: "codex" as const,
+        title: `任务 ${id}`,
+        isPinned: false,
+      }))
+      const main = emptyConversationPane("pane-main", "Pane 1", "g-main")
+      main.assignments = { "conv-1": "g-main" }
+      main.active = "conv-1"
+      main.selection = { "g-main": "conv-1" }
+      const background = emptyConversationPane("pane-other", "后台任务")
+      background.assignments = {
+        "conv-2": "pane-other-main",
+        "conv-3": "pane-other-main",
+      }
+      background.active = "conv-2"
+      background.selection = { "pane-other-main": "conv-2" }
+      useTabStore.setState({
+        rawTabs: tabs,
+        tabs,
+        activeTabId: "conv-1",
+        paneState: {
+          ...initialConversationPanes(),
+          panes: [main, background],
+        },
+      })
+      let connection = makePaneTestConnection({ status: "prompting" })
+      const listeners = new Map<string, Set<() => void>>()
+      const store: ConnectionStoreApi = {
+        getConnection: (key) => (key === "conv-3" ? connection : undefined),
+        getConnectPending: () => undefined,
+        getConnectError: () => undefined,
+        getActiveKey: () => "conv-1",
+        subscribeActiveKey: () => () => {},
+        subscribeKey: (key, listener) => {
+          const subscribers = listeners.get(key) ?? new Set<() => void>()
+          subscribers.add(listener)
+          listeners.set(key, subscribers)
+          return () => subscribers.delete(listener)
+        },
+      }
+      const { container } = render(
+        <NextIntlClientProvider locale="zh-CN" messages={messages}>
+          <StaticConnectionStoreProvider store={store}>
+            <ConversationPaneSwitcher mobile={mobile} />
+          </StaticConnectionStoreProvider>
+        </NextIntlClientProvider>
+      )
+      expect(screen.queryByRole("status")).toBeNull()
+      const focusBefore = document.activeElement
+      act(() => {
+        connection = {
+          ...connection,
+          pendingQuestion: { tool_call_id: "question-3", question: "继续？" },
+        }
+        listeners.get("conv-3")?.forEach((listener) => listener())
+      })
+      const notice = screen.getByRole("status")
+      expect(notice).toHaveTextContent("后台任务")
+      expect(notice).toHaveTextContent("待处理")
+      expect(notice).toHaveAttribute("aria-live", "polite")
+      expect(useTabStore.getState().paneState?.activePaneId).toBe("pane-main")
+      expect(document.activeElement).toBe(focusBefore)
+      expect(container.querySelector("[data-pane-trigger]")).toHaveAttribute(
+        "aria-expanded",
+        "false"
+      )
+
+      act(() => {
+        connection = { ...connection, pendingQuestion: null }
+        listeners.get("conv-3")?.forEach((listener) => listener())
+      })
+      expect(screen.queryByRole("status")).toBeNull()
+
+      act(() => {
+        connection = {
+          ...connection,
+          pendingQuestion: { tool_call_id: "question-4", question: "继续？" },
+        }
+        listeners.get("conv-3")?.forEach((listener) => listener())
+      })
+      fireEvent.click(screen.getByRole("button", { name: "后台任务: 待处理" }))
+      expect(useTabStore.getState().paneState?.activePaneId).toBe("pane-other")
+      expect(useTabStore.getState().activeTabId).toBe("conv-3")
+      expect(screen.queryByRole("status")).toBeNull()
+    }
+  )
 
   it("触屏展开后主动滚到当前 Pane，包含它的操作按钮", () => {
     useTabStore.getState().createPane()

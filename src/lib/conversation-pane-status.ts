@@ -1,5 +1,8 @@
 import type { ConnectionState } from "@/contexts/acp-connections-context"
-import type { ConversationPane } from "@/lib/conversation-panes"
+import type {
+  ConversationPane,
+  ConversationPaneState,
+} from "@/lib/conversation-panes"
 import type { ConversationStatus } from "@/lib/types"
 
 export type PaneActivityKind = "waiting" | "error" | "running" | "completed"
@@ -7,6 +10,13 @@ export type PaneActivityKind = "waiting" | "error" | "running" | "completed"
 export interface PaneActivitySummary {
   kind: PaneActivityKind
   count: number
+}
+
+export interface PaneAttentionSummary extends PaneActivitySummary {
+  kind: "waiting" | "error"
+  paneId: string
+  paneName: string
+  tabId: string
 }
 
 /** 等待操作优先于运行；只有已经平静下来的会话才显示完成状态。 */
@@ -45,7 +55,8 @@ export function summarizePaneActivity(
     id: string
     status?: ConversationStatus
   }>,
-  getConnection: (tabId: string) => ConnectionState | undefined
+  getConnection: (tabId: string) => ConnectionState | undefined,
+  getFallbackKind?: (tabId: string) => PaneActivityKind | null | undefined
 ): PaneActivitySummary | null {
   const counts: Record<PaneActivityKind, number> = {
     waiting: 0,
@@ -57,7 +68,11 @@ export function summarizePaneActivity(
     if (!Object.prototype.hasOwnProperty.call(pane.assignments, tab.id)) {
       continue
     }
-    const kind = connectionActivityKind(getConnection(tab.id), tab.status)
+    const fallback = getFallbackKind?.(tab.id)
+    const kind =
+      fallback === undefined
+        ? connectionActivityKind(getConnection(tab.id), tab.status)
+        : fallback
     if (kind) counts[kind] += 1
   }
   for (const kind of ["waiting", "error", "running", "completed"] as const) {
@@ -71,4 +86,55 @@ export function samePaneActivity(
   next: PaneActivitySummary | null
 ) {
   return previous?.kind === next?.kind && previous?.count === next?.count
+}
+
+/** 后台 Pane 只主动提醒需要介入的状态，不能让运行和完成状态淹没待处理入口。 */
+export function summarizeBackgroundPaneAttention(
+  paneState: ConversationPaneState | null,
+  tabs: ReadonlyArray<{ id: string; status?: ConversationStatus }>,
+  getConnection: (tabId: string) => ConnectionState | undefined,
+  getFallbackKind?: (tabId: string) => PaneActivityKind | null | undefined
+): PaneAttentionSummary[] {
+  if (!paneState) return []
+  const notices: PaneAttentionSummary[] = []
+  for (const pane of paneState.panes) {
+    if (pane.id === paneState.activePaneId) continue
+    const activity = summarizePaneActivity(
+      pane,
+      tabs,
+      getConnection,
+      getFallbackKind
+    )
+    if (
+      !activity ||
+      (activity.kind !== "waiting" && activity.kind !== "error")
+    ) {
+      continue
+    }
+    const { kind } = activity
+    const target = tabs.find((tab) => {
+      if (!Object.prototype.hasOwnProperty.call(pane.assignments, tab.id)) {
+        return false
+      }
+      const fallback = getFallbackKind?.(tab.id)
+      return (
+        (fallback === undefined
+          ? connectionActivityKind(getConnection(tab.id), tab.status)
+          : fallback) === kind
+      )
+    })
+    if (target) {
+      notices.push({
+        kind,
+        count: activity.count,
+        paneId: pane.id,
+        paneName: pane.name,
+        tabId: target.id,
+      })
+    }
+  }
+  return notices.sort(
+    (previous, next) =>
+      Number(previous.kind !== "waiting") - Number(next.kind !== "waiting")
+  )
 }

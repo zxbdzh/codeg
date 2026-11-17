@@ -29,7 +29,10 @@ import {
   readConversationPaneSwitcherPosition,
   writeConversationPaneSwitcherPosition,
 } from "@/lib/conversation-pane-switcher-position"
-import { useConversationPaneStatus } from "./use-conversation-pane-status"
+import {
+  useBackgroundPaneAttention,
+  useConversationPaneStatus,
+} from "./use-conversation-pane-status"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -107,6 +110,7 @@ export function ConversationPaneSwitcher({
   const focusTabOnOpen = useRef(false)
   const hasPanes = paneState != null
   const activity = useConversationPaneStatus(paneState?.activePaneId ?? null)
+  const backgroundAttention = useBackgroundPaneAttention()
 
   useLayoutEffect(() => {
     const host = container.current
@@ -434,6 +438,7 @@ export function ConversationPaneSwitcher({
         onPointerLeave={mobile ? undefined : deferClose}
         onFocusCapture={(event) => {
           if (restoringFocus.current) return
+          if (event.target.closest("[data-pane-notice]")) return
           if (mobile && event.target.hasAttribute("data-pane-trigger")) return
           // inert 会让浏览器先移走焦点，因此在切换内容层之前记住键盘展开的来源。
           if (event.target.hasAttribute("data-pane-trigger")) {
@@ -457,7 +462,7 @@ export function ConversationPaneSwitcher({
       >
         <div
           data-pane-anchor
-          className="pointer-events-none will-change-transform"
+          className="pointer-events-none relative will-change-transform"
           style={{
             transform: `translate3d(${offset.x}px, ${offset.y}px, 0)`,
           }}
@@ -807,6 +812,63 @@ export function ConversationPaneSwitcher({
               </div>
             </motion.div>
           </motion.div>
+          {backgroundAttention.length > 0 && (
+            <div
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              data-pane-notice
+              className={cn(
+                "pointer-events-auto absolute left-1/2 flex max-h-36 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col gap-1 overflow-y-auto overscroll-contain",
+                !mobile && position.y > 0.5
+                  ? "bottom-full mb-1"
+                  : "top-full mt-1"
+              )}
+            >
+              {backgroundAttention.map((notice) => {
+                const label =
+                  notice.count > 1
+                    ? t(`status.${notice.kind}Many`, { count: notice.count })
+                    : t(`status.${notice.kind}`)
+                return (
+                  <motion.button
+                    key={notice.paneId}
+                    type="button"
+                    aria-label={`${notice.paneName}: ${label}`}
+                    title={`${notice.paneName}: ${label}`}
+                    initial={reduceMotion ? false : { opacity: 0, scale: 0.96 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: reduceMotion ? 0 : 0.18 }}
+                    onClick={() => {
+                      // 只有用户主动点击才切换，并直接定位真正等待操作的会话。
+                      const state = useTabStore.getState()
+                      state.switchPane(notice.paneId)
+                      useTabStore.getState().switchTab(notice.tabId)
+                      cancelClose()
+                      setExpanded(false)
+                    }}
+                    className={cn(
+                      "flex max-w-full items-center justify-center gap-1.5 rounded-full border bg-background/95 px-3 text-xs shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                      mobile ? "min-h-11 touch-manipulation" : "min-h-7",
+                      notice.kind === "waiting"
+                        ? "border-orange-500/50 text-orange-700 dark:text-orange-400"
+                        : "border-destructive/35 text-destructive"
+                    )}
+                  >
+                    {notice.kind === "waiting" ? (
+                      <CircleHelp className="size-3 shrink-0" />
+                    ) : (
+                      <AlertCircle className="size-3 shrink-0" />
+                    )}
+                    <span className="max-w-40 truncate font-medium">
+                      {notice.paneName}
+                    </span>
+                    <span className="shrink-0 tabular-nums">{label}</span>
+                  </motion.button>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
       <Dialog

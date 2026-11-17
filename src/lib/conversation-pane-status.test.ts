@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest"
 import type { ConnectionState } from "@/contexts/acp-connections-context"
-import { emptyConversationPane } from "@/lib/conversation-panes"
+import {
+  emptyConversationPane,
+  initialConversationPanes,
+} from "@/lib/conversation-panes"
 import { makePaneTestConnection } from "@/lib/conversation-pane-test-helpers"
 import {
   connectionActivityKind,
+  summarizeBackgroundPaneAttention,
   summarizePaneActivity,
 } from "./conversation-pane-status"
 
@@ -101,5 +105,87 @@ describe("灵动岛状态", () => {
         (id) => connections.get(id)
       )
     ).toEqual({ kind: "waiting", count: 2 })
+  })
+
+  it("后台提醒优先待处理，按 Pane 计数且不包含当前 Pane 或未归属会话", () => {
+    const state = initialConversationPanes()
+    state.panes[0].assignments = { active: "g-main" }
+    const failed = emptyConversationPane("failed", "失败任务")
+    failed.assignments = { failed: "failed-main" }
+    const waiting = emptyConversationPane("waiting", "等待确认")
+    waiting.assignments = {
+      first: "waiting-main",
+      second: "waiting-main",
+      running: "waiting-main",
+    }
+    const completed = emptyConversationPane("completed", "完成任务")
+    completed.assignments = { completed: "completed-main" }
+    state.panes.push(failed, waiting, completed)
+    const pending = makePaneTestConnection({
+      status: "prompting",
+      pendingQuestion: { tool_call_id: "question", question: "继续？" },
+    })
+    const connections = new Map([
+      ["active", pending],
+      ["failed", connection("error")],
+      ["first", pending],
+      ["second", pending],
+      ["running", connection("prompting")],
+      ["completed", connection("connected")],
+      ["unassigned", pending],
+    ])
+    const tabs = Array.from(connections.keys(), (id) => ({ id }))
+    expect(
+      summarizeBackgroundPaneAttention(state, tabs, (id) => connections.get(id))
+    ).toEqual([
+      {
+        paneId: "waiting",
+        paneName: "等待确认",
+        tabId: "first",
+        kind: "waiting",
+        count: 2,
+      },
+      {
+        paneId: "failed",
+        paneName: "失败任务",
+        tabId: "failed",
+        kind: "error",
+        count: 1,
+      },
+    ])
+    expect(summarizeBackgroundPaneAttention(null, tabs, () => pending)).toEqual(
+      []
+    )
+  })
+
+  it("会话连接未挂载时仍汇总后端快照中的后台待处理", () => {
+    const state = initialConversationPanes()
+    const waiting = emptyConversationPane("waiting", "后台任务")
+    waiting.assignments = {
+      first: "waiting-main",
+      second: "waiting-main",
+    }
+    state.panes.push(waiting)
+    const snapshotKinds = new Map([
+      ["first", "waiting" as const],
+      ["second", "waiting" as const],
+    ])
+
+    expect(
+      summarizeBackgroundPaneAttention(
+        state,
+        [{ id: "first" }, { id: "second" }],
+        () => undefined,
+        (tabId) => snapshotKinds.get(tabId) ?? null
+      )
+    ).toEqual([
+      {
+        paneId: "waiting",
+        paneName: "后台任务",
+        tabId: "first",
+        kind: "waiting",
+        count: 2,
+      },
+    ])
   })
 })
