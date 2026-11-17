@@ -18,6 +18,130 @@ use crate::models::{AgentType, ContentBlock, MessageTurn, TurnRole};
 use crate::parsers::AgentParser;
 use crate::research_branch::PromptSnapshot;
 
+mod cleanup;
+mod codex;
+mod gemini;
+mod history;
+pub(crate) mod operations;
+mod stop;
+pub use cleanup::{cleanup_expired, cleanup_task};
+pub use history::{
+    clear_redo, commit, redo, redo_status, CommitRequest, CommitResult, ConversationRequest,
+    RedoStatus,
+};
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewRequest {
+    pub conversation_id: i32,
+    pub source_turn_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoIssue {
+    pub code: String,
+    pub label: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoTask {
+    pub id: String,
+    pub kind: String,
+    pub label: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoPreview {
+    pub conversation_id: i32,
+    pub session_id: String,
+    pub source_turn_id: String,
+    pub history_revision: String,
+    #[serde(skip)]
+    pub(crate) history_anchor_revision: String,
+    pub affected_turns: usize,
+    pub affected_user_messages: usize,
+    pub prompt: MessageTurn,
+    pub issues: Vec<UndoIssue>,
+    pub tasks: Vec<UndoTask>,
+}
+
+pub async fn preview(
+    db: &AppDatabase,
+    manager: &ConnectionManager,
+    request: PreviewRequest,
+) -> Result<UndoPreview, AppCommandError> {
+    use sha2::{Digest, Sha256};
+
+    let row = conversation_service::get_by_id(&db.conn, request.conversation_id)
+        .await
+        .map_err(AppCommandError::from)?;
+    if !matches!(row.kind, ConversationKind::Regular | ConversationKind::Chat) {
+        return Err(AppCommandError::invalid_input(
+            "Undo is only available for regular conversations",
+        ));
+    }
+    let session_id = row
+        .external_id
+        .ok_or_else(|| AppCommandError::invalid_input("The conversation has no saved session"))?;
+    let env = agent_setting_service::load_agent_env(&db.conn, row.agent_type).await;
+    let tasks = stop::session_tasks(manager, row.agent_type, &session_id).await;
+    tokio::task::spawn_blocking(move || {
+        let parser = crate::parsers::build_agent_parser(row.agent_type, &env);
+        let detail = parser
+            .get_conversation(&session_id)
+            .map_err(|error| failed(error.to_string()))?;
+        if detail.summary.id != session_id {
+            return Err(AppCommandError::invalid_input("Session identity changed"));
+        }
+        let index = detail
+            .turns
+            .iter()
+            .position(|turn| {
+                turn.id == request.source_turn_id && matches!(turn.role, TurnRole::User)
+            })
+            .ok_or_else(|| {
+                AppCommandError::invalid_input("The selected user message no longer exists")
+            })?;
+        // 版本覆盖整段有效历史，不能只核对起点而漏掉其他客户端新增的尾部。
+        let history =
+            serde_json::to_vec(&detail.turns).map_err(|error| failed(error.to_string()))?;
+        // 只允许被确认停止的当前回复继续落盘；所有已保存输入及其之前的历史必须不变。
+        let input_end = detail
+            .turns
+            .iter()
+            .rposition(|turn| matches!(turn.role, TurnRole::User))
+            .map_or(0, |position| position + 1);
+        let anchor = serde_json::to_vec(&detail.turns[..input_end])
+            .map_err(|error| failed(error.to_string()))?;
+        let issues = match row.agent_type {
+            AgentType::ClaudeCode =>
+                history::attachment_issues(&env, &session_id, &detail.turns[index])?,
+            AgentType::Gemini => gemini::issues(&env, &session_id, &detail.turns[index])?,
+            _ => Vec::new(),
+        };
+        Ok(UndoPreview {
+            conversation_id: request.conversation_id,
+            session_id,
+            source_turn_id: request.source_turn_id,
+            history_revision: format!("{:x}", Sha256::digest(history)),
+            history_anchor_revision: format!("{:x}", Sha256::digest(anchor)),
+            affected_turns: detail.turns.len() - index,
+            affected_user_messages: detail.turns[index..]
+                .iter()
+                .filter(|turn| matches!(turn.role, TurnRole::User))
+                .count(),
+            prompt: detail.turns[index].clone(),
+            issues,
+            tasks,
+        })
+    })
+    .await
+    .map_err(|error| failed(error.to_string()))?
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UndoRequest {

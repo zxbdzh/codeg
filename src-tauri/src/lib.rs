@@ -1447,6 +1447,12 @@ mod tauri_app {
                     ));
                 }
 
+                // 即使关闭空闲断连，也仍按七天期限清理撤回备份。
+                tauri::async_runtime::spawn(crate::conversation_undo::cleanup_task(
+                    app.state::<ConnectionManager>().clone_ref(),
+                    effective_data_dir.clone(),
+                ));
+
                 // Office watch preview servers: reap dead children + ref0
                 // stragglers (live previews are never swept). Override via
                 // `CODEG_OFFICE_WATCH_IDLE_TIMEOUT_SECS` (`0` disables).
@@ -1981,6 +1987,11 @@ mod tauri_app {
                 commit_message_commands::delete_commit_message_settings,
                 side_question_commands::side_question_ask,
                 research_branch_commands::conversation_fork,
+                research_branch_commands::conversation_redo_status,
+                research_branch_commands::conversation_redo_clear,
+                research_branch_commands::conversation_redo,
+                research_branch_commands::conversation_undo_commit,
+                research_branch_commands::conversation_undo_preview,
                 research_branch_commands::conversation_undo,
                 side_question_commands::side_question_cancel,
                 folders::git_rollback_file,

@@ -378,6 +378,28 @@ impl CodexParser {
     /// this is codex's own rule for when that state is unavailable: the newest
     /// file.
     fn find_current_rollout(&self, thread_id: &str) -> Option<PathBuf> {
+        // 活动指针是原生会话的提交点；尚未发布的新文件不能仅凭文件名抢占历史。
+        if let Some(home) = self.base_dir.parent() {
+            if let Ok(connection) = rusqlite::Connection::open_with_flags(
+                home.join("state_5.sqlite"),
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                    | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            ) {
+                if let Ok(path) = connection.query_row(
+                    "SELECT rollout_path FROM threads WHERE id = ?1",
+                    [thread_id],
+                    |row| row.get::<_, String>(0),
+                ) {
+                    let path = PathBuf::from(path);
+                    if path.is_file()
+                        && RolloutFileName::parse(&path)
+                            .is_some_and(|name| name.thread_id == thread_id)
+                    {
+                        return Some(path);
+                    }
+                }
+            }
+        }
         self.rollout_paths()
             .filter_map(|path| {
                 let name = RolloutFileName::parse(&path)?;
@@ -387,6 +409,10 @@ impl CodexParser {
             })
             .max_by(|(a, _), (b, _)| a.cmp(b))
             .map(|(_, path)| path)
+    }
+
+    pub(crate) fn undo_rollout_path(&self, thread_id: &str) -> Option<PathBuf> {
+        self.find_current_rollout(thread_id)
     }
 
     /// Load Codex's append-only session title index. The transcript remains the

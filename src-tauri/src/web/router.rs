@@ -775,6 +775,30 @@ pub fn build_router_with_proxy_auth(
             post(handlers::research_branch::conversation_fork),
         )
         .route(
+            "/conversation_redo_status",
+            post(handlers::research_branch::conversation_redo_status),
+        )
+        .route(
+            "/conversation_redo_clear",
+            post(handlers::research_branch::conversation_redo_clear),
+        )
+        .route(
+            "/conversation_redo",
+            post(handlers::research_branch::conversation_redo),
+        )
+        .route(
+            "/conversation_undo_commit",
+            post(handlers::research_branch::conversation_undo_commit).layer(
+                axum::extract::DefaultBodyLimit::max(
+                    crate::commands::prompt_stash::STASH_BODY_LIMIT_BYTES,
+                ),
+            ),
+        )
+        .route(
+            "/conversation_undo_preview",
+            post(handlers::research_branch::conversation_undo_preview),
+        )
+        .route(
             "/conversation_undo",
             post(handlers::research_branch::conversation_undo),
         )

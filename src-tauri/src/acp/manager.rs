@@ -1036,6 +1036,9 @@ impl ConnectionManager {
         preferred_config_values: BTreeMap<String, String>,
         cli_root: Option<crate::cli_run::RootSeed>,
     ) -> Result<SpawnOutcome, AcpError> {
+        let _history_guard = session_id.as_deref()
+            .map(|session| crate::conversation_undo::operations::allow_send(self, agent_type, session))
+            .transpose()?;
         // Held for the whole establishment. A restore writing back to the
         // agents' own directories takes the write side, so it can never see an
         // empty connection list and then have one appear underneath it. Not
@@ -1401,6 +1404,8 @@ impl ConnectionManager {
         user_message: Option<(String, Vec<crate::acp::UserMessageBlock>)>,
         internal_suffix: Vec<PromptInputBlock>,
     ) -> Result<(), AcpError> {
+        let _history_guard =
+            crate::conversation_undo::operations::allow_connection_send(self, conn_id).await?;
         // Reject an empty prompt BEFORE touching the concurrency gate. An empty
         // prompt produces no turn — and thus no `TurnComplete` to clear the gate
         // — so enqueuing one with the gate set would wedge the connection into
@@ -1602,6 +1607,8 @@ impl ConnectionManager {
         client_message_id: Option<String>,
         internal_suffix: Vec<PromptInputBlock>,
     ) -> Result<Option<i32>, AcpError> {
+        let _history_guard =
+            crate::conversation_undo::operations::allow_connection_send(self, conn_id).await?;
         // Reject an empty prompt up front, BEFORE any side effects: linking /
         // creating the conversation row, flipping it to InProgress, or emitting
         // events. An empty prompt is never accepted, so it must not mutate

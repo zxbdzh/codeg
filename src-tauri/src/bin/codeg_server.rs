@@ -671,6 +671,10 @@ async fn async_main(
     // `CODEG_ACP_IDLE_TIMEOUT_SECS=0` disables idle disconnects, not disk
     // reclamation.
     tokio::spawn(codeg_lib::scratch_sweep_task());
+    tokio::spawn(codeg_lib::conversation_undo::cleanup_task(
+        state.connection_manager.clone_ref(),
+        state.data_dir.clone(),
+    ));
 
     // Office watch preview servers: reap dead children + ref0 stragglers.
     if let Some(idle_timeout) = codeg_lib::office_watch::idle_timeout_from_env() {
