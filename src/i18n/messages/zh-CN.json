@@ -10,6 +10,7 @@
     "clearRedoTitle": "清理这次撤回的备份？",
     "clearRedoDescription": "清理后无法再恢复这次撤回的对话。当前对话、草稿和收藏不受影响。",
     "redoDone": "已恢复上次撤回的对话，当前草稿保持不变。",
+    "redoReconnectFailed": "对话已恢复，但重新连接失败。请重新连接后继续。",
     "redoCleared": "已清理撤回备份。",
     "redoFailed": "操作未完成，请重试。",
     "range": "将撤回 {users} 条用户消息，共 {turns} 条对话记录",

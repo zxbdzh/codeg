@@ -10,6 +10,7 @@
     "clearRedoTitle": "Limpar este backup?",
     "clearRedoDescription": "A conversa desfeita não poderá mais ser restaurada. A conversa atual, o rascunho e as entradas salvas permanecem inalterados.",
     "redoDone": "Conversa restaurada. O rascunho atual permanece inalterado.",
+    "redoReconnectFailed": "A conversa foi restaurada, mas a reconexão falhou. Conecte-se novamente para continuar.",
     "redoCleared": "Backup limpo.",
     "redoFailed": "A operação não foi concluída. Tente novamente.",
     "range": "Desfazer {users} mensagens do usuário, {turns} registros de conversa no total",

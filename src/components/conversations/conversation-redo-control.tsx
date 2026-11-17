@@ -98,7 +98,14 @@ export function ConversationRedoControl({
       if (operation === "restore") {
         const result = await backend.restore(conversationId)
         // 恢复历史不触碰输入框，用户在 Undo 后编辑的草稿继续保留。
-        if (mounted.current) await onRestored(result)
+        if (mounted.current) {
+          try {
+            await onRestored(result)
+          } catch {
+            // 历史已经恢复，后续重连失败不能被误报为 Redo 失败，也不能保留失效的恢复入口。
+            if (mounted.current) toast.info(t("redoReconnectFailed"))
+          }
+        }
       } else {
         await backend.clear(conversationId)
       }

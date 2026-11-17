@@ -10,6 +10,7 @@
     "clearRedoTitle": "Diese Sicherung löschen?",
     "clearRedoDescription": "Die zurückgenommene Unterhaltung kann danach nicht wiederhergestellt werden. Aktuelles Gespräch, Entwurf und gesammelte Eingaben bleiben unverändert.",
     "redoDone": "Gespräch wiederhergestellt. Der aktuelle Entwurf bleibt unverändert.",
+    "redoReconnectFailed": "Das Gespräch wurde wiederhergestellt, aber die Verbindung ist fehlgeschlagen. Verbinde dich erneut.",
     "redoCleared": "Sicherung gelöscht.",
     "redoFailed": "Der Vorgang wurde nicht abgeschlossen. Versuche es erneut.",
     "range": "{users} Benutzernachrichten und insgesamt {turns} Gesprächseinträge zurücknehmen",

@@ -10,6 +10,7 @@
     "clearRedoTitle": "Clear this undo backup?",
     "clearRedoDescription": "This undone conversation can no longer be restored. The current conversation, draft, and collected input stay unchanged.",
     "redoDone": "Conversation restored. Your current draft is unchanged.",
+    "redoReconnectFailed": "Conversation restored, but reconnecting failed. Reconnect to continue.",
     "redoCleared": "Undo backup cleared.",
     "redoFailed": "The operation did not complete. Try again.",
     "range": "Undo {users} user messages, {turns} conversation entries in total",

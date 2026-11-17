@@ -10,6 +10,7 @@
     "clearRedoTitle": "Effacer cette sauvegarde ?",
     "clearRedoDescription": "La conversation annulée ne pourra plus être restaurée. La conversation actuelle, le brouillon et les saisies enregistrées restent inchangés.",
     "redoDone": "Conversation restaurée. Le brouillon actuel reste inchangé.",
+    "redoReconnectFailed": "La conversation a été restaurée, mais la reconnexion a échoué. Reconnectez-vous pour continuer.",
     "redoCleared": "Sauvegarde effacée.",
     "redoFailed": "L’opération n’a pas abouti. Réessayez.",
     "range": "Annuler {users} messages utilisateur, soit {turns} entrées de conversation au total",

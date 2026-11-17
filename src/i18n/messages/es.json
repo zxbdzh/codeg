@@ -10,6 +10,7 @@
     "clearRedoTitle": "¿Borrar esta copia?",
     "clearRedoDescription": "La conversación deshecha ya no podrá restaurarse. La conversación actual, el borrador y las entradas guardadas no cambian.",
     "redoDone": "Conversación restaurada. El borrador actual no cambia.",
+    "redoReconnectFailed": "La conversación se restauró, pero no se pudo reconectar. Vuelve a conectarte para continuar.",
     "redoCleared": "Copia borrada.",
     "redoFailed": "La operación no se completó. Inténtalo de nuevo.",
     "range": "Deshacer {users} mensajes del usuario, {turns} entradas de conversación en total",

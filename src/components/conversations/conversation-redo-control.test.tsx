@@ -13,9 +13,97 @@ import { afterEach, expect, it, vi } from "vitest"
 import messages from "@/i18n/messages/zh-CN.json"
 import { ConversationRedoControl } from "./conversation-redo-control"
 
+const notices = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+}))
+vi.mock("sonner", () => ({ toast: notices }))
+
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+  vi.clearAllMocks()
+})
+
+it("reports restored history even when the agent cannot reconnect afterward", async () => {
+  const user = userEvent.setup()
+  let restored = false
+  render(
+    <NextIntlClientProvider locale="zh-CN" messages={messages}>
+      <ConversationRedoControl
+        conversationId={12}
+        revision={0}
+        busy={false}
+        onRestored={async () => {
+          throw new Error("Cline SDK is not installed in this isolated runtime")
+        }}
+        backend={{
+          status: async () => ({
+            available: !restored,
+            hasBackup: !restored,
+            expiresAt: "2026-11-24T00:00:00Z",
+          }),
+          restore: async () => {
+            restored = true
+            return { conversationId: 12, sessionId: "same-session" }
+          },
+          clear: async () => {},
+        }}
+      />
+    </NextIntlClientProvider>
+  )
+  await user.click(await screen.findByRole("button", { name: "恢复上次撤回" }))
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("button", { name: "恢复上次撤回" })
+    ).not.toBeInTheDocument()
+  })
+  expect(restored).toBe(true)
+  expect(notices.success).toHaveBeenCalledWith(
+    messages.ConversationUndo.redoDone
+  )
+  expect(notices.info).toHaveBeenCalledWith(
+    messages.ConversationUndo.redoReconnectFailed
+  )
+  expect(notices.error).not.toHaveBeenCalled()
+})
+
+it("still reports an actual native restore failure and leaves Redo available", async () => {
+  const user = userEvent.setup()
+  const onRestored = vi.fn()
+  render(
+    <NextIntlClientProvider locale="zh-CN" messages={messages}>
+      <ConversationRedoControl
+        conversationId={12}
+        revision={0}
+        busy={false}
+        onRestored={onRestored}
+        backend={{
+          status: async () => ({
+            available: true,
+            hasBackup: true,
+            expiresAt: "2026-11-24T00:00:00Z",
+          }),
+          restore: async () => {
+            throw new Error("native history changed")
+          },
+          clear: async () => {},
+        }}
+      />
+    </NextIntlClientProvider>
+  )
+  await user.click(await screen.findByRole("button", { name: "恢复上次撤回" }))
+  await waitFor(() => {
+    expect(notices.error).toHaveBeenCalledWith(
+      messages.ConversationUndo.redoFailed,
+      { description: "native history changed" }
+    )
+  })
+  expect(screen.getByRole("button", { name: "恢复上次撤回" })).toBeEnabled()
+  expect(onRestored).not.toHaveBeenCalled()
+  expect(notices.success).not.toHaveBeenCalled()
+  expect(notices.info).not.toHaveBeenCalled()
 })
 
 it("clears a session's Redo backup only after explicit confirmation", async () => {
