@@ -2053,6 +2053,199 @@ async fn native_pi_undo_and_redo_rebuild_the_original_model_context() {
     check_pi_undo_and_redo(Some(std::path::Path::new(&module)), false).await;
 }
 
+#[tokio::test]
+async fn pi_undo_restores_original_block_order_and_whitespace() {
+    let (fixture, path) = check_pi_undo_and_redo(None, false).await;
+    let mut records = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    records[3]["message"]["content"] = json!([
+        {"type":"text","text":" Left"},
+        {"type":"image","mimeType":"image/png","data":NATIVE_IMAGE},
+        {"type":"text","text":"Right\n"},
+    ]);
+    let original = format!(
+        "{}\n",
+        records
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    std::fs::write(&path, &original).unwrap();
+    let history = fixture.history().await;
+    let selected = history["turns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .rfind(|turn| turn["role"] == "user")
+        .unwrap();
+    let preview = fixture
+        .server
+        .post("/api/conversation_undo_preview")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id,"sourceTurnId":selected["id"]}))
+        .await;
+    assert_eq!(preview.status_code(), 200, "{}", preview.text());
+    let preview: Value = preview.json();
+    assert!(
+        preview["issues"].as_array().unwrap().is_empty(),
+        "{preview}"
+    );
+    assert_eq!(
+        preview["input"],
+        json!([
+            {"type":"text","text":" Left"},
+            {"type":"image","mime_type":"image/png","data":NATIVE_IMAGE,"uri":null},
+            {"type":"text","text":"Right\n"},
+        ])
+    );
+    let committed = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId":fixture.conversation_id,
+            "sourceTurnId":preview["sourceTurnId"],
+            "historyRevision":preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(committed.status_code(), 200, "{}", committed.text());
+    assert_eq!(
+        fixture.history().await["turns"].as_array().unwrap().len(),
+        2
+    );
+    let redone = fixture
+        .reopen()
+        .post("/api/conversation_redo")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(redone.status_code(), 200, "{}", redone.text());
+    assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+}
+
+#[tokio::test]
+async fn pi_undo_on_an_active_tree_path_never_revives_an_abandoned_branch() {
+    check_pi_tree_undo(None).await;
+}
+
+#[tokio::test]
+#[ignore = "requires CODEG_TEST_PI_SESSION_MANAGER pointing at the installed native Pi module"]
+async fn native_pi_tree_undo_and_redo_follow_the_original_active_parent_chain() {
+    let module = std::env::var("CODEG_TEST_PI_SESSION_MANAGER").expect("native Pi SessionManager");
+    check_pi_tree_undo(Some(std::path::Path::new(&module))).await;
+}
+
+async fn check_pi_tree_undo(native: Option<&std::path::Path>) {
+    let (fixture, path) = check_pi_undo_and_redo(None, false).await;
+    let mut records = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let mut abandoned_user = records[3].clone();
+    abandoned_user["id"] = json!("abandoned-user");
+    abandoned_user["message"]["content"] =
+        json!([{"type":"text","text":"Never revive this abandoned branch"}]);
+    let mut abandoned_answer = records[4].clone();
+    abandoned_answer["id"] = json!("abandoned-answer");
+    abandoned_answer["parentId"] = json!("abandoned-user");
+    abandoned_answer["message"]["content"] = json!([{"type":"text","text":"An abandoned answer"}]);
+    records.splice(3..3, [abandoned_user, abandoned_answer]);
+    let original = format!(
+        "{}\n",
+        records
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    std::fs::write(&path, &original).unwrap();
+    let before = fixture.history().await;
+    assert_eq!(before["turns"].as_array().unwrap().len(), 4);
+    let preview = fixture.preview_text("Undo this Pi question").await;
+    assert!(
+        preview["issues"].as_array().unwrap().is_empty(),
+        "{preview}"
+    );
+    let committed = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId":fixture.conversation_id,
+            "sourceTurnId":preview["sourceTurnId"],
+            "historyRevision":preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(committed.status_code(), 200, "{}", committed.text());
+    let after = fixture.history().await;
+    assert_eq!(after["turns"].as_array().unwrap().len(), 2);
+    assert_eq!(after["turns"][0], before["turns"][0]);
+    assert_eq!(after["turns"][1], before["turns"][1]);
+    if let Some(module) = native {
+        assert_eq!(
+            read_native_pi(module, &path).await,
+            json!({"id":"842235c9-2910-431e-ac5a-9e67cfa987b0","messages":["user","assistant"]})
+        );
+    }
+    let redone = fixture
+        .reopen()
+        .post("/api/conversation_redo")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(redone.status_code(), 200, "{}", redone.text());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    assert_eq!(fixture.history().await["turns"], before["turns"]);
+    if let Some(module) = native {
+        assert_eq!(
+            read_native_pi(module, &path).await,
+            json!({"id":"842235c9-2910-431e-ac5a-9e67cfa987b0","messages":["user","assistant","user","assistant"]})
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_corrupt_pi_parent_chain_pauses_undo_and_keeps_the_original_file() {
+    let (fixture, path) = check_pi_undo_and_redo(None, false).await;
+    let mut records = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    records[2]["parentId"] = json!("a2");
+    let original = format!(
+        "{}\n",
+        records
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    std::fs::write(&path, &original).unwrap();
+    let preview = fixture.preview_text("Undo this Pi question").await;
+    assert!(
+        !preview["issues"].as_array().unwrap().is_empty(),
+        "{preview}"
+    );
+    let rejected = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId":fixture.conversation_id,
+            "sourceTurnId":preview["sourceTurnId"],
+            "historyRevision":preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(rejected.status_code(), 400, "{}", rejected.text());
+    assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+}
+
 async fn read_native_pi(module: &std::path::Path, path: &std::path::Path) -> Value {
     let script = "const {SessionManager}=await import(process.argv[1]); const session=SessionManager.open(process.argv[2]); process.stdout.write(JSON.stringify({id:session.getSessionId(),messages:session.buildSessionContext().messages.map(message=>message.role)}));";
     let output = tokio::time::timeout(
@@ -2077,7 +2270,10 @@ async fn read_native_pi(module: &std::path::Path, path: &std::path::Path) -> Val
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
-async fn check_pi_undo_and_redo(native: Option<&std::path::Path>, missing_image: bool) {
+async fn check_pi_undo_and_redo(
+    native: Option<&std::path::Path>,
+    missing_image: bool,
+) -> (Fixture, std::path::PathBuf) {
     let mut fixture = Fixture::new().await;
     let sessions = fixture.root.path().join("pi/sessions");
     std::fs::create_dir_all(&sessions).unwrap();
@@ -2150,7 +2346,7 @@ async fn check_pi_undo_and_redo(native: Option<&std::path::Path>, missing_image:
             .await;
         assert_eq!(rejected.status_code(), 400, "{}", rejected.text());
         assert_eq!(fixture.history().await["turns"], original["turns"]);
-        return;
+        return (fixture, path);
     }
     let result = fixture.server.post("/api/conversation_undo_commit")
         .add_header("authorization", format!("Bearer {TOKEN}"))
@@ -2180,6 +2376,7 @@ async fn check_pi_undo_and_redo(native: Option<&std::path::Path>, missing_image:
             json!({"id":session_id,"messages":["user","assistant","user","assistant"]})
         );
     }
+    (fixture, path)
 }
 
 #[tokio::test]
@@ -2233,6 +2430,131 @@ async fn hermes_undo_and_redo_leave_other_native_sessions_untouched() {
 }
 
 #[tokio::test]
+async fn hermes_undo_restores_original_multimodal_parts_and_whitespace() {
+    check_hermes_multimodal(None).await;
+}
+
+#[tokio::test]
+#[ignore = "requires CODEG_TEST_HERMES_PYTHON and CODEG_TEST_HERMES_MODULE for installed native Hermes"]
+async fn native_hermes_multimodal_undo_and_redo_restore_original_payloads() {
+    let runtime = (
+        std::env::var("CODEG_TEST_HERMES_PYTHON").unwrap(),
+        std::env::var("CODEG_TEST_HERMES_MODULE").unwrap(),
+    );
+    check_hermes_multimodal(Some(runtime)).await;
+}
+
+async fn check_hermes_multimodal(native: Option<(String, String)>) {
+    let (fixture, path) = check_hermes_undo_and_redo(native.clone()).await;
+    let original_content = json!([
+        {"type":"text","text":" Left "},
+        {"type":"image_url","image_url":{"url":format!("data:image/png;base64,{NATIVE_IMAGE}")}},
+        {"type":"text","text":" Right\n"},
+        {"type":"file","file":{"filename":"notes.pdf","file_data":"data:application/pdf;base64,JVBERi1vcmlnaW5hbA=="}},
+    ]);
+    let encoded = format!("\u{0000}json:{original_content}");
+    let database = rusqlite::Connection::open(&path).unwrap();
+    database.execute(
+        "UPDATE messages SET content = ?1 WHERE session_id = 'hermes-undo' AND role = 'user' AND content = 'Undo Hermes question'",
+        [&encoded],
+    ).unwrap();
+    let before = fixture.history().await;
+    let selected = before["turns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .rfind(|turn| turn["role"] == "user")
+        .unwrap();
+    let preview = fixture
+        .server
+        .post("/api/conversation_undo_preview")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id,"sourceTurnId":selected["id"]}))
+        .await;
+    assert_eq!(preview.status_code(), 200, "{}", preview.text());
+    let preview: Value = preview.json();
+    assert!(
+        preview["issues"].as_array().unwrap().is_empty(),
+        "{preview}"
+    );
+    assert_eq!(
+        preview["input"],
+        json!([
+            {"type":"text","text":" Left "},
+            {"type":"image","mime_type":"image/png","data":NATIVE_IMAGE,"uri":null},
+            {"type":"text","text":" Right\n"},
+            {"type":"resource","uri":"attachment://notes.pdf","mime_type":"application/pdf","blob":"JVBERi1vcmlnaW5hbA==","text":null},
+        ])
+    );
+    let committed = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId":fixture.conversation_id,
+            "sourceTurnId":preview["sourceTurnId"],
+            "historyRevision":preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(committed.status_code(), 200, "{}", committed.text());
+    assert_eq!(
+        fixture.history().await["turns"].as_array().unwrap().len(),
+        2
+    );
+    let redone = fixture
+        .reopen()
+        .post("/api/conversation_redo")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(redone.status_code(), 200, "{}", redone.text());
+    assert_eq!(fixture.history().await["turns"], before["turns"]);
+    let saved: String = database.query_row(
+        "SELECT content FROM messages WHERE session_id = 'hermes-undo' AND timestamp = 1794877260",
+        [], |row| row.get(0),
+    ).unwrap();
+    assert_eq!(saved, encoded);
+    if let Some(runtime) = native {
+        let actual = run_native_hermes(&runtime, "read_full", &path).await;
+        assert_eq!(actual["messages"][2]["content"], original_content);
+    }
+}
+
+#[tokio::test]
+async fn a_hermes_summary_carrier_pauses_undo_instead_of_erasing_retained_context() {
+    let (fixture, path) = check_hermes_undo_and_redo(None).await;
+    let database = rusqlite::Connection::open(&path).unwrap();
+    database
+        .execute_batch(
+            "
+        ALTER TABLE messages ADD COLUMN _compressed_summary INTEGER DEFAULT 0;
+        ALTER TABLE messages ADD COLUMN compacted INTEGER DEFAULT 0;
+        UPDATE messages SET _compressed_summary = 1
+        WHERE session_id = 'hermes-undo' AND role = 'user' AND content = 'Undo Hermes question';
+    ",
+        )
+        .unwrap();
+    let before = fixture.history().await;
+    let preview = fixture.preview_text("Undo Hermes question").await;
+    assert!(
+        !preview["issues"].as_array().unwrap().is_empty(),
+        "{preview}"
+    );
+    let rejected = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId":fixture.conversation_id,
+            "sourceTurnId":preview["sourceTurnId"],
+            "historyRevision":preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(rejected.status_code(), 400, "{}", rejected.text());
+    assert_eq!(fixture.history().await["turns"], before["turns"]);
+}
+
+#[tokio::test]
 #[ignore = "requires CODEG_TEST_HERMES_PYTHON and CODEG_TEST_HERMES_MODULE for installed native Hermes"]
 async fn native_hermes_undo_and_redo_reload_the_actual_model_conversation() {
     let python = std::env::var("CODEG_TEST_HERMES_PYTHON").unwrap();
@@ -2265,7 +2587,7 @@ async fn run_native_hermes(
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    if action == "read" {
+    if action.starts_with("read") {
         serde_json::from_str(
             String::from_utf8_lossy(&output.stdout)
                 .lines()
@@ -2278,7 +2600,9 @@ async fn run_native_hermes(
     }
 }
 
-async fn check_hermes_undo_and_redo(native: Option<(String, String)>) {
+async fn check_hermes_undo_and_redo(
+    native: Option<(String, String)>,
+) -> (Fixture, std::path::PathBuf) {
     let mut fixture = Fixture::new().await;
     let home = fixture.root.path().join("hermes");
     std::fs::create_dir_all(&home).unwrap();
@@ -2375,11 +2699,442 @@ async fn check_hermes_undo_and_redo(native: Option<(String, String)>) {
         response.json::<Value>()["turns"][0]["blocks"][0]["text"],
         "Keep other Hermes session"
     );
+    (fixture, home.join("state.db"))
 }
 
 #[tokio::test]
 async fn opencode_undo_and_redo_preserve_native_message_ids_and_workspace_files() {
     check_opencode_undo_and_redo(None).await;
+}
+
+#[tokio::test]
+async fn opencode_v2_undo_and_redo_preserve_sequence_identity_and_other_sessions() {
+    check_opencode_v2_undo_and_redo(None).await;
+}
+
+fn store_opencode_v2_pdf_blob(path: &std::path::Path, missing: bool) {
+    let database = rusqlite::Connection::open(path).unwrap();
+    database.execute_batch("
+        CREATE TABLE blob(hash TEXT PRIMARY KEY,mime TEXT,bytes INTEGER,width INTEGER,height INTEGER,data BLOB,time_created INTEGER);
+        CREATE TABLE blob_ref(session_id TEXT,message_id TEXT,hash TEXT,seq INTEGER,PRIMARY KEY(session_id,message_id,hash));
+    ").unwrap();
+    let hash = "e2dc7dcc254d1b9d2b42ebf1fb0a7630e49255fd1f7fe3c5e220fb7ff837982b";
+    if !missing {
+        database
+            .execute(
+                "INSERT INTO blob VALUES(?1,'application/pdf',13,NULL,NULL,?2,1794877260000)",
+                rusqlite::params![hash, b"%PDF-original".as_slice()],
+            )
+            .unwrap();
+    }
+    database
+        .execute(
+            "INSERT INTO blob_ref VALUES('ses_v2','msg_z2',?1,8)",
+            [hash],
+        )
+        .unwrap();
+    let raw: String = database
+        .query_row(
+            "SELECT data FROM session_message WHERE id = 'msg_z2'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let mut data: Value = serde_json::from_str(&raw).unwrap();
+    data["files"][1].as_object_mut().unwrap().remove("data");
+    data["files"][1]["uri"] = json!(format!("media:{hash}"));
+    database
+        .execute(
+            "UPDATE session_message SET data = ?1 WHERE id = 'msg_z2'",
+            [data.to_string()],
+        )
+        .unwrap();
+}
+
+#[tokio::test]
+async fn opencode_v2_redo_restores_pdf_bytes_after_native_blob_collection() {
+    let (fixture, path) = check_opencode_v2_undo_and_redo(None).await;
+    store_opencode_v2_pdf_blob(&path, false);
+    let before = fixture.history().await;
+    let preview = fixture.preview_text("Undo OpenCode v2 question").await;
+    assert!(
+        preview["issues"].as_array().unwrap().is_empty(),
+        "{preview}"
+    );
+    assert!(preview["input"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|block| { block["type"] == "resource" && block["blob"] == "JVBERi1vcmlnaW5hbA==" }));
+    let committed = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId":fixture.conversation_id,
+            "sourceTurnId":preview["sourceTurnId"],
+            "historyRevision":preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(committed.status_code(), 200, "{}", committed.text());
+    let database = rusqlite::Connection::open(&path).unwrap();
+    database.execute_batch("DELETE FROM blob WHERE NOT EXISTS(SELECT 1 FROM blob_ref WHERE blob_ref.hash = blob.hash);").unwrap();
+    let redone = fixture
+        .reopen()
+        .post("/api/conversation_redo")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(redone.status_code(), 200, "{}", redone.text());
+    assert_eq!(fixture.history().await["turns"], before["turns"]);
+    let bytes: Vec<u8> = database
+        .query_row("SELECT data FROM blob", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(bytes, b"%PDF-original");
+}
+
+#[tokio::test]
+async fn missing_opencode_v2_media_pauses_undo_and_preserves_all_native_rows() {
+    let (fixture, path) = check_opencode_v2_undo_and_redo(None).await;
+    store_opencode_v2_pdf_blob(&path, true);
+    let before = fixture.history().await;
+    let preview = fixture.preview_text("Undo OpenCode v2 question").await;
+    assert!(
+        !preview["issues"].as_array().unwrap().is_empty(),
+        "{preview}"
+    );
+    assert!(
+        preview["issues"][0]["label"]
+            .as_str()
+            .unwrap()
+            .contains("notes.pdf"),
+        "{preview}"
+    );
+    let rejected = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId":fixture.conversation_id,
+            "sourceTurnId":preview["sourceTurnId"],
+            "historyRevision":preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(rejected.status_code(), 400, "{}", rejected.text());
+    assert_eq!(fixture.history().await["turns"], before["turns"]);
+}
+
+#[tokio::test]
+async fn opencode_v2_private_uploads_restore_recorded_bytes_not_current_path_contents() {
+    let (fixture, path) = check_opencode_v2_undo_and_redo(None).await;
+    let upload = fixture.state.data_dir.join("uploads/private/notes.pdf");
+    std::fs::create_dir_all(upload.parent().unwrap()).unwrap();
+    std::fs::write(&upload, b"Changed after the message was sent").unwrap();
+    let database = rusqlite::Connection::open(path).unwrap();
+    let raw: String = database
+        .query_row(
+            "SELECT data FROM session_message WHERE id = 'msg_z2'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let mut data: Value = serde_json::from_str(&raw).unwrap();
+    data["files"][1]["source"] = json!({
+        "type":"uri","uri":url::Url::from_file_path(&upload).unwrap().to_string(),
+    });
+    database
+        .execute(
+            "UPDATE session_message SET data = ?1 WHERE id = 'msg_z2'",
+            [data.to_string()],
+        )
+        .unwrap();
+    let home = fixture.state.data_dir.to_string_lossy().to_string();
+    temp_env::async_with_vars([("CODEG_HOME", Some(home.as_str()))], async {
+        let preview = fixture.preview_text("Undo OpenCode v2 question").await;
+        assert!(
+            preview["issues"].as_array().unwrap().is_empty(),
+            "{preview}"
+        );
+        assert!(
+            preview["input"].as_array().unwrap().iter().any(|block| {
+                block["type"] == "resource"
+                    && block["uri"] == "attachment://notes.pdf"
+                    && block["blob"] == "JVBERi1vcmlnaW5hbA=="
+            }),
+            "{}",
+            preview["input"]
+        );
+        assert_eq!(
+            std::fs::read(upload).unwrap(),
+            b"Changed after the message was sent"
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "requires CODEG_TEST_OPENCODE_V2 pointing at the isolated native 2.x binary"]
+async fn native_opencode_v2_undo_and_redo_reload_the_original_session() {
+    let binary = std::env::var("CODEG_TEST_OPENCODE_V2").expect("native OpenCode v2 CLI");
+    check_opencode_v2_undo_and_redo(Some(std::path::Path::new(&binary))).await;
+}
+
+async fn check_opencode_v2_undo_and_redo(
+    native_binary: Option<&std::path::Path>,
+) -> (Fixture, std::path::PathBuf) {
+    let mut fixture = Fixture::new().await;
+    let home = fixture.root.path().join("opencode-v2-data");
+    std::fs::create_dir_all(home.join("opencode")).unwrap();
+    let path = home.join("opencode/opencode.db");
+    if let Some(binary) = native_binary {
+        opencode_command(binary, &home, &["session", "list"]).await;
+    }
+    let native = rusqlite::Connection::open(&path).unwrap();
+    if native_binary.is_none() {
+        native
+            .execute_batch(
+                "
+        CREATE TABLE session_v2(
+            id TEXT PRIMARY KEY,directory TEXT,parent_id TEXT,title TEXT,
+            time_created INTEGER,time_updated INTEGER);
+        CREATE TABLE session_message(
+            id TEXT PRIMARY KEY,session_id TEXT,type TEXT,seq INTEGER,
+            time_created INTEGER,time_updated INTEGER,data TEXT,
+            UNIQUE(session_id,seq));
+        CREATE TABLE session_part(
+            message_id TEXT,session_id TEXT,ordinal INTEGER,type TEXT,call_id TEXT,
+            time_created INTEGER,time_updated INTEGER,data TEXT,
+            PRIMARY KEY(message_id,ordinal));
+        INSERT INTO session_v2 VALUES
+            ('ses_v2','F:/workspace',NULL,'OpenCode v2 Undo',1794877200000,1794877261000),
+            ('ses_other','F:/workspace',NULL,'Keep other session',1794877200000,1794877261000);
+    ",
+            )
+            .unwrap();
+    } else {
+        let workspace = fixture
+            .root
+            .path()
+            .join("workspace")
+            .to_string_lossy()
+            .to_string();
+        native.execute(
+            "INSERT OR IGNORE INTO project (id,worktree,time_created,time_updated,sandboxes) VALUES('global',?1,1794877200000,1794877261000,'[]')",
+            [&workspace],
+        ).unwrap();
+        for (session, title) in [
+            ("ses_v2", "OpenCode v2 Undo"),
+            ("ses_other", "Keep other session"),
+        ] {
+            native.execute(
+                "INSERT INTO session_v2(id,project_id,slug,directory,title,version,time_created,time_updated) VALUES(?1,'global',?1,?2,?3,'2.3.0',1794877200000,1794877261000)",
+                rusqlite::params![session, workspace, title],
+            ).unwrap();
+        }
+    }
+    for (id, session, kind, seq, text, time) in [
+        (
+            "msg_z1",
+            "ses_v2",
+            "user",
+            2,
+            "Keep OpenCode v2 question",
+            1794877201000_i64,
+        ),
+        (
+            "msg_a1",
+            "ses_v2",
+            "assistant",
+            5,
+            "Keep OpenCode v2 answer",
+            1794877202000,
+        ),
+        (
+            "msg_z2",
+            "ses_v2",
+            "user",
+            8,
+            "Undo OpenCode v2 question",
+            1794877260000,
+        ),
+        (
+            "msg_a2",
+            "ses_v2",
+            "assistant",
+            11,
+            "Undo OpenCode v2 answer",
+            1794877261000,
+        ),
+        (
+            "msg_other",
+            "ses_other",
+            "user",
+            2,
+            "Do not touch another session",
+            1794877201000,
+        ),
+    ] {
+        let data = if kind == "user" {
+            let files = if id == "msg_z2" {
+                json!([
+                    {"data":"QUJD","mime":"image/png","source":{"type":"inline"},"name":"screen.png"},
+                    {"data":"JVBERi1vcmlnaW5hbA==","mime":"application/pdf","source":{"type":"inline"},"name":"notes.pdf"},
+                    {"data":"b2xk","mime":"text/plain","source":{"type":"uri","uri":"file:///F:/workspace/current.txt"},"name":"current.txt"}
+                ])
+            } else {
+                json!([])
+            };
+            json!({"text": text, "files": files, "time": {"created": time}})
+        } else {
+            json!({
+                "agent": "build", "model": {"id": "test-model", "providerID": "openai"},
+                "time": {"created": time, "completed": time + 100}, "content": [],
+            })
+        };
+        native
+            .execute(
+                "INSERT INTO session_message VALUES(?1,?2,?3,?4,?5,?5,?6)",
+                rusqlite::params![id, session, kind, seq, time, data.to_string()],
+            )
+            .unwrap();
+        if kind == "assistant" {
+            native
+                .execute(
+                    "INSERT INTO session_part VALUES(?1,?2,0,'text',NULL,?3,?3,?4)",
+                    rusqlite::params![
+                        id,
+                        session,
+                        time,
+                        json!({"type": "text", "text": text}).to_string()
+                    ],
+                )
+                .unwrap();
+        }
+    }
+    fixture.conversation_id = seed_conversation(&fixture.state.db, 1, AgentType::OpenCode).await;
+    conversation_service::bind_external_id(
+        &fixture.state.db.conn,
+        fixture.conversation_id,
+        "ses_v2",
+        &[],
+    )
+    .await
+    .unwrap();
+    agent_setting_service::ensure_defaults(
+        &fixture.state.db.conn,
+        &[agent_setting_service::AgentDefaultInput {
+            agent_type: AgentType::OpenCode,
+            registry_id: "opencode".into(),
+            default_sort_order: 1,
+        }],
+    )
+    .await
+    .unwrap();
+    agent_setting_service::update_preferences(
+        &fixture.state.db.conn,
+        AgentType::OpenCode,
+        true,
+        Some(json!({"XDG_DATA_HOME": home}).to_string()),
+    )
+    .await
+    .unwrap();
+    let original = fixture.history().await;
+    let preview = fixture.preview_text("Undo OpenCode v2 question").await;
+    assert!(
+        preview["issues"].as_array().unwrap().is_empty(),
+        "{preview}"
+    );
+    assert!(
+        preview["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|block| { block["type"] == "image" && block["data"] == "QUJD" }),
+        "{}",
+        preview["input"]
+    );
+    assert!(
+        preview["input"].as_array().unwrap().iter().any(|block| {
+            block["type"] == "resource"
+                && block["uri"] == "attachment://notes.pdf"
+                && block["blob"] == "JVBERi1vcmlnaW5hbA=="
+        }),
+        "{}",
+        preview["input"]
+    );
+    assert!(
+        preview["input"].as_array().unwrap().iter().any(|block| {
+            block["type"] == "resource_link" && block["uri"] == "file:///F:/workspace/current.txt"
+        }),
+        "{}",
+        preview["input"]
+    );
+    if let Some(binary) = native_binary {
+        let export = opencode_command(binary, &home, &["session", "export", "ses_v2"]).await;
+        let export: Value = serde_json::from_str(&export).unwrap();
+        assert_eq!(export["messages"].as_array().unwrap().len(), 4, "{export}");
+    }
+    let committed = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId": fixture.conversation_id,
+            "sourceTurnId": preview["sourceTurnId"],
+            "historyRevision": preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(committed.status_code(), 200, "{}", committed.text());
+    let after = fixture.history().await;
+    assert_eq!(after["turns"].as_array().unwrap().len(), 2);
+    assert_eq!(after["turns"][0], original["turns"][0]);
+    assert_eq!(after["turns"][1], original["turns"][1]);
+    assert_eq!(
+        native
+            .query_row(
+                "SELECT count(*) FROM session_message WHERE session_id = 'ses_other'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        1
+    );
+    if let Some(binary) = native_binary {
+        let export = opencode_command(binary, &home, &["session", "export", "ses_v2"]).await;
+        let export: Value = serde_json::from_str(&export).unwrap();
+        assert_eq!(export["messages"].as_array().unwrap().len(), 2, "{export}");
+    }
+    let restored = fixture
+        .reopen()
+        .post("/api/conversation_redo")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId": fixture.conversation_id}))
+        .await;
+    assert_eq!(restored.status_code(), 200, "{}", restored.text());
+    assert_eq!(fixture.history().await["turns"], original["turns"]);
+    assert!(fixture.history().await["turns"][2]["blocks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|block| block["text"] == "Undo OpenCode v2 question"));
+    let ids = native
+        .prepare("SELECT id FROM session_message WHERE session_id = 'ses_v2' ORDER BY seq")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(ids, ["msg_z1", "msg_a1", "msg_z2", "msg_a2"]);
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.path().join("workspace/keep.txt")).unwrap(),
+        "current workspace content"
+    );
+    if let Some(binary) = native_binary {
+        let export = opencode_command(binary, &home, &["session", "export", "ses_v2"]).await;
+        let export: Value = serde_json::from_str(&export).unwrap();
+        assert_eq!(export["messages"].as_array().unwrap().len(), 4, "{export}");
+    }
+    (fixture, path)
 }
 
 #[tokio::test]
@@ -2394,10 +3149,16 @@ async fn opencode_command(
     home: &std::path::Path,
     args: &[&str],
 ) -> String {
+    let mut command = codeg_lib::process::tokio_command(binary);
+    if args.first() == Some(&"session") {
+        // 2.x 默认连接常驻服务；验收只使用随命令退出的隔离服务，不占用用户后台端口。
+        command.arg("--standalone");
+    }
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(40),
-        codeg_lib::process::tokio_command(binary)
+        command
             .args(args)
+            .current_dir(home)
             .env("XDG_DATA_HOME", home)
             .env("XDG_CONFIG_HOME", home.join("config"))
             .env("XDG_CACHE_HOME", home.join("cache"))
@@ -2562,6 +3323,15 @@ async fn read_native_deepseek(
     root: &std::path::Path,
     session: &str,
 ) -> Value {
+    run_native_deepseek_action(modules, root, session, "read").await
+}
+
+async fn run_native_deepseek_action(
+    modules: &std::path::Path,
+    root: &std::path::Path,
+    session: &str,
+    action: &str,
+) -> Value {
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(30),
         codeg_lib::process::tokio_command("node")
@@ -2573,6 +3343,7 @@ async fn read_native_deepseek(
             .arg(modules)
             .arg(root)
             .arg(session)
+            .arg(action)
             .kill_on_drop(true)
             .output(),
     )
@@ -2593,7 +3364,9 @@ async fn read_native_deepseek(
     .unwrap()
 }
 
-async fn check_deepseek_undo_and_redo(native: Option<&std::path::Path>) {
+async fn check_deepseek_undo_and_redo(
+    native: Option<&std::path::Path>,
+) -> (Fixture, std::path::PathBuf) {
     let mut fixture = Fixture::new().await;
     let sessions = fixture.root.path().join("dsh/sessions");
     let session_id = "b2d45fa2-048b-41bf-bcd1-e482a2a10c59";
@@ -2721,6 +3494,536 @@ async fn check_deepseek_undo_and_redo(native: Option<&std::path::Path>) {
         assert_eq!(
             read_native_deepseek(modules, &sessions, session_id).await,
             json!({"id":session_id,"users":["u1","u2"]})
+        );
+    }
+    (fixture, directory)
+}
+
+#[tokio::test]
+#[ignore = "requires CODEG_TEST_DEEPSEEK_MODULES for native write ownership"]
+async fn native_deepseek_active_writer_blocks_undo_until_the_original_owner_releases() {
+    check_native_deepseek_writer(false).await;
+}
+
+#[cfg(windows)]
+#[tokio::test]
+#[ignore = "requires CODEG_TEST_DEEPSEEK_MODULES for native ownership through a directory link"]
+async fn native_deepseek_writer_under_a_directory_link_still_blocks_undo() {
+    check_native_deepseek_writer(true).await;
+}
+
+async fn check_native_deepseek_writer(linked: bool) {
+    use std::process::Stdio;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    let modules = std::env::var("CODEG_TEST_DEEPSEEK_MODULES").unwrap();
+    let (fixture, directory) = check_deepseek_undo_and_redo(None).await;
+    let session_id = directory.file_name().unwrap().to_str().unwrap();
+    let root = if linked {
+        let link = fixture.root.path().join("linked-dsh");
+        #[cfg(windows)]
+        {
+            let status = codeg_lib::process::std_command("node")
+                .args([
+                    "-e",
+                    "require('node:fs').symlinkSync(process.argv[1],process.argv[2],'junction')",
+                ])
+                .arg(fixture.root.path().join("dsh"))
+                .arg(&link)
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+        agent_setting_service::update_preferences(
+            &fixture.state.db.conn,
+            AgentType::DeepSeek,
+            true,
+            Some(
+                json!({"DSH_HOME":link,"DEEPSEEK_ACP_SESSIONS_ROOT":link.join("sessions")})
+                    .to_string(),
+            ),
+        )
+        .await
+        .unwrap();
+        link.join("sessions")
+    } else {
+        fixture.root.path().join("dsh/sessions")
+    };
+    let mut child = codeg_lib::process::tokio_command("node")
+        .arg("--input-type=module")
+        .arg("-e")
+        .arg(include_str!(
+            "fixtures/conversation_undo/native_deepseek.mjs"
+        ))
+        .arg(modules)
+        .arg(root)
+        .arg(session_id)
+        .arg("hold-writer")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap()).lines();
+    let ready = tokio::time::timeout(std::time::Duration::from_secs(15), output.next_line()).await;
+    let line = match ready {
+        Ok(Ok(Some(line))) => line,
+        _ => {
+            use tokio::io::AsyncReadExt;
+            let _ = child.kill().await;
+            let mut diagnostic = String::new();
+            child
+                .stderr
+                .take()
+                .unwrap()
+                .read_to_string(&mut diagnostic)
+                .await
+                .unwrap();
+            panic!("native DSH writer failed to start: {diagnostic}");
+        }
+    };
+    let ready: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(ready["writer"], true, "{ready}");
+    let preview = fixture.preview_text("Undo DeepSeek question").await;
+    let before = fixture.history().await;
+    let rejected = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId":fixture.conversation_id,
+            "sourceTurnId":preview["sourceTurnId"],
+            "historyRevision":preview["historyRevision"],
+        }))
+        .await;
+    // 只结束本用例持有写锁的隔离子进程，避免 stdin 句柄阻止 Node 退出而重复等待。
+    child.start_kill().unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), child.wait())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(rejected.status_code(), 409, "{}", rejected.text());
+    assert_eq!(fixture.history().await["turns"], before["turns"]);
+    let preview = fixture.preview_text("Undo DeepSeek question").await;
+    let response = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId":fixture.conversation_id,
+            "sourceTurnId":preview["sourceTurnId"],
+            "historyRevision":preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(response.status_code(), 200, "{}", response.text());
+}
+
+#[tokio::test]
+async fn deepseek_image_undo_refills_raw_order_and_redo_recovers_the_original_object() {
+    check_deepseek_image(None).await;
+}
+
+#[tokio::test]
+#[ignore = "requires CODEG_TEST_DEEPSEEK_MODULES for native image integrity verification"]
+async fn native_deepseek_image_undo_and_redo_reopen_original_content_and_attachment_bytes() {
+    let modules = std::env::var("CODEG_TEST_DEEPSEEK_MODULES").unwrap();
+    check_deepseek_image(Some(std::path::Path::new(&modules))).await;
+}
+
+async fn check_deepseek_image(
+    native: Option<&std::path::Path>,
+) -> (Fixture, std::path::PathBuf, std::path::PathBuf) {
+    let (fixture, directory) = check_deepseek_undo_and_redo(None).await;
+    let image_hex = "89504e470d0a1a0a0000000d4948445200000001000000010804000000b51c0c020000000b4944415478da6364f80f00010501012718e3660000000049454e44ae426082";
+    let image_bytes = (0..image_hex.len())
+        .step_by(2)
+        .map(|offset| u8::from_str_radix(&image_hex[offset..offset + 2], 16).unwrap())
+        .collect::<Vec<_>>();
+    let hash = "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460";
+    let home = fixture.root.path().join("dsh");
+    let object = home.join("attachments/v1/objects/43").join(hash);
+    std::fs::create_dir_all(object.parent().unwrap()).unwrap();
+    std::fs::write(&object, &image_bytes).unwrap();
+    agent_setting_service::update_preferences(
+        &fixture.state.db.conn,
+        AgentType::DeepSeek,
+        true,
+        Some(
+            json!({"DSH_HOME":home,"DEEPSEEK_ACP_SESSIONS_ROOT":home.join("sessions")}).to_string(),
+        ),
+    )
+    .await
+    .unwrap();
+    let path = directory.join("session.v3.jsonl.zstd");
+    let original = zstd::stream::decode_all(std::fs::read(&path).unwrap().as_slice()).unwrap();
+    let mut events = String::from_utf8(original)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let user = events
+        .iter_mut()
+        .find(|event| event["type"] == "user/message" && event["data"]["id"] == "u2")
+        .unwrap();
+    user["data"]["content"] = json!([
+        {"type":"text","text":"  Undo DSH image\n "},
+        {"type":"image","attachment":{
+            "attachmentId":format!("sha256:{hash}"),"mediaType":"image/png",
+            "bytes":68,"width":1,"height":1,"name":"original.png",
+        }},
+        {"type":"text","text":" tail  "},
+    ]);
+    let records = events.iter().map(Value::to_string).collect::<Vec<_>>();
+    let mut encoded = zstd::stream::encode_all(format!("{}\n", records[0]).as_bytes(), 3).unwrap();
+    encoded.extend(
+        zstd::stream::encode_all(format!("{}\n", records[1..].join("\n")).as_bytes(), 3).unwrap(),
+    );
+    std::fs::write(&path, encoded).unwrap();
+
+    let session_id = directory.file_name().unwrap().to_str().unwrap();
+    let original_native = if let Some(modules) = native {
+        let original =
+            run_native_deepseek_action(modules, &home.join("sessions"), session_id, "read-media")
+                .await;
+        assert_eq!(
+            original["inputs"][1]["parts"][1],
+            json!({"type":"image","data":NATIVE_IMAGE})
+        );
+        Some(original)
+    } else {
+        None
+    };
+    let preview = fixture.preview_text("  Undo DSH image\n \n tail  ").await;
+    assert!(
+        preview["issues"].as_array().unwrap().is_empty(),
+        "{preview}"
+    );
+    assert_eq!(
+        preview["input"],
+        json!([
+            {"type":"text","text":"  Undo DSH image\n "},
+            {"type":"image","data":NATIVE_IMAGE,"mime_type":"image/png","uri":null},
+            {"type":"text","text":" tail  "},
+        ])
+    );
+    let response = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId":fixture.conversation_id,
+            "sourceTurnId":preview["sourceTurnId"],
+            "historyRevision":preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(response.status_code(), 200, "{}", response.text());
+    assert_eq!(
+        fixture.history().await["turns"].as_array().unwrap().len(),
+        2
+    );
+    if let Some(modules) = native {
+        let undone =
+            run_native_deepseek_action(modules, &home.join("sessions"), session_id, "read-media")
+                .await;
+        assert_eq!(undone["users"], json!(["u1"]));
+    }
+    std::fs::remove_file(&object).unwrap();
+    let response = fixture
+        .reopen()
+        .post("/api/conversation_redo")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(response.status_code(), 200, "{}", response.text());
+    assert_eq!(std::fs::read(&object).unwrap(), image_bytes);
+    assert_eq!(
+        fixture.history().await["turns"].as_array().unwrap().len(),
+        4
+    );
+    if let Some(modules) = native {
+        assert_eq!(
+            run_native_deepseek_action(modules, &home.join("sessions"), session_id, "read-media")
+                .await,
+            original_native.unwrap()
+        );
+    }
+    (fixture, object, path)
+}
+
+#[tokio::test]
+async fn deepseek_missing_or_corrupt_image_lists_the_attachment_and_preserves_history() {
+    for corrupt in [false, true] {
+        let (fixture, object, _) = check_deepseek_image(None).await;
+        if corrupt {
+            std::fs::write(&object, b"damaged original object").unwrap();
+        } else {
+            std::fs::remove_file(&object).unwrap();
+        }
+        let before = fixture.history().await;
+        let preview = fixture.preview_text("  Undo DSH image\n \n tail  ").await;
+        assert!(
+            preview["issues"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|issue| issue["label"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("original.png")),
+            "{preview}"
+        );
+        let rejected = fixture
+            .server
+            .post("/api/conversation_undo_commit")
+            .add_header("authorization", format!("Bearer {TOKEN}"))
+            .json(&json!({
+                "conversationId":fixture.conversation_id,
+                "sourceTurnId":preview["sourceTurnId"],
+                "historyRevision":preview["historyRevision"],
+            }))
+            .await;
+        assert_eq!(rejected.status_code(), 400, "{}", rejected.text());
+        assert_eq!(fixture.history().await["turns"], before["turns"]);
+    }
+}
+
+#[tokio::test]
+async fn deepseek_image_metadata_must_match_the_original_encoded_dimensions() {
+    let (fixture, _, path) = check_deepseek_image(None).await;
+    let original = zstd::stream::decode_all(std::fs::read(&path).unwrap().as_slice()).unwrap();
+    let mut events = String::from_utf8(original)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let user = events
+        .iter_mut()
+        .find(|event| event["type"] == "user/message" && event["data"]["id"] == "u2")
+        .unwrap();
+    user["data"]["content"][1]["attachment"]["width"] = json!(2);
+    let records = events.iter().map(Value::to_string).collect::<Vec<_>>();
+    let mut encoded = zstd::stream::encode_all(format!("{}\n", records[0]).as_bytes(), 3).unwrap();
+    encoded.extend(
+        zstd::stream::encode_all(format!("{}\n", records[1..].join("\n")).as_bytes(), 3).unwrap(),
+    );
+    std::fs::write(&path, encoded).unwrap();
+    let preview = fixture.preview_text("  Undo DSH image\n \n tail  ").await;
+    assert!(
+        !preview["issues"].as_array().unwrap().is_empty(),
+        "a ref rejected by native readImage must not authorize Undo: {preview}"
+    );
+}
+
+#[tokio::test]
+async fn deepseek_image_only_saved_input_remains_selectable_and_new_native_content_blocks_redo() {
+    let (fixture, _, path) = check_deepseek_image(None).await;
+    let original = zstd::stream::decode_all(std::fs::read(&path).unwrap().as_slice()).unwrap();
+    let mut events = String::from_utf8(original)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let user = events
+        .iter_mut()
+        .find(|event| event["type"] == "user/message" && event["data"]["id"] == "u2")
+        .unwrap();
+    user["data"]["content"] = json!([user["data"]["content"][1].clone()]);
+    let records = events.iter().map(Value::to_string).collect::<Vec<_>>();
+    let mut encoded = zstd::stream::encode_all(format!("{}\n", records[0]).as_bytes(), 3).unwrap();
+    encoded.extend(
+        zstd::stream::encode_all(format!("{}\n", records[1..].join("\n")).as_bytes(), 3).unwrap(),
+    );
+    std::fs::write(&path, encoded).unwrap();
+    let history = fixture.history().await;
+    let user = history["turns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|turn| turn["role"] == "user" && turn["blocks"][0]["type"] == "image")
+        .unwrap();
+    let response = fixture
+        .server
+        .post("/api/conversation_undo_preview")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id,"sourceTurnId":user["id"]}))
+        .await;
+    assert_eq!(response.status_code(), 200, "{}", response.text());
+    let preview: Value = response.json();
+    assert!(
+        preview["issues"].as_array().unwrap().is_empty(),
+        "{preview}"
+    );
+    assert_eq!(
+        preview["input"],
+        json!([{
+            "type":"image","data":NATIVE_IMAGE,"mime_type":"image/png","uri":null,
+        }])
+    );
+    let response = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId":fixture.conversation_id,"sourceTurnId":preview["sourceTurnId"],
+            "historyRevision":preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(response.status_code(), 200, "{}", response.text());
+    let original = zstd::stream::decode_all(std::fs::read(&path).unwrap().as_slice()).unwrap();
+    let mut events = String::from_utf8(original)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let user = events
+        .iter_mut()
+        .find(|event| event["type"] == "user/message")
+        .unwrap();
+    user["data"]["content"][0]["text"] = json!("New native content must never be overwritten");
+    let records = events.iter().map(Value::to_string).collect::<Vec<_>>();
+    let mut encoded = zstd::stream::encode_all(format!("{}\n", records[0]).as_bytes(), 3).unwrap();
+    encoded.extend(
+        zstd::stream::encode_all(format!("{}\n", records[1..].join("\n")).as_bytes(), 3).unwrap(),
+    );
+    std::fs::write(&path, &encoded).unwrap();
+    let response = fixture
+        .server
+        .post("/api/conversation_redo_status")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(response.status_code(), 200, "{}", response.text());
+    assert_eq!(response.json::<Value>()["available"], false);
+    let response = fixture
+        .reopen()
+        .post("/api/conversation_redo")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(response.status_code(), 400, "{}", response.text());
+    assert_eq!(std::fs::read(&path).unwrap(), encoded);
+}
+
+#[tokio::test]
+async fn deepseek_file_only_input_refills_original_pdf_and_redo_restores_the_native_file() {
+    check_deepseek_file(None).await;
+}
+
+#[tokio::test]
+#[ignore = "requires CODEG_TEST_DEEPSEEK_MODULES for native file verification"]
+async fn native_deepseek_file_only_undo_and_redo_restore_original_file_bytes() {
+    let modules = std::env::var("CODEG_TEST_DEEPSEEK_MODULES").unwrap();
+    check_deepseek_file(Some(std::path::Path::new(&modules))).await;
+}
+
+async fn check_deepseek_file(native: Option<&std::path::Path>) {
+    let (fixture, directory) = check_deepseek_undo_and_redo(None).await;
+    let home = fixture.root.path().join("dsh");
+    let hash = "514ebf849d05b11d7a0a887bd7716a3e72d07c335c612f3c6abac1dc1683b036";
+    let object = home
+        .join("attachments/v1/files/51")
+        .join(hash)
+        .join("notes.pdf");
+    std::fs::create_dir_all(object.parent().unwrap()).unwrap();
+    std::fs::write(&object, b"original-pdf").unwrap();
+    agent_setting_service::update_preferences(
+        &fixture.state.db.conn,
+        AgentType::DeepSeek,
+        true,
+        Some(
+            json!({"DSH_HOME":home,"DEEPSEEK_ACP_SESSIONS_ROOT":home.join("sessions")}).to_string(),
+        ),
+    )
+    .await
+    .unwrap();
+    let path = directory.join("session.v3.jsonl.zstd");
+    let original = zstd::stream::decode_all(std::fs::read(&path).unwrap().as_slice()).unwrap();
+    let mut events = String::from_utf8(original)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let user = events
+        .iter_mut()
+        .find(|event| event["type"] == "user/message" && event["data"]["id"] == "u2")
+        .unwrap();
+    user["data"]["content"] = json!([{"type":"file","attachment":{
+        "attachmentId":format!("sha256:{hash}"),"bytes":12,"name":"notes.pdf",
+    }}]);
+    let records = events.iter().map(Value::to_string).collect::<Vec<_>>();
+    let mut encoded = zstd::stream::encode_all(format!("{}\n", records[0]).as_bytes(), 3).unwrap();
+    encoded.extend(
+        zstd::stream::encode_all(format!("{}\n", records[1..].join("\n")).as_bytes(), 3).unwrap(),
+    );
+    std::fs::write(&path, encoded).unwrap();
+    let session_id = directory.file_name().unwrap().to_str().unwrap();
+    let original_native = if let Some(modules) = native {
+        let original =
+            run_native_deepseek_action(modules, &home.join("sessions"), session_id, "read-media")
+                .await;
+        assert_eq!(
+            original["inputs"][1]["parts"][0],
+            json!({"type":"file","name":"notes.pdf","data":"b3JpZ2luYWwtcGRm"})
+        );
+        Some(original)
+    } else {
+        None
+    };
+    let history = fixture.history().await;
+    assert!(
+        history["turns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|turn| turn["role"] == "user"
+                && turn["blocks"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|block| block["text"]
+                        .as_str()
+                        .is_some_and(|text| text.contains("notes.pdf")))),
+        "file-only user input must remain selectable: {history}"
+    );
+    let preview = fixture.preview_text("@notes.pdf").await;
+    assert!(
+        preview["issues"].as_array().unwrap().is_empty(),
+        "{preview}"
+    );
+    assert_eq!(
+        preview["input"],
+        json!([{
+            "type":"resource","uri":"attachment://notes.pdf","mime_type":"application/pdf",
+            "text":null,"blob":"b3JpZ2luYWwtcGRm",
+        }])
+    );
+    let response = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId":fixture.conversation_id,
+            "sourceTurnId":preview["sourceTurnId"],
+            "historyRevision":preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(response.status_code(), 200, "{}", response.text());
+    std::fs::remove_file(&object).unwrap();
+    let response = fixture
+        .reopen()
+        .post("/api/conversation_redo")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(response.status_code(), 200, "{}", response.text());
+    assert_eq!(std::fs::read(&object).unwrap(), b"original-pdf");
+    assert_eq!(fixture.history().await["turns"], history["turns"]);
+    if let Some(modules) = native {
+        assert_eq!(
+            run_native_deepseek_action(modules, &home.join("sessions"), session_id, "read-media")
+                .await,
+            original_native.unwrap()
         );
     }
 }

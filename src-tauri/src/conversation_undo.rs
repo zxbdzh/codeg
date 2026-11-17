@@ -19,6 +19,7 @@ use crate::parsers::AgentParser;
 use crate::research_branch::PromptSnapshot;
 
 mod cleanup;
+mod cline;
 mod codex;
 mod deepseek;
 mod gemini;
@@ -26,6 +27,7 @@ mod hermes;
 mod history;
 mod input;
 mod opencode;
+mod opencode_v2;
 pub(crate) mod operations;
 mod pi;
 mod stop;
@@ -130,6 +132,7 @@ pub async fn preview(
             AgentType::Hermes => hermes::issues(&env, &session_id, &detail.turns[index])?,
             AgentType::OpenCode => opencode::issues(&env, &session_id, &detail.turns[index])?,
             AgentType::DeepSeek => deepseek::issues(&env, &session_id, &detail.turns[index])?,
+            AgentType::Cline => cline::issues(&env, &session_id, &detail.turns[index])?,
             AgentType::Codex => Vec::new(),
             _ => vec![UndoIssue {
                 code: "unsupported_native_undo".into(),
@@ -141,6 +144,16 @@ pub async fn preview(
                 history::claude_input(row.agent_type, &env, &session_id, &detail.turns[index])?,
             AgentType::Gemini if issues.is_empty() =>
                 gemini::input(&env, &session_id, &detail.turns[index])?,
+            AgentType::OpenCode if issues.is_empty() =>
+                opencode::input(&env, &session_id, &detail.turns[index])?,
+            AgentType::Pi if issues.is_empty() =>
+                pi::input(&env, &session_id, &detail.turns[index])?,
+            AgentType::Hermes if issues.is_empty() =>
+                hermes::input(&env, &session_id, &detail.turns[index])?,
+            AgentType::Cline if issues.is_empty() =>
+                cline::input(&env, &session_id, &detail.turns[index])?,
+            AgentType::DeepSeek if issues.is_empty() =>
+                deepseek::input(&env, &session_id, &detail.turns[index])?,
             _ => input::from_turn(&detail.turns[index]),
         };
         let revision = format!("{:x}", Sha256::digest(history));

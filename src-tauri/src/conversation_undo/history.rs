@@ -88,6 +88,13 @@ pub async fn redo_status(
         });
     }
     let env = agent_setting_service::load_agent_env(&db.conn, row.agent_type).await;
+    if row.agent_type == AgentType::Cline && super::cline::ensure_local_backend(&env).is_err() {
+        return Ok(RedoStatus {
+            available: false,
+            has_backup: true,
+            expires_at: expires_at.map(|value| value.to_rfc3339()),
+        });
+    }
     if row.agent_type == AgentType::Codex {
         return Ok(RedoStatus {
             available: row
@@ -114,6 +121,7 @@ pub async fn redo_status(
                 row.agent_type,
                 &path,
                 row.external_id.as_deref().unwrap_or_default(),
+                &env,
             )
             .ok()
         })
@@ -199,6 +207,9 @@ pub async fn redo(
         .map_err(|error| failed(error.to_string()))?;
     }
     let env = agent_setting_service::load_agent_env(&db.conn, row.agent_type).await;
+    if row.agent_type == AgentType::Cline {
+        super::cline::ensure_local_backend(&env)?;
+    }
     let path = native_path(row.agent_type, &env, &session_id)?;
     if backup["path"].as_str() != path.to_str()
         && !(row.agent_type == AgentType::Gemini
@@ -206,7 +217,7 @@ pub async fn redo(
     {
         return Err(conflict());
     }
-    let current = read_native(row.agent_type, &path, &session_id)?;
+    let current = read_native(row.agent_type, &path, &session_id, &env)?;
     if !reverted_matches(row.agent_type, &current, &backup) {
         return Err(conflict());
     }
@@ -272,7 +283,7 @@ pub async fn redo(
         .map_err(|_| failed("The previous session is still shutting down"))?;
     }
     // 已续聊或被原生 CLI 改动的历史不能被备份覆盖，退出旧连接后再核对一次。
-    let latest = read_native(row.agent_type, &path, &session_id)?;
+    let latest = read_native(row.agent_type, &path, &session_id, &env)?;
     if history_digest(row.agent_type, &latest) != history_digest(row.agent_type, &current) {
         return Err(conflict());
     }
@@ -295,7 +306,7 @@ pub async fn redo(
             restored.extend_from_slice(line);
         }
     }
-    publish_native(row.agent_type, &path, &session_id, &latest, &restored)?;
+    publish_native(row.agent_type, &path, &session_id, &env, &latest, &restored)?;
     if let Err(error) = std::fs::remove_file(&backup_file) {
         // 历史已恢复，清理失败不把成功恢复报告为失败；指纹校验会阻止再次恢复。
         tracing::warn!(%error, "could not consume Redo backup");
@@ -325,6 +336,12 @@ fn runtime_latch(line: &[u8]) -> bool {
 }
 
 fn history_digest(agent: AgentType, bytes: &[u8]) -> String {
+    if agent == AgentType::DeepSeek {
+        return super::deepseek::history_digest(bytes);
+    }
+    if agent == AgentType::Cline {
+        return super::cline::history_digest(bytes);
+    }
     if agent == AgentType::Gemini {
         return super::gemini::history_digest(bytes);
     }
@@ -440,6 +457,7 @@ pub async fn commit(
                 | AgentType::Hermes
                 | AgentType::OpenCode
                 | AgentType::DeepSeek
+                | AgentType::Cline
         )
     {
         super::stop::stop_work(db, manager, row.agent_type, &selected.session_id).await?;
@@ -506,6 +524,9 @@ pub async fn commit(
         }
         AgentType::DeepSeek => {
             super::deepseek::replacement(&env, &selected.session_id, &selected.prompt)?
+        }
+        AgentType::Cline => {
+            super::cline::replacement(&env, &selected.session_id, &selected.prompt)?
         }
         _ => {
             return Err(AppCommandError::invalid_input(
@@ -576,7 +597,11 @@ pub async fn commit(
         .await
         .map_err(|_| failed("The previous session is still shutting down"))?;
     }
-    if read_native(row.agent_type, &path, &selected.session_id)? != original {
+    if history_digest(
+        row.agent_type,
+        &read_native(row.agent_type, &path, &selected.session_id, &env)?,
+    ) != history_digest(row.agent_type, &original)
+    {
         return Err(conflict());
     }
     if let Some(draft) = request.current_draft {
@@ -617,13 +642,18 @@ pub async fn commit(
         &backup_path(data_dir, request.conversation_id),
         &serde_json::to_vec(&backup).map_err(|error| failed(error.to_string()))?,
     )?;
-    if read_native(row.agent_type, &path, &selected.session_id)? != original {
+    if history_digest(
+        row.agent_type,
+        &read_native(row.agent_type, &path, &selected.session_id, &env)?,
+    ) != history_digest(row.agent_type, &original)
+    {
         return Err(conflict());
     }
     publish_native(
         row.agent_type,
         &path,
         &selected.session_id,
+        &env,
         &original,
         &replacement,
     )?;
@@ -652,11 +682,15 @@ pub(super) fn native_revision(
             | AgentType::Hermes
             | AgentType::OpenCode
             | AgentType::DeepSeek
+            | AgentType::Cline
     ) {
         return Ok(String::new());
     }
     let path = native_path(agent, env, session)?;
-    Ok(history_digest(agent, &read_native(agent, &path, session)?))
+    Ok(history_digest(
+        agent,
+        &read_native(agent, &path, session, env)?,
+    ))
 }
 
 pub(super) fn native_anchor_revision(
@@ -698,6 +732,7 @@ fn native_path(
         AgentType::Hermes => Ok(super::hermes::path(env)),
         AgentType::OpenCode => super::opencode::path(env),
         AgentType::DeepSeek => super::deepseek::path(env, session_id),
+        AgentType::Cline => super::cline::path(env, session_id),
         _ => Err(AppCommandError::invalid_input(
             "Precise history Undo has not been verified for this agent",
         )),
@@ -708,11 +743,13 @@ fn read_native(
     agent: AgentType,
     path: &Path,
     session_id: &str,
+    env: &crate::parsers::AgentEnv,
 ) -> Result<Vec<u8>, AppCommandError> {
     match agent {
         AgentType::Hermes => super::hermes::read(path, session_id),
         AgentType::OpenCode => super::opencode::read(path, session_id),
-        AgentType::DeepSeek => super::deepseek::read(path),
+        AgentType::DeepSeek => super::deepseek::read_snapshot(path, env),
+        AgentType::Cline => super::cline::read(path, session_id),
         _ => std::fs::read(path).map_err(AppCommandError::io),
     }
 }
@@ -721,15 +758,17 @@ fn publish_native(
     agent: AgentType,
     path: &Path,
     session_id: &str,
+    env: &crate::parsers::AgentEnv,
     expected: &[u8],
     replacement: &[u8],
 ) -> Result<(), AppCommandError> {
     match agent {
         AgentType::Hermes => super::hermes::publish(path, session_id, expected, replacement),
         AgentType::OpenCode => super::opencode::publish(path, session_id, expected, replacement),
-        AgentType::DeepSeek => super::deepseek::publish(path, expected, replacement),
+        AgentType::DeepSeek => super::deepseek::publish(path, env, expected, replacement),
+        AgentType::Cline => super::cline::publish(path, session_id, expected, replacement),
         _ => {
-            if read_native(agent, path, session_id)? != expected {
+            if read_native(agent, path, session_id, env)? != expected {
                 return Err(conflict());
             }
             atomic_write(path, replacement)

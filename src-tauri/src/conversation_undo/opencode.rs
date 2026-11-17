@@ -6,7 +6,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 
-fn sql_error(error: rusqlite::Error) -> AppCommandError {
+pub(super) fn sql_error(error: rusqlite::Error) -> AppCommandError {
     failed(error.to_string())
 }
 
@@ -16,7 +16,7 @@ pub(super) fn path(env: &AgentEnv) -> Result<PathBuf, AppCommandError> {
         .ok_or_else(|| AppCommandError::invalid_input("OpenCode has no saved database"))
 }
 
-fn rows(
+pub(super) fn rows(
     connection: &Connection,
     query: &str,
     session: &str,
@@ -37,7 +37,10 @@ fn rows(
                     ValueRef::Integer(value) => json!(value),
                     ValueRef::Real(value) => json!(value),
                     ValueRef::Text(value) => json!(String::from_utf8_lossy(value)),
-                    ValueRef::Blob(_) => return Err(rusqlite::Error::InvalidQuery),
+                    ValueRef::Blob(bytes) => {
+                        use base64::Engine;
+                        json!({"blob": base64::engine::general_purpose::STANDARD.encode(bytes)})
+                    }
                 };
                 value.insert(name.to_owned(), item);
             }
@@ -58,9 +61,7 @@ fn snapshot(connection: &Connection, session: &str) -> Result<Value, AppCommandE
         )
         .unwrap_or(0);
     if v2 > 0 {
-        return Err(AppCommandError::invalid_input(
-            "This OpenCode database needs the v2 history adapter",
-        ));
+        return super::opencode_v2::snapshot(connection, session);
     }
     Ok(json!({
         "messages":rows(connection,"SELECT * FROM message WHERE session_id = ?1 ORDER BY time_created,id",session)?,
@@ -74,7 +75,11 @@ pub(super) fn read(path: &Path, session: &str) -> Result<Vec<u8>, AppCommandErro
     serde_json::to_vec(&snapshot(&connection, session)?).map_err(|error| failed(error.to_string()))
 }
 
-fn insert(connection: &Connection, table: &str, row: &Value) -> Result<(), AppCommandError> {
+pub(super) fn insert(
+    connection: &Connection,
+    table: &str,
+    row: &Value,
+) -> Result<(), AppCommandError> {
     let row = row
         .as_object()
         .ok_or_else(|| failed("Invalid OpenCode backup row"))?;
@@ -96,6 +101,14 @@ fn insert(connection: &Connection, table: &str, row: &Value) -> Result<(), AppCo
                 rusqlite::types::Value::Integer(value.as_i64().unwrap())
             }
             Value::Number(value) => rusqlite::types::Value::Real(value.as_f64().unwrap()),
+            Value::Object(value) if value.get("blob").and_then(Value::as_str).is_some() => {
+                use base64::Engine;
+                rusqlite::types::Value::Blob(
+                    base64::engine::general_purpose::STANDARD
+                        .decode(value["blob"].as_str().unwrap())
+                        .map_err(|_| failed("Invalid OpenCode backup blob"))?,
+                )
+            }
             _ => return Err(failed("Invalid OpenCode backup value")),
         });
     }
@@ -132,6 +145,10 @@ pub(super) fn publish(
     }
     let target: Value =
         serde_json::from_slice(replacement).map_err(|error| failed(error.to_string()))?;
+    if current["format"] == "opencode-v2" {
+        super::opencode_v2::publish(&transaction, session, &current, &target)?;
+        return transaction.commit().map_err(sql_error);
+    }
     // 原生 ID 保持原样；只删除撤回段，已有前缀不删不重建，更不触碰 OpenCode 的文件快照。
     for (key, table) in [("parts", "part"), ("messages", "message")] {
         let target_rows = target[key]
@@ -168,6 +185,10 @@ pub(super) fn replacement(
     let original = read(&path, session)?;
     let mut value: Value =
         serde_json::from_slice(&original).map_err(|error| failed(error.to_string()))?;
+    if value["format"] == "opencode-v2" {
+        let replacement = super::opencode_v2::replacement(value, prompt)?;
+        return Ok((path, original, replacement));
+    }
     let text = prompt
         .blocks
         .iter()
@@ -232,6 +253,21 @@ pub(super) fn replacement(
     value["parts"] = json!(kept_parts);
     let replacement = serde_json::to_vec(&value).map_err(|error| failed(error.to_string()))?;
     Ok((path, original, replacement))
+}
+
+pub(super) fn input(
+    env: &AgentEnv,
+    session: &str,
+    prompt: &MessageTurn,
+) -> Result<Vec<crate::acp::types::PromptInputBlock>, AppCommandError> {
+    let path = path(env)?;
+    let current = read(&path, session)?;
+    let value: Value =
+        serde_json::from_slice(&current).map_err(|error| failed(error.to_string()))?;
+    if value["format"] == "opencode-v2" {
+        return super::opencode_v2::input(&value, prompt);
+    }
+    Ok(super::input::from_turn(prompt))
 }
 
 pub(super) fn issues(

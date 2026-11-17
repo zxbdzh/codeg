@@ -1298,6 +1298,7 @@ fn has_user_wrapper(text: &str) -> bool {
 fn parse_session_user_parts(content: &serde_json::Value) -> UserMessageParts {
     let mut tool_results = Vec::new();
     let mut texts: Vec<String> = Vec::new();
+    let mut images = Vec::new();
 
     match content {
         serde_json::Value::String(text) => texts.push(text.clone()),
@@ -1326,6 +1327,22 @@ fn parse_session_user_parts(content: &serde_json::Value) -> UserMessageParts {
                             exit_code: None,
                         });
                     }
+                    "image" => {
+                        let source = &item["source"];
+                        if source["type"] == "base64" {
+                            if let (Some(data), Some(mime)) =
+                                (source["data"].as_str(), source["media_type"].as_str())
+                            {
+                                if !data.is_empty() && mime.starts_with("image/") {
+                                    images.push(ContentBlock::Image {
+                                        data: data.to_owned(),
+                                        mime_type: mime.to_owned(),
+                                        uri: None,
+                                    });
+                                }
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -1334,7 +1351,7 @@ fn parse_session_user_parts(content: &serde_json::Value) -> UserMessageParts {
     }
 
     let any_wrapped = texts.iter().any(|text| has_user_wrapper(text));
-    let user_blocks = texts
+    let mut user_blocks: Vec<ContentBlock> = texts
         .into_iter()
         .filter(|text| {
             if any_wrapped {
@@ -1349,6 +1366,10 @@ fn parse_session_user_parts(content: &serde_json::Value) -> UserMessageParts {
                 .then_some(ContentBlock::Text { text: cleaned })
         })
         .collect();
+    if any_wrapped || tool_results.is_empty() {
+        // 图片也是用户输入；保留纯图片消息，才能从同一个已保存起点进行完整撤回与回填。
+        user_blocks.extend(images);
+    }
 
     UserMessageParts {
         tool_results,

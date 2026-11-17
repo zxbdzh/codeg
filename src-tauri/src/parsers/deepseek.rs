@@ -599,7 +599,10 @@ const DEEPSEEK_MAX_INLINE_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
 /// ("what is wrong with this screenshot?") carries no text at all, and dropping
 /// its block would drop the whole user turn, leaving an answer to a question
 /// that is not there.
-fn attachment_image_block(attachment: Option<&Value>, attachments: Option<&Path>) -> ContentBlock {
+pub(crate) fn attachment_image_block(
+    attachment: Option<&Value>,
+    attachments: Option<&Path>,
+) -> ContentBlock {
     let Some(attachment) = attachment else {
         return attachment_placeholder(None, None);
     };
@@ -716,17 +719,21 @@ fn event_millis(value: &Value) -> Option<DateTime<Utc>> {
     DateTime::from_timestamp_millis(value.get("time")?.as_i64()?)
 }
 
-/// Render every `{type:"image"}` part of a message `content[]` array, in wire
-/// order. Empty when the message carries none, which is every message written
-/// before 0.6.0 and most written after it.
+/// Render image and uploaded-file parts in their original attachment order.
 fn user_image_blocks(content: Option<&Value>, attachments: Option<&Path>) -> Vec<ContentBlock> {
     let Some(items) = content.and_then(Value::as_array) else {
         return Vec::new();
     };
     items
         .iter()
-        .filter(|item| item.get("type").and_then(Value::as_str) == Some("image"))
-        .map(|item| attachment_image_block(item.get("attachment"), attachments))
+        .filter_map(|item| match item["type"].as_str() {
+            Some("image") => Some(attachment_image_block(item.get("attachment"), attachments)),
+            // 文件字节由回填入口校验；展示层保留文件名，让纯附件消息也能作为撤回起点。
+            Some("file") => Some(ContentBlock::Text {
+                text: format!("@{}", item["attachment"]["name"].as_str().unwrap_or("file")),
+            }),
+            _ => None,
+        })
         .collect()
 }
 

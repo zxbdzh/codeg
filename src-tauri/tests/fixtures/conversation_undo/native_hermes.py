@@ -20,5 +20,8 @@ if action == "seed":
     database.append_message("other-hermes", "user", "Keep other Hermes session", timestamp=1794877261)
 else:
     messages = database.get_messages_as_conversation("hermes-undo")
-    print(json.dumps({"roles": [message["role"] for message in messages]}))
+    if action == "read_full":
+        print(json.dumps({"messages": messages}))
+    else:
+        print(json.dumps({"roles": [message["role"] for message in messages]}))
 database.close()

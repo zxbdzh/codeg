@@ -614,7 +614,7 @@ const CONTENT_JSON_PREFIX: &str = "\u{0000}json:";
 /// Plain text is stored verbatim. Multimodal content is `CONTENT_JSON_PREFIX`
 /// followed by an OpenAI-style parts array
 /// (`[{"type":"text",…},{"type":"image_url",…}]`).
-fn decode_hermes_content(raw: Option<&str>) -> Vec<ContentBlock> {
+pub(crate) fn decode_hermes_content(raw: Option<&str>) -> Vec<ContentBlock> {
     let Some(s) = raw else {
         return Vec::new();
     };

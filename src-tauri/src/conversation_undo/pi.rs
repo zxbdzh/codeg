@@ -49,7 +49,13 @@ pub(super) fn path(env: &AgentEnv, session_id: &str) -> Result<PathBuf, AppComma
     }
 }
 
-fn prefix(original: &[u8], prompt: &MessageTurn) -> Result<Vec<u8>, AppCommandError> {
+struct Selection {
+    offset: usize,
+    record: Value,
+    needs_cursor: bool,
+}
+
+fn select(original: &[u8], prompt: &MessageTurn) -> Result<Selection, AppCommandError> {
     let original = std::str::from_utf8(original).map_err(|error| failed(error.to_string()))?;
     let text = prompt
         .blocks
@@ -63,8 +69,37 @@ fn prefix(original: &[u8], prompt: &MessageTurn) -> Result<Vec<u8>, AppCommandEr
     let mut offset = 0;
     let mut last_id = None;
     let mut candidates = Vec::new();
+    let mut parents = std::collections::BTreeMap::<String, Option<String>>::new();
     for line in original.split_inclusive('\n') {
+        if line.trim().is_empty() {
+            offset += line.len();
+            continue;
+        }
         let value: Value = serde_json::from_str(line).map_err(|error| failed(error.to_string()))?;
+        if value["type"] == "session" {
+            offset += line.len();
+            continue;
+        }
+        let id = value["id"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| {
+                AppCommandError::invalid_input("The Pi tree contains an entry without an identity")
+            })?
+            .to_owned();
+        let parent =
+            match value.get("parentId") {
+                Some(Value::Null) => None,
+                Some(Value::String(parent)) if parents.contains_key(parent) => Some(parent.clone()),
+                _ => return Err(AppCommandError::invalid_input(
+                    "The Pi parent chain is incomplete or points forward; history has been kept",
+                )),
+            };
+        if parents.contains_key(&id) {
+            return Err(AppCommandError::invalid_input(
+                "The Pi tree contains duplicate entry identities",
+            ));
+        }
         let message = &value["message"];
         let saved_text = message["content"]
             .as_str()
@@ -76,7 +111,7 @@ fn prefix(original: &[u8], prompt: &MessageTurn) -> Result<Vec<u8>, AppCommandEr
                     .flatten()
                     .filter_map(|part| part["text"].as_str())
                     .collect::<Vec<_>>()
-                    .join("\n")
+                    .join("")
             });
         let same_time = value["timestamp"]
             .as_str()
@@ -87,13 +122,6 @@ fn prefix(original: &[u8], prompt: &MessageTurn) -> Result<Vec<u8>, AppCommandEr
             && same_time
             && saved_text == text
         {
-            // Pi 的最后一条物理记录决定树叶；非线性边界未经验证时不能复活旧分支。
-            let parent = value["parentId"].as_str().map(str::to_owned);
-            if parent != last_id {
-                return Err(AppCommandError::invalid_input(
-                    "This Pi tree boundary needs native verification before Undo",
-                ));
-            }
             if message["content"]
                 .as_array()
                 .into_iter()
@@ -122,19 +150,55 @@ fn prefix(original: &[u8], prompt: &MessageTurn) -> Result<Vec<u8>, AppCommandEr
                     )));
                 }
             }
-            candidates.push(offset);
+            candidates.push(Selection {
+                offset,
+                record: value.clone(),
+                needs_cursor: parent != last_id,
+            });
         }
-        if value["type"] != "session" {
-            last_id = value["id"].as_str().map(str::to_owned);
-        }
+        parents.insert(id.clone(), parent);
+        last_id = Some(id);
         offset += line.len();
     }
-    match candidates.as_slice() {
-        [offset] => Ok(original.as_bytes()[..*offset].to_vec()),
-        _ => Err(AppCommandError::invalid_input(
+    let [selection] = candidates.as_slice() else {
+        return Err(AppCommandError::invalid_input(
             "The saved Pi user message could not be uniquely located",
-        )),
+        ));
+    };
+    let selected_id = selection.record["id"].as_str().unwrap();
+    let mut cursor = last_id.as_deref();
+    let mut on_active_path = false;
+    while let Some(id) = cursor {
+        on_active_path |= id == selected_id;
+        cursor = parents.get(id).and_then(Option::as_deref);
     }
+    if !on_active_path {
+        return Err(AppCommandError::invalid_input(
+            "The selected Pi message is not on the active native parent chain",
+        ));
+    }
+    Ok(candidates.remove(0))
+}
+
+fn prefix(original: &[u8], prompt: &MessageTurn) -> Result<Vec<u8>, AppCommandError> {
+    let selected = select(original, prompt)?;
+    let mut kept = original[..selected.offset].to_vec();
+    if selected.needs_cursor {
+        // 原生 custom 节点不进入模型上下文，只把同一会话的活动叶指回目标父节点，避免复活旁支。
+        let cursor = serde_json::json!({
+            "type": "custom",
+            "id": uuid::Uuid::new_v4().simple().to_string(),
+            "parentId": selected.record["parentId"],
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "customType": "codeg.undo.cursor",
+            "data": {"version": 1},
+        });
+        if !kept.ends_with(b"\n") {
+            kept.push(b'\n');
+        }
+        kept.extend_from_slice(format!("{cursor}\n").as_bytes());
+    }
+    Ok(kept)
 }
 
 pub(super) fn issues(
@@ -160,4 +224,38 @@ pub(super) fn replacement(
     let original = std::fs::read(&path).map_err(AppCommandError::io)?;
     let replacement = prefix(&original, prompt)?;
     Ok((path, original, replacement))
+}
+
+pub(super) fn input(
+    env: &AgentEnv,
+    session_id: &str,
+    prompt: &MessageTurn,
+) -> Result<Vec<crate::acp::types::PromptInputBlock>, AppCommandError> {
+    use crate::acp::types::PromptInputBlock;
+    let original = std::fs::read(path(env, session_id)?).map_err(AppCommandError::io)?;
+    let record = select(&original, prompt)?.record;
+    let content = &record["message"]["content"];
+    if let Some(text) = content.as_str() {
+        return Ok(vec![PromptInputBlock::Text {
+            text: text.to_owned(),
+        }]);
+    }
+    content
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|block| match block["type"].as_str() {
+            Some("text") => Ok(PromptInputBlock::Text {
+                text: block["text"].as_str().unwrap_or_default().to_owned(),
+            }),
+            Some("image") => Ok(PromptInputBlock::Image {
+                data: block["data"].as_str().unwrap_or_default().to_owned(),
+                mime_type: block["mimeType"].as_str().unwrap_or("image/png").to_owned(),
+                uri: None,
+            }),
+            _ => Err(AppCommandError::invalid_input(
+                "The original Pi input contains an unverified content block",
+            )),
+        })
+        .collect()
 }
