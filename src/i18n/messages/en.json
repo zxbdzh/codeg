@@ -1,5 +1,18 @@
 {
   "ConversationUndo": {
+    "tasksToStop": "These tasks must stop before Undo:",
+    "runningTurn": "Current turn",
+    "runningBackground": "Background task",
+    "confirmStop": "Stop and undo",
+    "inputUnavailable": "The original input cannot be fully restored. Resolve these issues before undoing:",
+    "redo": "Restore last undo",
+    "clearRedo": "Clear undo backup",
+    "clearRedoTitle": "Clear this undo backup?",
+    "clearRedoDescription": "This undone conversation can no longer be restored. The current conversation, draft, and collected input stay unchanged.",
+    "redoDone": "Conversation restored. Your current draft is unchanged.",
+    "redoCleared": "Undo backup cleared.",
+    "redoFailed": "The operation did not complete. Try again.",
+    "range": "Undo {users} user messages, {turns} conversation entries in total",
     "action": "Undo from this message",
     "title": "Undo this message and later conversation?",
     "description": "Remove this message and everything after it from the current conversation. Its text returns to the composer for you to edit and resend. Workspace files and external actions are not restored.",
@@ -8,7 +21,8 @@
     "pending": "Undoing…",
     "busy": "Wait for this conversation and its background tasks to finish before undoing.",
     "done": "Undone. The original text is back in the composer and has not been sent.",
-    "failed": "Undo did not complete. Refresh and try again. Choose a saved turn's first message in a Codex session that supports native undo.",
+    "failed": "Undo did not complete. Review the reason and try again.",
+    "historyChanged": "The conversation changed. Undo was cancelled and the latest history was kept. Refresh, select the message again, and confirm.",
     "reconnectFailed": "Undone, but reconnecting failed. Reconnect to continue."
   },
   "ConversationPanes": {

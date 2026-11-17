@@ -1398,6 +1398,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   onUndoFromPrompt,
   promptFromStart = false,
   forkDisabled = false,
+  undoDisabled = false,
   isThreadTail = false,
 }: {
   group: ResolvedMessageGroup
@@ -1420,6 +1421,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   onUndoFromPrompt?: MessageListViewProps["onUndoFromPrompt"]
   promptFromStart?: boolean
   forkDisabled?: boolean
+  undoDisabled?: boolean
   /** Whether nothing follows this group in the thread — the one position where
    *  a turn the backend cannot name still forks where the user pointed. */
   isThreadTail?: boolean
@@ -1452,6 +1454,17 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
     promptTurn.blocks.length > 0 &&
     promptTurn.blocks.every((block) => block.type === "text") &&
     promptText.trim().length > 0
+  const canUndoPrompt =
+    promptTurn != null &&
+    promptTurn.blocks.length > 0 &&
+    promptTurn.blocks.every(
+      (block) => block.type === "text" || block.type === "image"
+    ) &&
+    promptTurn.blocks.some(
+      (block) =>
+        block.type === "image" ||
+        (block.type === "text" && block.text.trim().length > 0)
+    )
   const forkPointUnnamed = isForkPointUnnamed(forkPoint, isThreadTail)
 
   return (
@@ -1471,10 +1484,10 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
           <div className="group/user-msg flex w-fit ml-auto max-w-full items-start gap-1">
             {onUndoFromPrompt &&
             promptTurn &&
-            canForkPrompt &&
+            canUndoPrompt &&
             isResponseComplete ? (
               <UserMessageUndoButton
-                disabled={forkDisabled}
+                disabled={undoDisabled}
                 onUndo={() =>
                   onUndoFromPrompt(
                     promptTurn.source_turn_id ?? promptTurn.id,
@@ -2017,6 +2030,8 @@ export function MessageListView({
   // "not right now" instead of dropping its button and shifting the icon row.
   const forkBusy =
     connStatus === "prompting" || forkPromptBusy || undoPromptBusy
+  // 运行中仍可打开确认框，由后端停止当前会话的任务后再精确撤回。
+  const undoBusy = forkPromptBusy || undoPromptBusy
 
   const renderThreadItem = useCallback(
     (item: ThreadRenderItem) => {
@@ -2081,6 +2096,7 @@ export function MessageListView({
                   isFirstUserPrompt(forkAnchorTurns, promptTurnId)
                 }
                 forkDisabled={forkBusy}
+                undoDisabled={undoBusy}
                 isThreadTail={item.isThreadTail}
               />
             </div>
@@ -2123,6 +2139,7 @@ export function MessageListView({
       detail,
       hasOlderTurns,
       forkBusy,
+      undoBusy,
     ]
   )
 

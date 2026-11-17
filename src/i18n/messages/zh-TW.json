@@ -1,5 +1,18 @@
 {
   "ConversationUndo": {
+    "tasksToStop": "將先停止以下工作，全部停止後再撤回：",
+    "runningTurn": "目前回合",
+    "runningBackground": "背景工作",
+    "confirmStop": "停止並撤回",
+    "inputUnavailable": "暫時無法完整還原原輸入，請先處理以下問題再撤回：",
+    "redo": "還原上次撤回",
+    "clearRedo": "清理撤回備份",
+    "clearRedoTitle": "清理這次撤回的備份？",
+    "clearRedoDescription": "清理後將無法再還原這次撤回的對話。目前對話、草稿和收藏不受影響。",
+    "redoDone": "已還原上次撤回的對話，目前草稿保持不變。",
+    "redoCleared": "已清理撤回備份。",
+    "redoFailed": "操作未完成，請重試。",
+    "range": "將撤回 {users} 則使用者訊息，共 {turns} 則對話記錄",
     "action": "撤回至此訊息之前（Undo）",
     "title": "撤回這則訊息及後續對話？",
     "description": "在目前對話中移除這則訊息及之後的對話，將原文放回輸入框，由你修改後重新傳送。工作區檔案及已執行的外部操作不會還原。",
@@ -8,7 +21,8 @@
     "pending": "正在撤回…",
     "busy": "請等待目前對話和背景工作完成後再撤回。",
     "done": "已撤回，原文已放回輸入框，尚未傳送。",
-    "failed": "撤回未完成，請重新整理對話後再試。需要支援原生回退的 Codex 對話，並選擇已儲存的回合首則訊息。",
+    "failed": "撤回未完成，請查看原因後重試。",
+    "historyChanged": "對話記錄已變更，已取消本次撤回並保留最新記錄。請重新整理後再次發起並確認。",
     "reconnectFailed": "已撤回，但重新連線失敗。請重新連線後繼續。"
   },
   "ConversationPanes": {

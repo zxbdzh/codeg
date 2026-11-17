@@ -1,5 +1,18 @@
 {
   "ConversationUndo": {
+    "tasksToStop": "Estas tareas deben detenerse antes de deshacer:",
+    "runningTurn": "Turno actual",
+    "runningBackground": "Tarea en segundo plano",
+    "confirmStop": "Detener y deshacer",
+    "inputUnavailable": "No se puede restaurar toda la entrada original. Resuelve estos problemas antes de deshacer:",
+    "redo": "Restaurar último deshacer",
+    "clearRedo": "Borrar copia de deshacer",
+    "clearRedoTitle": "¿Borrar esta copia?",
+    "clearRedoDescription": "La conversación deshecha ya no podrá restaurarse. La conversación actual, el borrador y las entradas guardadas no cambian.",
+    "redoDone": "Conversación restaurada. El borrador actual no cambia.",
+    "redoCleared": "Copia borrada.",
+    "redoFailed": "La operación no se completó. Inténtalo de nuevo.",
+    "range": "Deshacer {users} mensajes del usuario, {turns} entradas de conversación en total",
     "action": "Deshacer desde este mensaje",
     "title": "¿Deshacer este mensaje y la conversación posterior?",
     "description": "Elimina este mensaje y los posteriores de la conversación actual. El texto original vuelve al editor para modificarlo y reenviarlo. Los archivos y las acciones externas no se restauran.",
@@ -8,7 +21,8 @@
     "pending": "Deshaciendo…",
     "busy": "Espera a que terminen la conversación y sus tareas en segundo plano.",
     "done": "Deshecho. El texto original está en el editor y no se ha enviado.",
-    "failed": "No se pudo completar. Actualiza y vuelve a intentarlo. Elige el primer mensaje guardado de un turno en una sesión de Codex compatible.",
+    "failed": "No se pudo deshacer. Revisa el motivo y vuelve a intentarlo.",
+    "historyChanged": "La conversación cambió. Se canceló la operación y se conservó el historial más reciente. Actualiza, selecciona de nuevo el mensaje y confirma.",
     "reconnectFailed": "Deshecho, pero no se pudo reconectar. Vuelve a conectarte para continuar."
   },
   "ConversationPanes": {

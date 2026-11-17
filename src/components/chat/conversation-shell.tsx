@@ -28,7 +28,10 @@ import { ChatInput } from "@/components/chat/chat-input"
 import { ChatWidthHandles } from "@/components/chat/chat-width-handles"
 import { chatGutterStyle } from "@/lib/chat-content-width"
 import { cn } from "@/lib/utils"
-import type { ComposerInjectContent } from "@/components/chat/message-input"
+import type {
+  ComposerInjectContent,
+  ComposerHistoryHandle,
+} from "@/components/chat/message-input"
 import { PermissionDialog } from "@/components/chat/permission-dialog"
 import { QuestionDialog } from "@/components/chat/question-dialog"
 import { AskQuestionCard } from "@/components/chat/ask-question-card"
@@ -36,6 +39,7 @@ import { PlanApprovalCard } from "@/components/chat/plan-approval-card"
 import { MarkdownImageProvider } from "@/components/ai-elements/markdown-local-image"
 
 interface ConversationShellProps {
+  historyHandleRef?: React.Ref<ComposerHistoryHandle>
   status: ConnectionStatus | null
   promptCapabilities: PromptCapabilitiesInfo
   defaultPath?: string
@@ -223,6 +227,7 @@ export function ConversationShell({
   topBanner,
   injectContent,
   onInjectConsumed,
+  historyHandleRef,
   resizableWidth = false,
 }: ConversationShellProps) {
   return (
@@ -351,6 +356,7 @@ export function ConversationShell({
               onAddFeedback={onAddFeedback}
               feedbackAddDisabled={feedbackAddDisabled}
               injectContent={injectContent}
+              historyHandleRef={historyHandleRef}
               onInjectConsumed={onInjectConsumed}
             />
           </div>

@@ -76,8 +76,13 @@ import {
 } from "@/stores/conversation-fork-store"
 import { ConversationForkProgress } from "@/components/conversations/conversation-fork-progress"
 import { ConversationUndoDialog } from "@/components/conversations/conversation-undo-dialog"
+import { ConversationRedoControl } from "@/components/conversations/conversation-redo-control"
 import { useConversationUndo } from "@/hooks/use-conversation-undo"
-import type { ConversationUndoResult } from "@/lib/conversation-undo"
+import {
+  commitConversationUndo,
+  previewConversationUndo,
+  type ConversationUndoResult,
+} from "@/lib/conversation-undo"
 import { isConnectionBusy } from "@/lib/connection-teardown"
 import { openForkConversation } from "@/lib/research-branch-navigation"
 import {
@@ -107,7 +112,10 @@ import { AgentSelector } from "@/components/chat/agent-selector"
 import { ChatInput } from "@/components/chat/chat-input"
 import { WelcomeHero, WelcomeTip } from "@/components/chat/welcome-hero"
 import { QuickActions } from "@/components/chat/quick-actions"
-import type { ComposerInjectContent } from "@/components/chat/message-input"
+import type {
+  ComposerInjectContent,
+  ComposerHistoryHandle,
+} from "@/components/chat/message-input"
 import { TileScrollContainer } from "@/components/conversations/tile-scroll-container"
 import { stableTabViewOrder } from "@/lib/tab-view-order"
 import { GroupSplitHandle } from "@/components/conversations/group-split-handle"
@@ -1412,10 +1420,30 @@ const ConversationTabView = memo(function ConversationTabView({
   const [promptForking, setPromptForking] = useState(false)
   const tResearch = useTranslations("ResearchBranch")
   const tUndo = useTranslations("ConversationUndo")
+  const composerHistoryRef = useRef<ComposerHistoryHandle | null>(null)
+  const undoBackend = useMemo(
+    () => ({
+      preview: previewConversationUndo,
+      commit: commitConversationUndo,
+    }),
+    []
+  )
   const handleUndoComplete = useCallback(
-    async (result: ConversationUndoResult, text: string) => {
+    async (
+      result: ConversationUndoResult,
+      text: string,
+      original?: MessageTurn
+    ) => {
       // 先保存回填，再清除旧连接；重连失败也不会丢掉要重发的原文。
-      parkForkConversationPrompt(result.conversationId, text)
+      if (original) {
+        if (!composerHistoryRef.current?.restore(original)) {
+          throw new Error(
+            "Undo completed but the original input could not be restored"
+          )
+        }
+      } else {
+        parkForkConversationPrompt(result.conversationId, text)
+      }
       if (conn.connectionId) {
         try {
           await conn.disconnect()
@@ -1471,9 +1499,18 @@ const ConversationTabView = memo(function ConversationTabView({
   )
   const conversationUndo = useConversationUndo({
     conversationId: dbConversationId,
-    busy: promptForking || isConnectionBusy(conn),
+    busy: isConnectionBusy(conn),
+    blocked: promptForking,
     onComplete: handleUndoComplete,
     onFailure: handleUndoFailure,
+    backend: undoBackend,
+    captureDraft: () => {
+      const composer = composerHistoryRef.current
+      if (!composer) throw new Error("The composer is not ready")
+      composer.setLocked(true)
+      return composer.capture()
+    },
+    onSettled: () => composerHistoryRef.current?.setLocked(false),
   })
   // 独立连接创建分支，主行、主连接和草稿保持原样；历史提示词只进入新分支的输入框。
   const handleForkFromPrompt = useCallback(
@@ -2339,7 +2376,7 @@ const ConversationTabView = memo(function ConversationTabView({
           forkPromptBusy={promptForking}
           undoPromptBusy={conversationUndo.pending}
           onUndoFromPrompt={
-            selectedAgent === "codex" &&
+            (selectedAgent === "codex" || selectedAgent === "claude_code") &&
             hasPersistedConversation &&
             !conn.isViewer
               ? conversationUndo.requestUndo
@@ -2477,13 +2514,26 @@ const ConversationTabView = memo(function ConversationTabView({
   return (
     <ConversationShell
       resizableWidth
+      historyHandleRef={composerHistoryRef}
       getSentHistory={getSentHistory}
       topBanner={
         <>
           <ConversationForkProgress open={promptForking} />
+          {dbConversationId != null && (
+            <ConversationRedoControl
+              key={dbConversationId}
+              conversationId={dbConversationId}
+              revision={`${conversationUndo.pending}:${sendSignal}:${detail?.turns.reduce((lastId, turn) => (turn.role === "user" ? turn.id : lastId), "") ?? ""}`}
+              busy={conversationUndo.pending || isConnectionBusy(conn)}
+              onRestored={async (result) => {
+                await handleUndoFailure(result.conversationId)
+              }}
+            />
+          )}
           <ConversationUndoDialog
             open={conversationUndo.selection !== null}
             pending={conversationUndo.pending}
+            preview={conversationUndo.selection?.preview}
             onCancel={conversationUndo.cancelUndo}
             onConfirm={() => void conversationUndo.confirmUndo()}
           />
@@ -2651,6 +2701,7 @@ const ConversationTabView = memo(function ConversationTabView({
                 </div>
               ) : null}
               <ChatInput
+                historyHandleRef={composerHistoryRef}
                 // composerConnStatus (not connStatus): a chat draft mid-reconnect
                 // reads "connecting" until the connection's cwd matches, so the
                 // send affordance stays disabled until handleSend would accept it.

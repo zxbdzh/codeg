@@ -1,6 +1,14 @@
 "use client"
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { useTranslations } from "next-intl"
 import { isImeCompositionKey } from "@/lib/ime-composition"
 import { Button } from "@/components/ui/button"
@@ -55,6 +63,7 @@ import type {
   PromptCapabilitiesInfo,
   PromptDraft,
   PromptInputBlock,
+  MessageTurn,
   SessionConfigOptionInfo,
   SessionModeInfo,
 } from "@/lib/types"
@@ -177,7 +186,14 @@ export type ComposerInjectContent =
       handBack: PromptInputBlock[]
     }
 
+export interface ComposerHistoryHandle {
+  capture: () => PromptStashSnapshot | null
+  restore: (prompt: MessageTurn) => boolean
+  setLocked: (locked: boolean) => void
+}
+
 interface MessageInputProps {
+  historyHandleRef?: React.Ref<ComposerHistoryHandle>
   onSend: (draft: PromptDraft, modeId?: string | null) => void
   placeholder?: string
   defaultPath?: string
@@ -376,6 +392,7 @@ export function MessageInput({
   injectContent,
   onInjectConsumed,
   getSentHistory,
+  historyHandleRef,
   tall = false,
 }: MessageInputProps) {
   const t = useTranslations("Folder.chat.messageInput")
@@ -442,6 +459,8 @@ export function MessageInput({
       : t("promptSuggestion", { suggestion: offeredSuggestion })
     : resolvedPlaceholder
   const editorRef = useRef<RichComposerHandle>(null)
+  const [historyLocked, setHistoryLocked] = useState(false)
+  const historyLockedRef = useRef(false)
   // Prompt-history navigation. `historyRef` is seeded from `getSentHistory`
   // lazily, the first time the user steps into history, so a session that never
   // uses it pays nothing.
@@ -1693,7 +1712,47 @@ export function MessageInput({
     ]
   )
 
+  useImperativeHandle(
+    historyHandleRef,
+    () => ({
+      capture: () => {
+        if (!editorRef.current?.getEditor() || attach.intakePending) {
+          throw new Error(
+            "Wait for the composer and attachments to finish loading"
+          )
+        }
+        return stashCapture()
+      },
+      restore: (prompt) => {
+        const editor = editorRef.current?.getEditor()
+        if (!editor) return false
+        const blocks: PromptInputBlock[] = []
+        for (const block of prompt.blocks) {
+          if (block.type === "image") {
+            // 历史路径可能已经被覆盖；恢复的原图必须以历史字节发送，不能重读旧上传缓存。
+            blocks.push({ ...block, uri: null })
+          } else if (block.type === "text") {
+            blocks.push(block)
+          } else {
+            throw new Error("The original input contains unsupported content")
+          }
+        }
+        hydrateFromBlocks(editor, blocks, knownInvocationsRef.current)
+        syncComposerEmpty()
+        return true
+      },
+      setLocked: (locked) => {
+        // 先同步锁住编辑器，再等待 React 渲染，避免采集后继续输入却被回填覆盖。
+        historyLockedRef.current = locked
+        editorRef.current?.getEditor()?.setEditable(!locked)
+        setHistoryLocked(locked)
+      },
+    }),
+    [attach.intakePending, hydrateFromBlocks, stashCapture, syncComposerEmpty]
+  )
+
   const handleSend = useCallback(() => {
+    if (historyLockedRef.current) return
     // The editor stays editable while `disabled` (the agent is busy) so the user
     // can keep typing, but a plain send is blocked — only enqueue / queue-edit
     // save go through. Mirrors the legacy textarea's keydown guard.
@@ -1773,6 +1832,7 @@ export function MessageInput({
   // hydrate from yet), since the enqueue fallback below bypasses its gate.
   const [steering, setSteering] = useState(false)
   const handleSteerClick = useCallback(async () => {
+    if (historyLockedRef.current) return
     if (!onSteer || steering) return
     if (hasUploadingImage) {
       toast.error(tAttach("attachUploadInProgress"))
@@ -2192,6 +2252,7 @@ export function MessageInput({
               />
               <RichComposer
                 ref={editorRef}
+                disabled={historyLocked}
                 placeholder={shownPlaceholder}
                 ariaLabel={resolvedPlaceholder}
                 promptSuggestion={offeredSuggestion}

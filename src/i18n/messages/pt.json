@@ -1,5 +1,18 @@
 {
   "ConversationUndo": {
+    "tasksToStop": "Estas tarefas devem parar antes de desfazer:",
+    "runningTurn": "Turno atual",
+    "runningBackground": "Tarefa em segundo plano",
+    "confirmStop": "Parar e desfazer",
+    "inputUnavailable": "Não é possível restaurar toda a entrada original. Resolva estes problemas antes de desfazer:",
+    "redo": "Restaurar último desfazer",
+    "clearRedo": "Limpar backup de desfazer",
+    "clearRedoTitle": "Limpar este backup?",
+    "clearRedoDescription": "A conversa desfeita não poderá mais ser restaurada. A conversa atual, o rascunho e as entradas salvas permanecem inalterados.",
+    "redoDone": "Conversa restaurada. O rascunho atual permanece inalterado.",
+    "redoCleared": "Backup limpo.",
+    "redoFailed": "A operação não foi concluída. Tente novamente.",
+    "range": "Desfazer {users} mensagens do usuário, {turns} registros de conversa no total",
     "action": "Desfazer a partir desta mensagem",
     "title": "Desfazer esta mensagem e a conversa posterior?",
     "description": "Remove esta mensagem e as seguintes da conversa atual. O texto original volta ao campo de entrada para editar e reenviar. Os arquivos e as ações externas não são restaurados.",
@@ -8,7 +21,8 @@
     "pending": "Desfazendo…",
     "busy": "Aguarde a conclusão da conversa e das tarefas em segundo plano.",
     "done": "Desfeito. O texto original está no campo de entrada e não foi enviado.",
-    "failed": "Não foi possível concluir. Atualize e tente novamente. Selecione a primeira mensagem salva de um turno em uma sessão Codex compatível.",
+    "failed": "Não foi possível desfazer. Confira o motivo e tente novamente.",
+    "historyChanged": "A conversa mudou. A operação foi cancelada e o histórico mais recente foi mantido. Atualize, selecione a mensagem novamente e confirme.",
     "reconnectFailed": "Desfeito, mas a reconexão falhou. Conecte-se novamente para continuar."
   },
   "ConversationPanes": {

@@ -17,11 +17,13 @@ import type { QueuedMessage } from "@/hooks/use-message-queue"
 import {
   MessageInput,
   type ComposerInjectContent,
+  type ComposerHistoryHandle,
 } from "@/components/chat/message-input"
 import { MessageQueueDisplay } from "@/components/chat/message-queue-display"
 import { cn } from "@/lib/utils"
 
 interface ChatInputProps {
+  historyHandleRef?: React.Ref<ComposerHistoryHandle>
   status: ConnectionStatus | null
   promptCapabilities: PromptCapabilitiesInfo
   defaultPath?: string
@@ -148,6 +150,7 @@ export const ChatInput = memo(function ChatInput({
   allowOfflineCompose = false,
   injectContent,
   onInjectConsumed,
+  historyHandleRef,
   flush = false,
   tall = false,
 }: ChatInputProps) {
@@ -247,6 +250,7 @@ export const ChatInput = memo(function ChatInput({
         onAddFeedback={onAddFeedback}
         feedbackAddDisabled={feedbackAddDisabled}
         injectContent={injectContent}
+        historyHandleRef={historyHandleRef}
         onInjectConsumed={onInjectConsumed}
         placeholder={
           isConnecting

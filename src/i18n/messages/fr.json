@@ -1,5 +1,18 @@
 {
   "ConversationUndo": {
+    "tasksToStop": "Ces tâches doivent être arrêtées avant l’annulation :",
+    "runningTurn": "Tour actuel",
+    "runningBackground": "Tâche en arrière-plan",
+    "confirmStop": "Arrêter et annuler",
+    "inputUnavailable": "La saisie d’origine ne peut pas être restaurée entièrement. Résolvez ces problèmes avant d’annuler :",
+    "redo": "Restaurer la dernière annulation",
+    "clearRedo": "Effacer la sauvegarde",
+    "clearRedoTitle": "Effacer cette sauvegarde ?",
+    "clearRedoDescription": "La conversation annulée ne pourra plus être restaurée. La conversation actuelle, le brouillon et les saisies enregistrées restent inchangés.",
+    "redoDone": "Conversation restaurée. Le brouillon actuel reste inchangé.",
+    "redoCleared": "Sauvegarde effacée.",
+    "redoFailed": "L’opération n’a pas abouti. Réessayez.",
+    "range": "Annuler {users} messages utilisateur, soit {turns} entrées de conversation au total",
     "action": "Annuler depuis ce message",
     "title": "Annuler ce message et la suite de la conversation ?",
     "description": "Supprime ce message et les suivants de la conversation actuelle. Le texte revient dans la zone de saisie pour être modifié et renvoyé. Les fichiers et les actions externes ne sont pas restaurés.",
@@ -8,7 +21,8 @@
     "pending": "Annulation…",
     "busy": "Attendez la fin de la conversation et de ses tâches en arrière-plan.",
     "done": "Annulé. Le texte original est dans la zone de saisie et n’a pas été envoyé.",
-    "failed": "L’annulation n’a pas abouti. Actualisez puis réessayez. Sélectionnez le premier message enregistré d’un tour dans une session Codex compatible.",
+    "failed": "L’annulation n’a pas abouti. Vérifiez la raison et réessayez.",
+    "historyChanged": "La conversation a changé. L’annulation a été interrompue et le dernier historique conservé. Actualisez, sélectionnez à nouveau le message et confirmez.",
     "reconnectFailed": "Annulé, mais la reconnexion a échoué. Reconnectez-vous pour continuer."
   },
   "ConversationPanes": {

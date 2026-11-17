@@ -1,5 +1,18 @@
 {
   "ConversationUndo": {
+    "tasksToStop": "Diese Aufgaben müssen vor der Rücknahme beendet werden:",
+    "runningTurn": "Aktuelle Runde",
+    "runningBackground": "Hintergrundaufgabe",
+    "confirmStop": "Stoppen und zurücknehmen",
+    "inputUnavailable": "Die ursprüngliche Eingabe kann nicht vollständig wiederhergestellt werden. Behebe zuerst diese Probleme:",
+    "redo": "Letzte Rücknahme wiederherstellen",
+    "clearRedo": "Rücknahme-Sicherung löschen",
+    "clearRedoTitle": "Diese Sicherung löschen?",
+    "clearRedoDescription": "Die zurückgenommene Unterhaltung kann danach nicht wiederhergestellt werden. Aktuelles Gespräch, Entwurf und gesammelte Eingaben bleiben unverändert.",
+    "redoDone": "Gespräch wiederhergestellt. Der aktuelle Entwurf bleibt unverändert.",
+    "redoCleared": "Sicherung gelöscht.",
+    "redoFailed": "Der Vorgang wurde nicht abgeschlossen. Versuche es erneut.",
+    "range": "{users} Benutzernachrichten und insgesamt {turns} Gesprächseinträge zurücknehmen",
     "action": "Ab dieser Nachricht zurücknehmen",
     "title": "Diese Nachricht und den weiteren Verlauf zurücknehmen?",
     "description": "Diese Nachricht und alles danach werden aus dem aktuellen Gespräch entfernt. Der Originaltext wird zum Bearbeiten und erneuten Senden ins Eingabefeld übernommen. Dateien und externe Aktionen werden nicht wiederhergestellt.",
@@ -8,7 +21,8 @@
     "pending": "Wird zurückgenommen…",
     "busy": "Warte, bis das Gespräch und seine Hintergrundaufgaben abgeschlossen sind.",
     "done": "Zurückgenommen. Der Originaltext steht ungesendet im Eingabefeld.",
-    "failed": "Die Rücknahme wurde nicht abgeschlossen. Aktualisiere das Gespräch und versuche es erneut. Wähle die erste gespeicherte Nachricht einer Runde in einer unterstützten Codex-Sitzung.",
+    "failed": "Die Rücknahme wurde nicht abgeschlossen. Prüfe den Grund und versuche es erneut.",
+    "historyChanged": "Der Verlauf wurde geändert. Die Rücknahme wurde abgebrochen und der aktuelle Verlauf beibehalten. Aktualisiere und bestätige die Auswahl erneut.",
     "reconnectFailed": "Zurückgenommen, aber die Verbindung ist fehlgeschlagen. Verbinde dich erneut."
   },
   "ConversationPanes": {
