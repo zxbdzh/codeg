@@ -2813,6 +2813,37 @@
         "reconnecting": "Reconnecting...",
         "reconnectUnavailable": "Nothing to reconnect to yet."
       },
+      "plugins": {
+        "adhdName": "I Have ADHD",
+        "ponytailName": "Ponytail",
+        "statusLabel": "Status",
+        "sourceLabel": "Status source",
+        "scopeLabel": "Scope",
+        "chipAdhd": "ADHD {status}",
+        "chipPonytail": "PT {status}",
+        "states": {
+          "disabled": "Disabled",
+          "unknown": "Unknown",
+          "alwaysOnConfigured": "Always-on configured",
+          "off": "Off",
+          "lite": "Lite",
+          "full": "Full",
+          "ultra": "Ultra"
+        },
+        "sources": {
+          "alwaysOnConfig": "Always-on startup flag",
+          "sessionStateUnobservable": "Session activation is not exposed by the host",
+          "projectModeMarker": "Workspace mode marker",
+          "sharedModeMarker": "Shared mode marker",
+          "pluginDisabled": "Disabled in agent settings"
+        },
+        "scopes": {
+          "user": "User startup setting",
+          "session": "Current session",
+          "projectShared": "Shared by sessions in this project",
+          "userShared": "Shared host state"
+        }
+      },
       "tasks": {
         "title": "Tasks"
       },

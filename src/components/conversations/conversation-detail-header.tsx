@@ -22,10 +22,11 @@ import {
 } from "@/lib/api"
 import { formatConversationTitle } from "@/lib/conversation-title"
 import { ConversationHeaderFolderPicker } from "@/components/chat/conversation-context-bar"
+import { ComposerPluginIndicators } from "@/components/chat/composer-plugin-indicators"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabActions } from "@/contexts/tab-context"
 import { getRuntimeSession } from "@/stores/conversation-runtime-store"
-import type { ConversationStatus } from "@/lib/types"
+import type { AgentType, ConversationStatus } from "@/lib/types"
 import { STATUS_ORDER } from "@/lib/types"
 import { ConversationStatusDot } from "@/components/conversations/conversation-status-dot"
 import {
@@ -68,6 +69,8 @@ import { useIsMobile } from "@/hooks/use-mobile"
 
 interface ConversationDetailHeaderProps {
   tabId: string
+  agentType?: AgentType | null
+  workspacePath?: string | null
   /** Persisted DB id — null for an unsaved draft (rename / pin / status /
    *  details / delete disabled until the first send persists the row). */
   conversationId: number | null
@@ -96,6 +99,8 @@ interface ConversationDetailHeaderProps {
  */
 export const ConversationDetailHeader = memo(function ConversationDetailHeader({
   tabId,
+  agentType,
+  workspacePath,
   conversationId,
   runtimeConversationId,
   folderId,
@@ -287,7 +292,7 @@ export const ConversationDetailHeader = memo(function ConversationDetailHeader({
         {/* Capped at half the row so a long tag list squeezes its own chips
             (they truncate) before it squeezes the title. */}
         {taggable && conversationId != null ? (
-          <div className="flex max-w-[35%] min-w-0 shrink items-center md:max-w-[50%]">
+          <div className="flex max-w-[40%] min-w-0 shrink items-center md:max-w-[50%]">
             <ConversationHeaderTags
               conversationId={conversationId}
               folderId={folderId}
@@ -298,7 +303,13 @@ export const ConversationDetailHeader = memo(function ConversationDetailHeader({
           </div>
         ) : null}
       </div>
-      <div className="flex shrink-0 items-center">
+      {/* 独立于按内容收缩的标题区，短标题时标识也固定靠右；手机省去额外外边距。 */}
+      <ComposerPluginIndicators
+        agentType={agentType}
+        workspacePath={workspacePath}
+        className="md:mr-4"
+      />
+      <div className="flex shrink-0 items-center gap-2">
         {!isMobile && taggable && conversationId != null && (
           <AiTagButton conversationId={conversationId} folderId={folderId} />
         )}

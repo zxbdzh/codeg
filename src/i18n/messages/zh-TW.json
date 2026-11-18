@@ -2751,6 +2751,37 @@
         "reconnecting": "正在重新連線...",
         "reconnectUnavailable": "目前沒有可重新連線的工作階段。"
       },
+      "plugins": {
+        "adhdName": "I Have ADHD",
+        "ponytailName": "Ponytail",
+        "statusLabel": "狀態",
+        "sourceLabel": "狀態來源",
+        "scopeLabel": "作用範圍",
+        "chipAdhd": "ADHD {status}",
+        "chipPonytail": "PT {status}",
+        "states": {
+          "disabled": "已停用",
+          "unknown": "未知",
+          "alwaysOnConfigured": "已設定啟動常駐",
+          "off": "關閉",
+          "lite": "輕量",
+          "full": "完整",
+          "ultra": "強化"
+        },
+        "sources": {
+          "alwaysOnConfig": "啟動常駐標記",
+          "sessionStateUnobservable": "宿主未提供本工作階段的啟用狀態",
+          "projectModeMarker": "工作區模式標記",
+          "sharedModeMarker": "共享模式標記",
+          "pluginDisabled": "已在代理設定中停用"
+        },
+        "scopes": {
+          "user": "使用者啟動設定",
+          "session": "目前工作階段",
+          "projectShared": "此專案的多個工作階段共用",
+          "userShared": "宿主層級共用狀態"
+        }
+      },
       "tasks": {
         "title": "任務"
       },

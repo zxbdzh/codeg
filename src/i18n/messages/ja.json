@@ -2751,6 +2751,37 @@
         "reconnecting": "再接続中...",
         "reconnectUnavailable": "再接続できるセッションがまだありません。"
       },
+      "plugins": {
+        "adhdName": "I Have ADHD",
+        "ponytailName": "Ponytail",
+        "statusLabel": "状態",
+        "sourceLabel": "状態の根拠",
+        "scopeLabel": "適用範囲",
+        "chipAdhd": "ADHD {status}",
+        "chipPonytail": "PT {status}",
+        "states": {
+          "disabled": "無効",
+          "unknown": "不明",
+          "alwaysOnConfigured": "起動時の常時有効を設定済み",
+          "off": "オフ",
+          "lite": "ライト",
+          "full": "フル",
+          "ultra": "ウルトラ"
+        },
+        "sources": {
+          "alwaysOnConfig": "起動時有効の設定フラグ",
+          "sessionStateUnobservable": "ホストから現在のセッション状態を取得できません",
+          "projectModeMarker": "ワークスペースのモード記録",
+          "sharedModeMarker": "共有モード記録",
+          "pluginDisabled": "エージェント設定で無効"
+        },
+        "scopes": {
+          "user": "ユーザーの起動設定",
+          "session": "現在のセッション",
+          "projectShared": "このプロジェクト内のセッションで共有",
+          "userShared": "ホスト共通の状態"
+        }
+      },
       "tasks": {
         "title": "タスク"
       },

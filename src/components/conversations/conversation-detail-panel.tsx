@@ -3455,6 +3455,8 @@ export function ConversationDetailPanel() {
           >
             <ConversationDetailHeader
               tabId={selTab.id}
+              agentType={selTab.agentType}
+              workspacePath={selTabFolder?.path}
               conversationId={selTab.conversationId}
               runtimeConversationId={selTab.runtimeConversationId ?? null}
               folderId={selTab.folderId}
@@ -3510,6 +3512,8 @@ export function ConversationDetailPanel() {
         {!isSplit && activeTab && (
           <ConversationDetailHeader
             tabId={activeTab.id}
+            agentType={activeTab.agentType}
+            workspacePath={activeTabFolder?.path}
             conversationId={activeTab.conversationId}
             runtimeConversationId={activeTab.runtimeConversationId ?? null}
             folderId={activeTab.folderId}

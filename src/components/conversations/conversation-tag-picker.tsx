@@ -378,7 +378,9 @@ export const ConversationHeaderTags = memo(function ConversationHeaderTags({
               "focus-visible:ring-2 focus-visible:ring-ring",
               tags.length > 0
                 ? "px-1 hover:bg-accent/60"
-                : "w-7 shrink-0 justify-center text-muted-foreground/60 hover:text-foreground"
+                : "w-7 shrink-0 justify-center text-muted-foreground/60 hover:text-foreground",
+              // 手机的 +N 计数不能被压窄，否则会越过标签区挡住右侧状态按钮。
+              branch && max <= 1 && "shrink-0"
             )}
           >
             {tags.length > 0 ? (

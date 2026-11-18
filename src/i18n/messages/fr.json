@@ -2751,6 +2751,37 @@
         "reconnecting": "Reconnexion...",
         "reconnectUnavailable": "Aucune session à laquelle se reconnecter pour l'instant."
       },
+      "plugins": {
+        "adhdName": "I Have ADHD",
+        "ponytailName": "Ponytail",
+        "statusLabel": "État",
+        "sourceLabel": "Source de l’état",
+        "scopeLabel": "Portée",
+        "chipAdhd": "ADHD {status}",
+        "chipPonytail": "PT {status}",
+        "states": {
+          "disabled": "Désactivé",
+          "unknown": "Inconnu",
+          "alwaysOnConfigured": "Activation au démarrage configurée",
+          "off": "Désactivé",
+          "lite": "Léger",
+          "full": "Complet",
+          "ultra": "Ultra"
+        },
+        "sources": {
+          "alwaysOnConfig": "Indicateur d’activation au démarrage",
+          "sessionStateUnobservable": "L’hôte n’expose pas l’état de cette session",
+          "projectModeMarker": "Indicateur de mode du projet",
+          "sharedModeMarker": "Indicateur de mode partagé",
+          "pluginDisabled": "Désactivé dans les paramètres de l’agent"
+        },
+        "scopes": {
+          "user": "Paramètre de démarrage utilisateur",
+          "session": "Session actuelle",
+          "projectShared": "Partagé par les sessions de ce projet",
+          "userShared": "État partagé de l’hôte"
+        }
+      },
       "tasks": {
         "title": "Tâches"
       },

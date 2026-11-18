@@ -2751,6 +2751,37 @@
         "reconnecting": "جارٍ إعادة الاتصال...",
         "reconnectUnavailable": "لا توجد جلسة لإعادة الاتصال بها بعد."
       },
+      "plugins": {
+        "adhdName": "I Have ADHD",
+        "ponytailName": "Ponytail",
+        "statusLabel": "الحالة",
+        "sourceLabel": "مصدر الحالة",
+        "scopeLabel": "النطاق",
+        "chipAdhd": "ADHD {status}",
+        "chipPonytail": "PT {status}",
+        "states": {
+          "disabled": "معطّل",
+          "unknown": "غير معروف",
+          "alwaysOnConfigured": "تم ضبط التشغيل الدائم عند البدء",
+          "off": "متوقف",
+          "lite": "خفيف",
+          "full": "كامل",
+          "ultra": "فائق"
+        },
+        "sources": {
+          "alwaysOnConfig": "علامة التشغيل الدائم عند البدء",
+          "sessionStateUnobservable": "لا يعرض المضيف حالة الجلسة الحالية",
+          "projectModeMarker": "علامة وضع مساحة العمل",
+          "sharedModeMarker": "علامة وضع مشتركة",
+          "pluginDisabled": "معطّل في إعدادات الوكيل"
+        },
+        "scopes": {
+          "user": "إعداد بدء المستخدم",
+          "session": "الجلسة الحالية",
+          "projectShared": "مشترك بين جلسات هذا المشروع",
+          "userShared": "حالة مشتركة للمضيف"
+        }
+      },
       "tasks": {
         "title": "المهام"
       },

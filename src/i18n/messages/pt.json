@@ -2751,6 +2751,37 @@
         "reconnecting": "Reconectando...",
         "reconnectUnavailable": "Ainda não há sessão para reconectar."
       },
+      "plugins": {
+        "adhdName": "I Have ADHD",
+        "ponytailName": "Ponytail",
+        "statusLabel": "Estado",
+        "sourceLabel": "Origem do estado",
+        "scopeLabel": "Abrangência",
+        "chipAdhd": "ADHD {status}",
+        "chipPonytail": "PT {status}",
+        "states": {
+          "disabled": "Desativado",
+          "unknown": "Desconhecido",
+          "alwaysOnConfigured": "Ativação permanente na inicialização configurada",
+          "off": "Desativado",
+          "lite": "Leve",
+          "full": "Completo",
+          "ultra": "Ultra"
+        },
+        "sources": {
+          "alwaysOnConfig": "Indicador de ativação na inicialização",
+          "sessionStateUnobservable": "O host não expõe o estado desta sessão",
+          "projectModeMarker": "Indicador de modo do projeto",
+          "sharedModeMarker": "Indicador de modo compartilhado",
+          "pluginDisabled": "Desativado nas configurações do agente"
+        },
+        "scopes": {
+          "user": "Preferência de inicialização do usuário",
+          "session": "Sessão atual",
+          "projectShared": "Compartilhado pelas sessões deste projeto",
+          "userShared": "Estado compartilhado do host"
+        }
+      },
       "tasks": {
         "title": "Tarefas"
       },

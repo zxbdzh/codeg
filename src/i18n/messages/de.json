@@ -2751,6 +2751,37 @@
         "reconnecting": "Verbinde neu...",
         "reconnectUnavailable": "Noch keine Sitzung zum Neuverbinden."
       },
+      "plugins": {
+        "adhdName": "I Have ADHD",
+        "ponytailName": "Ponytail",
+        "statusLabel": "Status",
+        "sourceLabel": "Statusquelle",
+        "scopeLabel": "Geltungsbereich",
+        "chipAdhd": "ADHD {status}",
+        "chipPonytail": "PT {status}",
+        "states": {
+          "disabled": "Deaktiviert",
+          "unknown": "Unbekannt",
+          "alwaysOnConfigured": "Dauerbetrieb konfiguriert",
+          "off": "Aus",
+          "lite": "Lite",
+          "full": "Full",
+          "ultra": "Ultra"
+        },
+        "sources": {
+          "alwaysOnConfig": "Startoption für Dauerbetrieb",
+          "sessionStateUnobservable": "Der Host stellt den Sitzungsstatus nicht bereit",
+          "projectModeMarker": "Projektmodus-Markierung",
+          "sharedModeMarker": "Gemeinsame Modus-Markierung",
+          "pluginDisabled": "In den Agent-Einstellungen deaktiviert"
+        },
+        "scopes": {
+          "user": "Benutzereinstellung beim Start",
+          "session": "Aktuelle Sitzung",
+          "projectShared": "Von Sitzungen in diesem Projekt gemeinsam genutzt",
+          "userShared": "Gemeinsamer Host-Status"
+        }
+      },
       "tasks": {
         "title": "Aufgaben"
       },

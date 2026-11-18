@@ -2813,6 +2813,37 @@
         "reconnecting": "正在重新连接...",
         "reconnectUnavailable": "暂无可重连的会话。"
       },
+      "plugins": {
+        "adhdName": "I Have ADHD",
+        "ponytailName": "Ponytail",
+        "statusLabel": "状态",
+        "sourceLabel": "状态来源",
+        "scopeLabel": "作用范围",
+        "chipAdhd": "ADHD {status}",
+        "chipPonytail": "PT {status}",
+        "states": {
+          "disabled": "已停用",
+          "unknown": "未知",
+          "alwaysOnConfigured": "已配置启动常开",
+          "off": "关闭",
+          "lite": "轻量",
+          "full": "完整",
+          "ultra": "增强"
+        },
+        "sources": {
+          "alwaysOnConfig": "启动常开标记",
+          "sessionStateUnobservable": "宿主未提供本会话的启用状态",
+          "projectModeMarker": "工作区模式标记",
+          "sharedModeMarker": "共享模式标记",
+          "pluginDisabled": "已在 Agent 设置中停用"
+        },
+        "scopes": {
+          "user": "用户启动设置",
+          "session": "当前会话",
+          "projectShared": "此项目的多个会话共享",
+          "userShared": "宿主级共享状态"
+        }
+      },
       "tasks": {
         "title": "任务"
       },
