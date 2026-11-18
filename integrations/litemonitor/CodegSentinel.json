@@ -1,0 +1,93 @@
+{
+  "id": "codeg_sentinel",
+  "meta": {
+    "name": "Codeg 任务哨兵",
+    "version": "1.1.0",
+    "author": "Codeg",
+    "description": "紧凑显示 Codeg 运行数、近 15 分钟完成数；有待授权时高亮提醒，每 5 秒刷新。"
+  },
+  "inputs": [
+    {
+      "key": "server_url",
+      "label": "Codeg 服务地址",
+      "type": "text",
+      "default": "http://127.0.0.1:3080",
+      "placeholder": "http://127.0.0.1:3080（末尾不带 /）",
+      "scope": "global"
+    },
+    {
+      "key": "token",
+      "label": "Codeg 访问令牌",
+      "type": "password",
+      "default": "",
+      "placeholder": "填写 Codeg 设置中 Web 服务的访问令牌",
+      "scope": "global"
+    }
+  ],
+  "execution": {
+    "type": "chain",
+    "interval": 5,
+    "min_interval": 2,
+    "steps": [
+      {
+        "id": "active_sessions",
+        "url": "{{server_url}}/api/pet_list_active_sessions",
+        "method": "POST",
+        "body": "{}",
+        "headers": {
+          "Authorization": "Bearer {{token}}",
+          "Accept": "application/json"
+        },
+        "response_format": "json",
+        "cache_minutes": 0,
+        "extract": {
+          "running_count": "runningCount",
+          "waiting_count": "waitingCount",
+          "completed_count": "completedCount"
+        },
+        "process": [
+          {
+            "var": "waiting_color",
+            "source": "waiting_count",
+            "function": "threshold_switch",
+            "value_map": {
+              "0": "0",
+              "1": "1"
+            }
+          },
+          {
+            "var": "waiting_hint",
+            "source": "waiting_count",
+            "function": "regex_match",
+            "pattern": "^[1-9]\\d*$",
+            "to": "0"
+          },
+          {
+            "var": "waiting_hint",
+            "source": "waiting_hint",
+            "function": "regex_replace",
+            "pattern": "^([1-9]\\d*)$",
+            "to": " · 待授权 $1"
+          },
+          {
+            "var": "completed_count",
+            "source": "completed_count",
+            "function": "regex_match",
+            "pattern": "^\\d+$",
+            "to": "0"
+          }
+        ]
+      }
+    ]
+  },
+  "outputs": [
+    {
+      "key": "running",
+      "label": "Codeg 任务（完成数为近 15 分钟）",
+      "short_label": "Codeg",
+      "format_val": "运行 {{running_count}} · 完成 {{completed_count ?? '—'}}{{waiting_hint}}",
+      "color": "{{waiting_color}}",
+      "unit": ""
+    }
+  ]
+}
