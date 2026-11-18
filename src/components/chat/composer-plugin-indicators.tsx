@@ -130,9 +130,9 @@ export function ComposerPluginIndicators({
             ? t("chipAdhd", { status: stateLabel })
             : t("chipPonytail", { status: stateLabel })
         const isOn =
-          indicator.id === "ponytail" &&
           indicator.enabled === true &&
-          (indicator.state === "lite" ||
+          (indicator.state === "always_on_configured" ||
+            indicator.state === "lite" ||
             indicator.state === "full" ||
             indicator.state === "ultra")
         return (

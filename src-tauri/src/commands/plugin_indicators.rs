@@ -132,8 +132,11 @@ fn claude_install_path(index: Option<&Value>, kind: PluginKind) -> Option<PathBu
 }
 
 fn claude_adhd_indicator(home: &Path, enabled: Option<bool>) -> AgentPluginIndicator {
+    adhd_indicator(home.join(".i-have-adhd-always").is_file(), enabled)
+}
+
+fn adhd_indicator(always_on: bool, enabled: Option<bool>) -> AgentPluginIndicator {
     // 常开标记只能证明启动配置；当前会话仍可手动关闭。
-    let always_on = home.join(".i-have-adhd-always").is_file();
     let disabled = enabled == Some(false);
     AgentPluginIndicator {
         id: ADHD_ID.to_string(),
@@ -229,18 +232,7 @@ fn codex_indicators(env: &AgentEnv) -> Vec<AgentPluginIndicator> {
             .and_then(|value| value.as_bool());
 
         indicators.push(match kind {
-            PluginKind::Adhd => AgentPluginIndicator {
-                id: ADHD_ID.to_string(),
-                enabled,
-                // 显式调用状态只存在对话上下文中，不能从安装状态推断当前已启用。
-                state: "unknown".to_string(),
-                source: if enabled == Some(false) {
-                    "plugin_disabled".to_string()
-                } else {
-                    "session_state_unobservable".to_string()
-                },
-                scope: "session".to_string(),
-            },
+            PluginKind::Adhd => adhd_indicator(codex_adhd_always_on(&home), enabled),
             PluginKind::Ponytail => {
                 let state = if enabled == Some(false) {
                     "unknown".to_string()
@@ -264,6 +256,24 @@ fn codex_indicators(env: &AgentEnv) -> Vec<AgentPluginIndicator> {
     }
 
     indicators
+}
+
+fn codex_adhd_always_on(home: &Path) -> bool {
+    // 跟随 Codex 的全局规则优先级；覆盖文件有内容时不能再使用被覆盖的常开设置。
+    let Some(instructions) = ["AGENTS.override.md", "AGENTS.md"]
+        .iter()
+        .filter_map(|name| fs::read_to_string(home.join(name)).ok())
+        .find(|text| !text.trim().is_empty())
+    else {
+        return false;
+    };
+
+    // 只识别独立维护的完整常开段，避免把历史记忆里提到插件误报为已配置。
+    instructions
+        .split_once("<!-- i-have-adhd:begin")
+        .and_then(|(_, rest)| rest.split_once("-->"))
+        .and_then(|(_, rest)| rest.split_once("<!-- i-have-adhd:end -->"))
+        .is_some_and(|(body, _)| !body.trim().is_empty())
 }
 
 fn codex_plugin_is_installed(kind: PluginKind, home: &Path) -> bool {
@@ -297,6 +307,85 @@ fn read_mode(path: &Path) -> Option<String> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    const CODEX_ALWAYS_ON: &str = "<!-- i-have-adhd:begin -->\n\
+        Use i-have-adhd by default for every new session.\n\
+        <!-- i-have-adhd:end -->";
+
+    fn codex_adhd_fixture(
+        instructions: Option<&str>,
+        override_instructions: Option<&str>,
+        enabled: bool,
+    ) -> AgentPluginIndicator {
+        let temp = TempDir::new().unwrap();
+        let plugin = temp
+            .path()
+            .join("plugins/cache/i-have-adhd/i-have-adhd/0.4.1/.codex-plugin");
+        fs::create_dir_all(&plugin).unwrap();
+        fs::write(plugin.join("plugin.json"), "{}").unwrap();
+        fs::write(
+            temp.path().join("config.toml"),
+            format!("[plugins.\"{ADHD_PLUGIN_KEY}\"]\nenabled = {enabled}\n"),
+        )
+        .unwrap();
+        if let Some(content) = instructions {
+            fs::write(temp.path().join("AGENTS.md"), content).unwrap();
+        }
+        if let Some(content) = override_instructions {
+            fs::write(temp.path().join("AGENTS.override.md"), content).unwrap();
+        }
+        let env = AgentEnv::with_overrides(&[("CODEX_HOME", temp.path().to_str().unwrap())]);
+        codex_indicators(&env).into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn codex_adhd_reports_configured_always_on_instructions() {
+        let indicator = codex_adhd_fixture(Some(CODEX_ALWAYS_ON), None, true);
+
+        assert_eq!(indicator.state, "always_on_configured");
+        assert_eq!(indicator.source, "always_on_config");
+        assert_eq!(indicator.scope, "user");
+    }
+
+    #[test]
+    fn codex_adhd_does_not_infer_always_on_from_installation_or_mentions() {
+        for instructions in [
+            None,
+            Some("Previously installed i-have-adhd."),
+            Some("<!-- i-have-adhd:begin -->\nMissing end marker."),
+            Some("<!-- i-have-adhd:begin --><!-- i-have-adhd:end -->"),
+        ] {
+            let indicator = codex_adhd_fixture(instructions, None, true);
+            assert_eq!(indicator.state, "unknown");
+            assert_eq!(indicator.source, "session_state_unobservable");
+            assert_eq!(indicator.scope, "session");
+        }
+    }
+
+    #[test]
+    fn codex_adhd_follows_global_override_precedence() {
+        let indicator = codex_adhd_fixture(
+            Some(CODEX_ALWAYS_ON),
+            Some("Use the normal output style."),
+            true,
+        );
+        assert_eq!(indicator.state, "unknown");
+
+        let indicator = codex_adhd_fixture(None, Some(CODEX_ALWAYS_ON), true);
+        assert_eq!(indicator.state, "always_on_configured");
+
+        let indicator = codex_adhd_fixture(Some(CODEX_ALWAYS_ON), Some(" \n"), true);
+        assert_eq!(indicator.state, "always_on_configured");
+    }
+
+    #[test]
+    fn codex_disabled_adhd_does_not_claim_always_on() {
+        let indicator = codex_adhd_fixture(Some(CODEX_ALWAYS_ON), None, false);
+
+        assert_eq!(indicator.enabled, Some(false));
+        assert_eq!(indicator.state, "unknown");
+        assert_eq!(indicator.source, "plugin_disabled");
+    }
 
     #[test]
     fn claude_ponytail_uses_a_project_specific_shared_marker() {

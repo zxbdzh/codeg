@@ -86,9 +86,28 @@ describe("ComposerPluginIndicators", () => {
 
     renderIndicators()
 
-    expect(
-      await screen.findByRole("button", { name: "I Have ADHD: Unknown" })
-    ).toBeInTheDocument()
+    const button = await screen.findByRole("button", {
+      name: "I Have ADHD: Unknown",
+    })
+    expect(button.querySelector(".bg-emerald-500")).toBeNull()
+  })
+
+  it("marks a configured always-on output style as enabled", async () => {
+    fake.list.mockResolvedValue([
+      indicator({
+        id: "i-have-adhd",
+        state: "always_on_configured",
+        source: "always_on_config",
+        scope: "user",
+      }),
+    ])
+
+    renderIndicators()
+
+    const button = await screen.findByRole("button", {
+      name: "I Have ADHD: Always-on configured",
+    })
+    expect(button.querySelector(".bg-emerald-500")).toBeInTheDocument()
   })
 
   it("renders no marks when the agent has neither plugin installed", async () => {
