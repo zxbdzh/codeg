@@ -272,9 +272,44 @@ it("shows a compact recovery action instead of two full-width text actions", asy
   )
   const restore = await screen.findByRole("button", { name: "恢复上次撤回" })
   expect(restore).toHaveTextContent(/^恢复$/)
-  expect(screen.getByText("已撤回")).toBeInTheDocument()
+  expect(screen.getByText("上次撤回的对话可恢复")).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "撤回选项" })).toBeEnabled()
   expect(
     screen.queryByRole("button", { name: "清理撤回备份" })
   ).not.toBeInTheDocument()
+})
+
+it("renders no recovery row at all when this conversation was never undone", async () => {
+  render(
+    <NextIntlClientProvider locale="zh-CN" messages={messages}>
+      <ConversationRedoControl
+        conversationId={12}
+        revision={0}
+        busy={false}
+        onRestored={async () => {}}
+        backend={{
+          status: async () => ({
+            available: false,
+            hasBackup: false,
+            expiresAt: null,
+          }),
+          restore: async () => ({
+            conversationId: 12,
+            sessionId: "same-session",
+          }),
+          clear: async () => {},
+        }}
+      />
+    </NextIntlClientProvider>
+  )
+  // 未撤回过的会话不能留下常驻按钮：恢复与更多都不应出现。
+  await act(async () => {})
+  expect(
+    screen.queryByRole("button", { name: "恢复上次撤回" })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole("button", { name: "撤回选项" })
+  ).not.toBeInTheDocument()
+  expect(screen.queryByText("上次撤回的对话可恢复")).not.toBeInTheDocument()
+  expect(screen.queryByText("恢复不可用")).not.toBeInTheDocument()
 })

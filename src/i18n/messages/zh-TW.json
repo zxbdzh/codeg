@@ -1,7 +1,7 @@
 {
   "ConversationUndo": {
     "redoShort": "還原",
-    "redoReady": "已撤回",
+    "redoReady": "上次撤回的對話可還原",
     "redoUnavailable": "無法還原",
     "redoOptions": "撤回選項",
     "tasksToStop": "將先停止以下工作，全部停止後再撤回：",
@@ -2596,6 +2596,8 @@
         "notApplied": "所選設定目前無法使用，請重新整理模型或使用智能體預設設定。"
       },
       "scopeHint": "可在此連續追問，回答僅留在旁問中，不寫入主對話。",
+      "imagesUnsupported": "目前智慧體的原生旁問僅支援文字和文字檔案。",
+      "dropTextFiles": "將文字檔案拖到這裡",
       "source": "來源",
       "noActiveSession": "請先選擇一個對話，再發起旁問。",
       "contextHint": "僅引用最近已完成的正文：最多 12 則訊息、12,000 字元，不含工具輸出和思考。",

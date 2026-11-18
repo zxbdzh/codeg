@@ -1,7 +1,7 @@
 {
   "ConversationUndo": {
     "redoShort": "Restore",
-    "redoReady": "Conversation undone",
+    "redoReady": "Last undo can be restored",
     "redoUnavailable": "Restore unavailable",
     "redoOptions": "Undo options",
     "tasksToStop": "These tasks must stop before Undo:",
@@ -2658,6 +2658,8 @@
         "notApplied": "The selected options are unavailable. Refresh the models or use agent defaults."
       },
       "scopeHint": "Continue asking here. Answers stay here, outside the main conversation.",
+      "imagesUnsupported": "This agent's native side questions support text and text files only.",
+      "dropTextFiles": "Drop text files here",
       "source": "Source",
       "noActiveSession": "Select a conversation to ask a side question.",
       "contextHint": "Only recent completed text: up to 12 messages / 12,000 characters. Tools and reasoning are excluded.",

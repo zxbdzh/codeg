@@ -1,7 +1,7 @@
 {
   "ConversationUndo": {
     "redoShort": "Wiederherstellen",
-    "redoReady": "Gespräch zurückgenommen",
+    "redoReady": "Letzte Rücknahme wiederherstellbar",
     "redoUnavailable": "Wiederherstellung nicht verfügbar",
     "redoOptions": "Rücknahmeoptionen",
     "tasksToStop": "Diese Aufgaben müssen vor der Rücknahme beendet werden:",
@@ -2596,6 +2596,8 @@
         "notApplied": "Die gewählten Optionen sind nicht verfügbar. Modelle aktualisieren oder Agent-Standardwerte verwenden."
       },
       "scopeHint": "Hier sind Folgefragen möglich. Antworten bleiben hier und werden dem Hauptgespräch nicht hinzugefügt.",
+      "imagesUnsupported": "Die nativen Nebenfragen dieses Agenten unterstützen nur Text und Textdateien.",
+      "dropTextFiles": "Textdateien hier ablegen",
       "source": "Quelle",
       "noActiveSession": "Wähle ein Gespräch für eine Nebenfrage aus.",
       "contextHint": "Nur abgeschlossener neuer Text: bis zu 12 Nachrichten und 12.000 Zeichen, ohne Werkzeugausgaben oder Gedanken.",

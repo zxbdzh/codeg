@@ -1,7 +1,7 @@
 {
   "ConversationUndo": {
     "redoShort": "Rétablir",
-    "redoReady": "Conversation annulée",
+    "redoReady": "La dernière annulation peut être rétablie",
     "redoUnavailable": "Rétablissement indisponible",
     "redoOptions": "Options d’annulation",
     "tasksToStop": "Ces tâches doivent être arrêtées avant l’annulation :",
@@ -2596,6 +2596,8 @@
         "notApplied": "Les options sélectionnées sont indisponibles. Actualisez les modèles ou utilisez les valeurs de l’agent."
       },
       "scopeHint": "Vous pouvez continuer à poser des questions ici. Les réponses restent ici, sans être ajoutées à la conversation principale.",
+      "imagesUnsupported": "Les questions annexes natives de cet agent acceptent uniquement du texte et des fichiers texte.",
+      "dropTextFiles": "Déposez des fichiers texte ici",
       "source": "Source",
       "noActiveSession": "Sélectionnez une conversation pour poser une question à part.",
       "contextHint": "Uniquement le texte récent et terminé : 12 messages et 12 000 caractères maximum, sans outils ni raisonnement.",

@@ -1,7 +1,7 @@
 {
   "ConversationUndo": {
     "redoShort": "복원",
-    "redoReady": "대화 취소됨",
+    "redoReady": "최근 실행 취소를 복원할 수 있습니다",
     "redoUnavailable": "복원할 수 없음",
     "redoOptions": "취소 옵션",
     "tasksToStop": "취소하기 전에 다음 작업을 모두 중지합니다:",
@@ -2596,6 +2596,8 @@
         "notApplied": "선택한 옵션을 사용할 수 없습니다. 모델을 새로고침하거나 기본값을 사용하세요."
       },
       "scopeHint": "여기에서 계속 질문할 수 있습니다. 답변은 여기에만 남고 기본 대화에 추가되지 않습니다.",
+      "imagesUnsupported": "이 에이전트의 기본 곁질문은 텍스트와 텍스트 파일만 지원합니다.",
+      "dropTextFiles": "텍스트 파일을 여기에 놓으세요",
       "source": "출처",
       "noActiveSession": "별도 질문을 할 대화를 선택하세요.",
       "contextHint": "완료된 최근 본문만 최대 12개 메시지, 12,000자를 참조합니다. 도구 출력과 사고 과정은 제외됩니다.",

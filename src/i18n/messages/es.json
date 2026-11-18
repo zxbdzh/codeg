@@ -1,7 +1,7 @@
 {
   "ConversationUndo": {
     "redoShort": "Restaurar",
-    "redoReady": "Conversación deshecha",
+    "redoReady": "El último deshacer se puede restaurar",
     "redoUnavailable": "Restauración no disponible",
     "redoOptions": "Opciones de deshacer",
     "tasksToStop": "Estas tareas deben detenerse antes de deshacer:",
@@ -2596,6 +2596,8 @@
         "notApplied": "Las opciones elegidas no están disponibles. Actualiza los modelos o usa los valores del agente."
       },
       "scopeHint": "Puedes seguir preguntando aquí. Las respuestas quedan aquí y no se añaden a la conversación principal.",
+      "imagesUnsupported": "Las preguntas laterales nativas de este agente solo admiten texto y archivos de texto.",
+      "dropTextFiles": "Suelta archivos de texto aquí",
       "source": "Origen",
       "noActiveSession": "Selecciona una conversación para hacer una pregunta aparte.",
       "contextHint": "Solo texto reciente y completado: hasta 12 mensajes y 12.000 caracteres, sin herramientas ni razonamiento.",
