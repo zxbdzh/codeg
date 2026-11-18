@@ -46,6 +46,7 @@ pub enum AppUpdateLifecycle {
     Downloading,
     Installing,
     ReadyToRestart,
+    WaitingForIdle,
     Restarting,
     Error,
 }
@@ -64,6 +65,15 @@ pub struct AppUpdateState {
     /// never mistaken for stale.
     pub seq: u64,
     pub status: AppUpdateLifecycle,
+    /// Windows desktop only: blockers currently keeping the staged update from restarting.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blockers: Option<Vec<String>>,
+    /// Windows desktop only: next restart countdown tick while the update remains idle.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restart_countdown_seconds: Option<u8>,
+    pub idle_wait_supported: bool,
+    #[serde(skip)]
+    wait_generation: u64,
     /// Bytes downloaded so far (`Downloading` only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub downloaded: Option<u64>,
@@ -105,6 +115,10 @@ impl AppUpdateState {
         Self {
             seq: 0,
             status: AppUpdateLifecycle::Idle,
+            blockers: None,
+            restart_countdown_seconds: None,
+            idle_wait_supported: cfg!(all(windows, feature = "tauri-runtime")),
+            wait_generation: 0,
             downloaded: None,
             total: None,
             version: None,
@@ -128,6 +142,8 @@ impl AppUpdateState {
         self.capability = None;
         self.error = None;
         self.error_info = None;
+        self.blockers = None;
+        self.restart_countdown_seconds = None;
     }
 }
 
@@ -155,6 +171,94 @@ pub fn snapshot(handle: &AppUpdateStateHandle) -> AppUpdateState {
 /// clicks and excludes a racing rollback/perform (whoever claims first wins).
 pub fn try_claim_restart(handle: &AppUpdateStateHandle, emitter: &EventEmitter) -> bool {
     claim_restarting(handle, emitter, &[AppUpdateLifecycle::ReadyToRestart])
+}
+
+/// Begin the idle wait only after the installer bytes have been staged.
+pub fn begin_idle_wait(handle: &AppUpdateStateHandle, emitter: &EventEmitter) -> Option<u64> {
+    let (generation, snap) = {
+        let mut state = handle.write().unwrap_or_else(|p| p.into_inner());
+        if state.status != AppUpdateLifecycle::ReadyToRestart {
+            return None;
+        }
+        state.seq += 1;
+        state.wait_generation = state.seq;
+        state.status = AppUpdateLifecycle::WaitingForIdle;
+        state.blockers = Some(Vec::new());
+        state.restart_countdown_seconds = None;
+        (state.wait_generation, state.clone())
+    };
+    emit_event(emitter, APP_UPDATE_STATE_CHANNEL, &snap);
+    Some(generation)
+}
+
+pub fn is_waiting(handle: &AppUpdateStateHandle, generation: u64) -> bool {
+    let state = handle.read().unwrap_or_else(|p| p.into_inner());
+    state.status == AppUpdateLifecycle::WaitingForIdle && state.wait_generation == generation
+}
+
+pub fn try_claim_waited_restart(
+    handle: &AppUpdateStateHandle,
+    emitter: &EventEmitter,
+    generation: u64,
+) -> bool {
+    let snap = {
+        let mut state = handle.write().unwrap_or_else(|p| p.into_inner());
+        if state.status != AppUpdateLifecycle::WaitingForIdle || state.wait_generation != generation
+        {
+            return false;
+        }
+        state.seq += 1;
+        state.clear_operation_fields();
+        state.status = AppUpdateLifecycle::Restarting;
+        state.clone()
+    };
+    emit_event(emitter, APP_UPDATE_STATE_CHANNEL, &snap);
+    true
+}
+
+/// Refresh visible blockers/countdown without allowing an old waiter to revive a canceled update.
+pub fn update_idle_wait(
+    handle: &AppUpdateStateHandle,
+    emitter: &EventEmitter,
+    generation: u64,
+    blockers: Vec<String>,
+    countdown_seconds: Option<u8>,
+) -> bool {
+    let snap = {
+        let mut state = handle.write().unwrap_or_else(|p| p.into_inner());
+        if state.status != AppUpdateLifecycle::WaitingForIdle || state.wait_generation != generation
+        {
+            return false;
+        }
+        if state.blockers.as_ref() == Some(&blockers)
+            && state.restart_countdown_seconds == countdown_seconds
+        {
+            return true;
+        }
+        state.seq += 1;
+        state.blockers = Some(blockers);
+        state.restart_countdown_seconds = countdown_seconds;
+        state.clone()
+    };
+    emit_event(emitter, APP_UPDATE_STATE_CHANNEL, &snap);
+    true
+}
+
+/// 取消等待只撤销自动重启，保留已经校验的暂存包，重新等待时无需下载。
+pub fn try_cancel_waiting(handle: &AppUpdateStateHandle, emitter: &EventEmitter) -> bool {
+    let snap = {
+        let mut state = handle.write().unwrap_or_else(|p| p.into_inner());
+        if state.status != AppUpdateLifecycle::WaitingForIdle {
+            return false;
+        }
+        state.seq += 1;
+        state.blockers = None;
+        state.restart_countdown_seconds = None;
+        state.status = AppUpdateLifecycle::ReadyToRestart;
+        state.clone()
+    };
+    emit_event(emitter, APP_UPDATE_STATE_CHANNEL, &snap);
+    true
 }
 
 /// Atomically claim the single system-op slot for a rollback: transition to
@@ -387,6 +491,59 @@ mod tests {
     use crate::web::event_bridge::EventEmitter;
 
     #[test]
+    fn idle_wait_cancellation_preserves_the_staged_version_and_invalidates_old_workers() {
+        let handle = new_handle();
+        let emitter = EventEmitter::Noop;
+        set_ready(&handle, &emitter, Some("0.46.0".into()), None, None, None);
+        let first = begin_idle_wait(&handle, &emitter).unwrap();
+        assert!(update_idle_wait(
+            &handle,
+            &emitter,
+            first,
+            vec!["terminal".into()],
+            None
+        ));
+        assert!(
+            !try_claim_restart(&handle, &emitter),
+            "manual restart must not bypass a wait"
+        );
+        assert!(try_cancel_waiting(&handle, &emitter));
+        let cancelled = snapshot(&handle);
+        assert_eq!(cancelled.status, AppUpdateLifecycle::ReadyToRestart);
+        assert_eq!(cancelled.version.as_deref(), Some("0.46.0"));
+        assert!(cancelled.blockers.is_none());
+        let second = begin_idle_wait(&handle, &emitter).unwrap();
+        assert_ne!(first, second);
+        assert!(!update_idle_wait(
+            &handle,
+            &emitter,
+            first,
+            Vec::new(),
+            Some(0)
+        ));
+        assert!(!try_claim_waited_restart(&handle, &emitter, first));
+        assert!(is_waiting(&handle, second));
+        assert!(try_claim_waited_restart(&handle, &emitter, second));
+        assert!(
+            !try_cancel_waiting(&handle, &emitter),
+            "installation has already won the race"
+        );
+    }
+
+    #[test]
+    fn waiting_is_idempotent_and_cannot_start_without_a_staged_update() {
+        let handle = new_handle();
+        let emitter = EventEmitter::Noop;
+        assert!(begin_idle_wait(&handle, &emitter).is_none());
+        set_ready(&handle, &emitter, Some("0.46.0".into()), None, None, None);
+        let generation = begin_idle_wait(&handle, &emitter).unwrap();
+        assert!(begin_idle_wait(&handle, &emitter).is_none());
+        assert!(is_waiting(&handle, generation));
+        let (started, _) = try_begin(&handle, &emitter);
+        assert!(!started);
+    }
+
+    #[test]
     fn try_begin_starts_once_then_attaches() {
         let h = new_handle();
         let e = EventEmitter::Noop;
@@ -471,7 +628,10 @@ mod tests {
         let (started, retry) = try_begin(&h, &e);
         assert!(started);
         assert!(retry.error_info.is_none());
-        assert!(serde_json::to_value(&retry).unwrap().get("errorInfo").is_none());
+        assert!(serde_json::to_value(&retry)
+            .unwrap()
+            .get("errorInfo")
+            .is_none());
     }
 
     #[test]
@@ -503,10 +663,7 @@ mod tests {
         set_ready(&h, &e, None, None, None, None);
         // Staged: the claim succeeds and flips to Restarting…
         assert!(try_claim_restart(&h, &e));
-        assert_eq!(
-            snapshot(&h).status,
-            AppUpdateLifecycle::Restarting
-        );
+        assert_eq!(snapshot(&h).status, AppUpdateLifecycle::Restarting);
         // …and a second (concurrent) restart click can no longer claim it.
         assert!(!try_claim_restart(&h, &e));
     }

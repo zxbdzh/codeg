@@ -338,6 +338,7 @@ impl AutomationEngine {
         trigger: &str,
         scheduled_for: Option<chrono::DateTime<Utc>>,
     ) -> Result<i32, String> {
+        let _update_admission = crate::update::admission::admit("automation_start")?;
         // Serialize every fire of this automation: the overlap check + run-row
         // insert below is otherwise a check-then-act race that a manual run-now
         // racing a scheduled fire (or a double-click) defeats, starting two runs.

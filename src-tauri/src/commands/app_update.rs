@@ -21,6 +21,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use tauri::Manager;
 use tauri_plugin_updater::UpdaterExt;
 
 use crate::app_error::AppCommandError;
@@ -31,6 +32,72 @@ use crate::web::event_bridge::EventEmitter;
 #[tauri::command]
 pub fn app_update_state(state: tauri::State<'_, AppUpdateStateHandle>) -> AppUpdateState {
     update_state::snapshot(state.inner())
+}
+
+#[tauri::command]
+pub fn wait_for_idle_update(app: tauri::AppHandle) -> Result<AppUpdateState, AppCommandError> {
+    wait_for_idle_update_core(app)
+}
+
+pub fn wait_for_idle_update_core(app: tauri::AppHandle) -> Result<AppUpdateState, AppCommandError> {
+    if !cfg!(windows) {
+        return Err(AppCommandError::invalid_input(
+            "Idle update is only available on Windows desktop",
+        ));
+    }
+    if staged_install().is_none() {
+        return Err(AppCommandError::invalid_input(
+            "No downloaded update to wait for",
+        ));
+    }
+    let handle = app.state::<AppUpdateStateHandle>().inner().clone();
+    let emitter = EventEmitter::Tauri(app.clone());
+    if update_state::snapshot(&handle).status == update_state::AppUpdateLifecycle::WaitingForIdle {
+        return Ok(update_state::snapshot(&handle));
+    }
+    let generation = update_state::begin_idle_wait(&handle, &emitter)
+        .ok_or_else(|| AppCommandError::invalid_input("No staged update to wait for"))?;
+    let manager = app
+        .state::<crate::acp::manager::ConnectionManager>()
+        .clone_ref();
+    // 后台 waiter 需要持有连接句柄，不能捕获绑定到 AppHandle 的 Tauri State 借用。
+    let db = crate::db::AppDatabase {
+        conn: app.state::<crate::db::AppDatabase>().conn.clone(),
+    };
+    let snapshot = update_state::snapshot(&handle);
+    tauri::async_runtime::spawn(async move {
+        let Some(frozen) =
+            crate::update::wait::wait_until_ready(&handle, &emitter, generation, &manager, &db)
+                .await
+        else {
+            return;
+        };
+        // 取消与开始安装在同一状态锁上竞争；取消先成功时只能释放门禁，不能再安装。
+        if update_state::try_claim_waited_restart(&handle, &emitter, generation) {
+            let _ = install_and_quit(app, handle, emitter, frozen).await;
+        }
+    });
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn cancel_idle_update(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppUpdateStateHandle>,
+) -> Result<AppUpdateState, AppCommandError> {
+    cancel_idle_update_core(state.inner(), &EventEmitter::Tauri(app))
+}
+
+pub fn cancel_idle_update_core(
+    handle: &AppUpdateStateHandle,
+    emitter: &EventEmitter,
+) -> Result<AppUpdateState, AppCommandError> {
+    if !update_state::try_cancel_waiting(handle, emitter) {
+        return Err(AppCommandError::invalid_input(
+            "The update is not waiting or installation has already started",
+        ));
+    }
+    Ok(update_state::snapshot(handle))
 }
 
 /// Begin (or attach to) a download+install of the available update. Returns
@@ -195,6 +262,12 @@ pub async fn restart_app(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppUpdateStateHandle>,
 ) -> Result<(), AppCommandError> {
+    let restart_admission = crate::update::idle::prepare_restart(
+        &app.state::<crate::acp::manager::ConnectionManager>(),
+        &app.state::<crate::db::AppDatabase>(),
+    )
+    .await
+    .map_err(AppCommandError::invalid_input)?;
     let handle = state.inner().clone();
     let emitter = EventEmitter::Tauri(app.clone());
     // Atomically claim the relaunch (flips to `Restarting`) only if an update is
@@ -207,7 +280,7 @@ pub async fn restart_app(
         ));
     }
     if INSTALL_AT_RESTART {
-        return install_and_quit(app, handle, emitter).await;
+        return install_and_quit(app, handle, emitter, restart_admission).await;
     }
     // Off the main thread on purpose: from here `restart()` goes through
     // `RunEvent::ExitRequested` and `RunEvent::Exit`. At `Exit` the
@@ -231,6 +304,7 @@ pub async fn restart_app(
     // its own, from a relauncher in a process group of its own, and only once
     // this process is gone — earlier, the Dock gives it a second icon.
     tauri::async_runtime::spawn(async move {
+        let _restart_admission = restart_admission;
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         tracing::info!("[update] relaunching into the installed update");
         app.restart();
@@ -245,6 +319,7 @@ async fn install_and_quit(
     app: tauri::AppHandle,
     handle: AppUpdateStateHandle,
     emitter: EventEmitter,
+    restart_admission: crate::update::admission::Frozen,
 ) -> Result<(), AppCommandError> {
     let Some(StagedInstall {
         update,
@@ -261,7 +336,22 @@ async fn install_and_quit(
     tracing::info!("[update] starting the installer");
     // On a blocking thread: it writes the installer out and shuts the app
     // down, and if the installer starts it ends the process right there.
-    let outcome = tauri::async_runtime::spawn_blocking(move || update.install(bytes)).await;
+    let fallback_app = app.clone();
+    let fallback_quit = quit.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        // 安装线程不随 IPC 调用取消；准入门禁也必须一起转移，不能提前放开。
+        let result = update.install(bytes);
+        if fallback_quit.load(Ordering::SeqCst) {
+            tracing::error!("[update] installer returned after shutdown; relaunching");
+            fallback_app.restart();
+        }
+        (result, restart_admission)
+    })
+    .await;
+    let (outcome, _restart_admission) = match outcome {
+        Ok((result, admission)) => (Ok(result), Some(admission)),
+        Err(error) => (Err(error), None),
+    };
     let message = match outcome {
         Ok(Ok(())) => "The installer did not take over".to_string(),
         Ok(Err(err)) => err.to_string(),

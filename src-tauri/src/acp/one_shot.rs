@@ -196,6 +196,8 @@ async fn run_inner(
     cancel: &CancellationToken,
     verify_options: bool,
 ) -> Result<String, OneShotError> {
+    let _update_admission = crate::update::admission::admit("one_shot")
+        .map_err(OneShotError::Unavailable)?;
     let OneShotRequest {
         agent_type,
         mode_id,

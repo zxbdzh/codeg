@@ -2106,6 +2106,8 @@ mod tauri_app {
                 background_commands::background_market_asset,
                 background_commands::background_market_download,
                 app_update_commands::app_update_state,
+                app_update_commands::wait_for_idle_update,
+                app_update_commands::cancel_idle_update,
                 app_update_commands::perform_app_update,
                 app_update_commands::restart_app,
                 project_boot::detect_package_manager,

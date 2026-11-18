@@ -1719,6 +1719,8 @@ pub fn build_router_with_proxy_auth(
             post(handlers::app_update::perform_app_update),
         )
         .route("/restart_app", post(handlers::app_update::restart_app))
+        .route("/wait_for_idle_update", post(handlers::app_update::wait_for_idle_update))
+        .route("/cancel_idle_update", post(handlers::app_update::cancel_idle_update))
         .route("/rollback_app", post(handlers::app_update::rollback_app))
         // ─── Chat Channels ───
         .route(

@@ -66,6 +66,7 @@ impl Scrollback {
 }
 
 struct TerminalInstance {
+    idle: Arc<super::idle::TerminalIdle>,
     write_tx: mpsc::Sender<Vec<u8>>,
     master: Box<dyn MasterPty + Send>,
     _child: Box<dyn portable_pty::Child + Send>,
@@ -440,6 +441,8 @@ impl TerminalManager {
         opts: SpawnOptions,
         emitter: EventEmitter,
     ) -> Result<String, TerminalError> {
+        let _update_admission = crate::update::admission::admit("terminal_spawn")
+            .map_err(TerminalError::SpawnFailed)?;
         // Reserve the ID before any fallible OS work. The guard releases it
         // on every error path, and insertion happens before the guard drops.
         let _reservation = {
@@ -520,10 +523,17 @@ impl TerminalManager {
         // up for codeg itself.
         crate::appimage_env::restore_pty(&mut cmd);
 
+        let idle = super::idle::TerminalIdle::prepare(
+            &mut cmd,
+            &shell,
+            opts.initial_command.as_deref(),
+            &opts.terminal_id,
+        );
         let child = pair
             .slave
             .spawn_command(cmd)
             .map_err(|e| TerminalError::SpawnFailed(e.to_string()))?;
+        idle.attach(child.as_ref());
 
         drop(pair.slave);
 
@@ -548,6 +558,7 @@ impl TerminalManager {
 
         let owner_window = opts.owner_window_label.clone();
         let instance = TerminalInstance {
+            idle: idle.clone(),
             write_tx,
             master: pair.master,
             _child: child,
@@ -610,6 +621,7 @@ impl TerminalManager {
                     &completed_ref,
                     &scrollback,
                     &watch,
+                    &idle,
                 );
             })
             .map_err(|e| TerminalError::SpawnFailed(e.to_string()))?;
@@ -618,10 +630,14 @@ impl TerminalManager {
     }
 
     pub fn write(&self, terminal_id: &str, data: &[u8]) -> Result<(), TerminalError> {
+        let _update_admission = crate::update::admission::admit("terminal_input")
+            .map_err(TerminalError::WriteFailed)?;
         let terminals = lock_terminals(&self.terminals);
         let instance = terminals
             .get(terminal_id)
             .ok_or_else(|| TerminalError::NotFound(terminal_id.to_string()))?;
+        // 入队前先记录输入；writer 线程尚未消费时也不能被判为空闲。
+        instance.idle.input(data);
         instance
             .write_tx
             .send(data.to_vec())
@@ -1018,6 +1034,7 @@ fn read_loop(
     completed: &Arc<Mutex<CompletedTerminals>>,
     scrollback: &Arc<Mutex<Scrollback>>,
     watch: &ServiceWatch,
+    idle: &super::idle::TerminalIdle,
 ) {
     let output_event = format!("terminal://output/{}", terminal_id);
     let mut buf = [0u8; 8192];
@@ -1028,6 +1045,7 @@ fn read_loop(
         match reader.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
+                idle.output(&buf[..n]);
                 let data = String::from_utf8_lossy(&buf[..n]).to_string();
                 // Record BEFORE emitting, and take the seq from the same
                 // critical section: a snapshot read concurrent with this chunk

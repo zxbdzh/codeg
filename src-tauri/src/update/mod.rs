@@ -10,11 +10,14 @@
 //!   after `CODEG_RESTART_DELAY_MS`.
 //! - **Standalone** (no supervisor): the worker re-execs itself.
 
+pub mod admission;
+pub mod idle;
 pub mod install;
 pub mod runtime;
 pub mod state;
 pub mod verify;
 pub mod version;
+pub mod wait;
 
 use std::time::Duration;
 

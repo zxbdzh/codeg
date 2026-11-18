@@ -24,6 +24,30 @@ pub async fn app_update_state(Extension(state): Extension<Arc<AppState>>) -> Jso
     Json(crate::update::state::snapshot(&state.update_state))
 }
 
+pub async fn wait_for_idle_update(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<AppUpdateState>, AppCommandError> {
+    #[cfg(feature = "tauri-runtime")]
+    if let crate::web::event_bridge::EventEmitter::Tauri(app) = &state.emitter {
+        return crate::commands::app_update::wait_for_idle_update_core(app.clone()).map(Json);
+    }
+    let _ = state;
+    Err(AppCommandError::invalid_input(
+        "Idle update requires a Windows desktop runtime",
+    ))
+}
+
+pub async fn cancel_idle_update(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<AppUpdateState>, AppCommandError> {
+    if !crate::update::state::try_cancel_waiting(&state.update_state, &state.emitter) {
+        return Err(AppCommandError::invalid_input(
+            "The update is not waiting or installation has already started",
+        ));
+    }
+    Ok(Json(crate::update::state::snapshot(&state.update_state)))
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateActionResult {
@@ -202,10 +226,7 @@ async fn perform_impl(state: Arc<AppState>) -> Result<AppUpdateState, AppCommand
 /// (losing it). Dropping first makes the lock free the instant the state
 /// becomes claimable.
 #[cfg(not(feature = "tauri-runtime"))]
-fn publish_after_releasing<F: FnOnce()>(
-    guard: tokio::sync::OwnedMutexGuard<()>,
-    publish: F,
-) {
+fn publish_after_releasing<F: FnOnce()>(guard: tokio::sync::OwnedMutexGuard<()>, publish: F) {
     drop(guard);
     publish();
 }
@@ -227,18 +248,14 @@ fn restart_impl(state: Arc<AppState>) -> Result<UpdateActionResult, AppCommandEr
     // window and gets killed by the restart. Free after a successful claim; on
     // the unreachable failure path restore a terminal error rather than leaving
     // the snapshot stuck "restarting".
-    let guard = state
-        .system_op_lock
-        .clone()
-        .try_lock_owned()
-        .map_err(|_| {
-            crate::update::state::set_error(
-                &state.update_state,
-                &state.emitter,
-                "Another system operation is in progress",
-            );
-            busy()
-        })?;
+    let guard = state.system_op_lock.clone().try_lock_owned().map_err(|_| {
+        crate::update::state::set_error(
+            &state.update_state,
+            &state.emitter,
+            "Another system operation is in progress",
+        );
+        busy()
+    })?;
     let restart_delay_ms = crate::update::runtime::restart_delay_ms();
     crate::update::schedule_restart(guard);
     Ok(UpdateActionResult {
@@ -265,18 +282,14 @@ async fn rollback_impl(state: Arc<AppState>) -> Result<UpdateActionResult, AppCo
         ));
     }
     // Hold the lock until the process exits so nothing races the revert+relaunch.
-    let guard = state
-        .system_op_lock
-        .clone()
-        .try_lock_owned()
-        .map_err(|_| {
-            crate::update::state::set_error(
-                &state.update_state,
-                &state.emitter,
-                "Another system operation is in progress",
-            );
-            busy()
-        })?;
+    let guard = state.system_op_lock.clone().try_lock_owned().map_err(|_| {
+        crate::update::state::set_error(
+            &state.update_state,
+            &state.emitter,
+            "Another system operation is in progress",
+        );
+        busy()
+    })?;
     let restart_delay_ms = crate::update::runtime::restart_delay_ms();
     if let Err(e) = crate::update::install::rollback() {
         // Release the op-lock BEFORE publishing the claimable `Error` so a

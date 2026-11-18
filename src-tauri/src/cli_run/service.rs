@@ -601,6 +601,8 @@ impl CliRunService {
     // ── start ────────────────────────────────────────────────────────────────
 
     pub async fn start(self: &Arc<Self>, req: StartRequest) -> Result<StartResponse, CliError> {
+        let admission = crate::update::admission::admit("cli_run_start")
+            .map_err(|message| CliError::incompatible("update_pending", message))?;
         enum Claim {
             Fresh(Arc<Run>, tokio::sync::OwnedMutexGuard<()>),
             Existing(Arc<Run>),
@@ -679,7 +681,9 @@ impl CliRunService {
                 // (Ctrl-C, a dropped link) must not abandon a half-made run.
                 let svc = Arc::clone(self);
                 let launched = Arc::clone(&run);
+                let launch_admission = admission.clone();
                 tokio::spawn(async move {
+                    let _update_admission = launch_admission;
                     let outcome = svc.launch(&launched, req, guard).await;
                     // Kept whether or not anyone waits on it now: a retried
                     // start that subscribes later reads it.

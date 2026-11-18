@@ -811,6 +811,7 @@ impl TaskEngine {
 
     /// Manual start: claim todo → queued, then pump the folder.
     pub async fn start(self: &Arc<Self>, task_id: i32) -> Result<(), String> {
+        let _update_admission = crate::update::admission::admit("work_task_start")?;
         let task = work_task_service::get_model(&self.db.conn, task_id)
             .await
             .map_err(|e| e.to_string())?;
@@ -832,6 +833,7 @@ impl TaskEngine {
     /// selected this is the global sweep — every folder that holds todos, each
     /// on its own preflight (an invalid folder is skipped, not fatal).
     pub async fn start_all(self: &Arc<Self>, folder_id: Option<i32>) -> Result<u32, String> {
+        let _update_admission = crate::update::admission::admit("work_task_start_all")?;
         let folder_ids = match folder_id {
             Some(id) => vec![id],
             None => work_task_service::folders_with_todos(&self.db.conn)
@@ -1078,6 +1080,9 @@ impl TaskEngine {
     /// start, and the folder's concurrency limit still governs what actually
     /// runs.
     pub async fn claim_due_scheduled(self: &Arc<Self>) {
+        let Ok(_update_admission) = crate::update::admission::admit("work_task_schedule") else {
+            return;
+        };
         let claimed =
             match work_task_service::claim_due_scheduled(&self.db.conn, chrono::Utc::now()).await {
                 Ok(rows) => rows,
@@ -1107,6 +1112,9 @@ impl TaskEngine {
     /// Launch queued tasks of a folder up to its `max_concurrent` (0 =
     /// unlimited). Serialized per folder so concurrent pumps can't over-launch.
     pub async fn pump_folder(self: &Arc<Self>, folder_id: i32) {
+        let Ok(_update_admission) = crate::update::admission::admit("work_task_dispatch") else {
+            return;
+        };
         let lock = {
             let mut locks = self.pump_locks.lock().await;
             locks
@@ -3972,6 +3980,7 @@ impl TaskEngine {
         task_id: i32,
         delete_worktree: bool,
     ) -> Result<(), String> {
+        let _update_admission = crate::update::admission::admit("work_task_complete")?;
         let task = work_task_service::get_model(&self.db.conn, task_id)
             .await
             .map_err(|e| e.to_string())?;
@@ -4206,6 +4215,7 @@ impl TaskEngine {
         auto: bool,
         claim: Option<&QueuedMergeClaim>,
     ) -> Result<MergeDispatch, String> {
+        let _update_admission = crate::update::admission::admit("work_task_merge")?;
         let task = work_task_service::get_model(&self.db.conn, task_id)
             .await
             .map_err(|e| e.to_string())?;

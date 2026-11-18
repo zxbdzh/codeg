@@ -38,6 +38,9 @@ use crate::db::AppDatabase;
 use crate::models::agent::AgentType;
 use crate::web::event_bridge::{emit_with_state, emit_with_state_gated, EventEmitter};
 
+#[path = "update_idle.rs"]
+mod update_idle;
+
 /// Cap on the number of prompt-text chars kept in the `user_prompt_sent`
 /// preview. Past this, `truncate_str` keeps this many chars and appends a short
 /// `...` marker (so the rendered string can be a few chars longer). Bounds the
@@ -729,6 +732,8 @@ impl ConnectionManager {
         mode: Option<String>,
         config: BTreeMap<String, String>,
     ) -> Result<Arc<std::sync::atomic::AtomicU32>, AcpError> {
+        let _update_admission = crate::update::admission::admit("research_connection")
+            .map_err(AcpError::protocol)?;
         let _restore_guard = self.external_restore_lock.read().await;
         runtime_env.insert(crate::cli_run::CLI_CALLER_ENV.into(), connection_id.clone());
         let research_id = connection_id.clone();
@@ -1036,6 +1041,8 @@ impl ConnectionManager {
         preferred_config_values: BTreeMap<String, String>,
         cli_root: Option<crate::cli_run::RootSeed>,
     ) -> Result<SpawnOutcome, AcpError> {
+        let _update_admission = crate::update::admission::admit("agent_spawn")
+            .map_err(AcpError::protocol)?;
         let _history_guard = session_id.as_deref()
             .map(|session| crate::conversation_undo::operations::allow_send(self, agent_type, session))
             .transpose()?;
@@ -1404,6 +1411,8 @@ impl ConnectionManager {
         user_message: Option<(String, Vec<crate::acp::UserMessageBlock>)>,
         internal_suffix: Vec<PromptInputBlock>,
     ) -> Result<(), AcpError> {
+        let _update_admission = crate::update::admission::admit("agent_prompt")
+            .map_err(AcpError::protocol)?;
         let _history_guard =
             crate::conversation_undo::operations::allow_connection_send(self, conn_id).await?;
         // Reject an empty prompt BEFORE touching the concurrency gate. An empty
@@ -1607,6 +1616,8 @@ impl ConnectionManager {
         client_message_id: Option<String>,
         internal_suffix: Vec<PromptInputBlock>,
     ) -> Result<Option<i32>, AcpError> {
+        let update_admission = crate::update::admission::admit("linked_prompt")
+            .map_err(AcpError::protocol)?;
         let _history_guard =
             crate::conversation_undo::operations::allow_connection_send(self, conn_id).await?;
         // Reject an empty prompt up front, BEFORE any side effects: linking /
@@ -1784,7 +1795,9 @@ impl ConnectionManager {
             let task_emitter = emitter.clone();
             let task_conn_id = conn_id.to_string();
             let task_delegation = delegation.clone();
+            let linking_admission = update_admission.clone();
             let handle = tokio::spawn(async move {
+                let _update_admission = linking_admission;
                 // Holding the owned guard for the whole task is what shields the
                 // bind + publication from caller cancellation.
                 let guard = _prompt_guard;
@@ -2513,6 +2526,8 @@ impl ConnectionManager {
         // selection is rejected rather than silently changing the boundary.
         fork_from_turn_id: Option<String>,
     ) -> Result<ForkResultInfo, AcpError> {
+        let update_admission = crate::update::admission::admit("agent_fork")
+            .map_err(AcpError::protocol)?;
         let (state_arc, cmd_tx, emitter) = {
             let connections = self.connections.lock().await;
             let conn = connections
@@ -2640,6 +2655,7 @@ impl ConnectionManager {
         let db_conn = db.conn.clone();
         let conn_id_for_task = conn_id.to_string();
         let handle = tokio::spawn(async move {
+            let _update_admission = update_admission;
             // Holding the owned guard for the whole task is what shields the
             // persistence from caller cancellation.
             let _prompt_guard = prompt_guard;
@@ -3047,6 +3063,8 @@ impl ConnectionManager {
         runtime_env: BTreeMap<String, String>,
         preferred_config_values: BTreeMap<String, String>,
     ) -> Result<AgentOptionsSnapshot, AcpError> {
+        let _update_admission = crate::update::admission::admit("agent_options_probe")
+            .map_err(AcpError::protocol)?;
         // Owner window label is informational only (used for
         // disconnect_by_owner_window), but worth being explicit so a probe
         // connection that somehow leaks past the disconnect below is easy to
@@ -3832,6 +3850,8 @@ impl ConnectionManager {
         text: String,
         blocks: Option<Vec<PromptInputBlock>>,
     ) -> Result<FeedbackItem, AcpError> {
+        let update_admission = crate::update::admission::admit("agent_steer")
+            .map_err(AcpError::protocol)?;
         // Cheap pre-flight, NOT the authoritative check (that's the loop's
         // idle arm replying `NoActiveTurn`): skip the round-trip when no turn
         // is in flight at all. The counter read alongside it identifies WHICH
@@ -3928,6 +3948,7 @@ impl ConnectionManager {
             .filter(|projected| crate::acp::feedback::attachment_bytes(projected) > 0);
         let conn_id_for_task = conn_id.to_string();
         let handle = tokio::spawn(async move {
+            let _update_admission = update_admission;
             let outcome: Result<FeedbackItem, AcpError> = async {
                 // Stamped BEFORE the command goes out, so the note's instant is
                 // causally earlier than anything the injection can cause. The
