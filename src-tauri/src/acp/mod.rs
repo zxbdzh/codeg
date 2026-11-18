@@ -17,6 +17,7 @@ pub mod codex_goal;
 pub mod codex_model_catalog;
 pub mod codex_runtime;
 pub mod command_code;
+pub(crate) mod completions;
 pub mod computer_tools;
 pub(crate) mod context_pruning;
 pub mod connection;

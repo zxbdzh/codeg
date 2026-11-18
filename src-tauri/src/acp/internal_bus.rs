@@ -20,7 +20,8 @@
 //!    and the dedup goes away.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use tokio::sync::broadcast;
 
@@ -41,12 +42,31 @@ const BUS_CAPACITY: usize = 4096;
 pub struct InternalEventBus {
     sender: broadcast::Sender<Arc<EventEnvelope>>,
     metrics: Arc<EventBusMetrics>,
+    recent_completions: Mutex<super::completions::RecentCompletions>,
 }
 
 impl InternalEventBus {
     pub fn new(metrics: Arc<EventBusMetrics>) -> Self {
         let (sender, _) = broadcast::channel(BUS_CAPACITY);
-        Self { sender, metrics }
+        Self {
+            sender,
+            metrics,
+            recent_completions: Mutex::default(),
+        }
+    }
+
+    pub(crate) fn record_completion(&self, conversation_id: i32, finished: Instant) {
+        self.recent_completions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .record(conversation_id, finished);
+    }
+
+    pub(crate) fn recent_completed_conversations(&self) -> Vec<i32> {
+        self.recent_completions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .conversation_ids(Instant::now())
     }
 
     /// Broadcast `envelope` to every subscriber. No-op if there are none —

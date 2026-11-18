@@ -581,10 +581,19 @@ pub async fn emit_with_state_built<F>(
 where
     F: FnOnce(&mut SessionState) -> Option<AcpEvent>,
 {
-    let (envelope_arc, stream, evicted, turn_file_jobs) = {
+    let (envelope_arc, stream, evicted, turn_file_jobs, completed_conversation) = {
         let mut s = state.write().await;
         let Some(payload) = build(&mut s) else {
             return false;
+        };
+        // 同一轮可能重复上报结束；只在真实打开的一轮正常结束时记一次。
+        let completed_conversation = match &payload {
+            AcpEvent::TurnComplete { stop_reason, .. }
+                if stop_reason == "end_turn" && (s.turn_in_flight || s.live_message.is_some()) =>
+            {
+                s.conversation_id.map(|id| (id, std::time::Instant::now()))
+            }
+            _ => None,
         };
         s.apply_event(&payload);
         s.event_seq += 1;
@@ -595,8 +604,21 @@ where
         });
         let evicted = s.push_recent_event(Arc::clone(&envelope));
         let turn_file_jobs = std::mem::take(&mut s.turn_file_jobs);
-        (envelope, s.event_stream(), evicted, turn_file_jobs)
+        (
+            envelope,
+            s.event_stream(),
+            evicted,
+            turn_file_jobs,
+            completed_conversation,
+        )
     };
+
+    if let Some((conversation_id, finished)) = completed_conversation {
+        if let Some(bus) = emitter.acp_event_bus() {
+            // 记录留在进程级状态中；关闭会话或重载插件不会丢掉这 15 分钟的完成数。
+            bus.record_completion(conversation_id, finished);
+        }
+    }
 
     // Office auto-preview: confirm the files this turn's tool calls named.
     // Filesystem work, so off the session lock and off the async workers.
