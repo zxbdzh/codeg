@@ -422,6 +422,20 @@
     }
   },
   "SystemSettings": {
+    "idleUpdate": {
+      "schedule": "Bei Leerlauf aktualisieren",
+      "cancel": "Warten abbrechen",
+      "waiting": "Warte auf das Ende der Aufgaben",
+      "countdown": "Aktualisierung in {seconds} s",
+      "hint": "Aufgaben können weiterlaufen. Neue Arbeit setzt den Countdown zurück; beim Abbrechen bleibt das Update gespeichert.",
+      "agent": "Ein Agent arbeitet oder wartet auf Ihre Antwort.",
+      "terminal": "Ein Terminalbefehl läuft oder sein Ende ist nicht bestätigt.",
+      "automation": "Eine Automatisierung läuft noch.",
+      "workTask": "Eine Aufgabe läuft noch oder wartet auf Prüfung.",
+      "newWork": "Neue Arbeit erkannt. Es wird erneut gewartet.",
+      "unknown": "Leerlauf nicht bestätigt. Es wird weiter gewartet.",
+      "actionFailed": "Der Wartestatus konnte nicht geändert werden. Status aktualisieren und erneut versuchen."
+    },
     "loading": "Wird geladen...",
     "sectionTitle": "Systemverwaltung",
     "sectionDescription": "Verwalte App-Updates, den Autostart beim Anmelden, den Netzwerk-Proxy und die Spracheinstellungen.",

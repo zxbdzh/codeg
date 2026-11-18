@@ -422,6 +422,20 @@
     }
   },
   "SystemSettings": {
+    "idleUpdate": {
+      "schedule": "Atualizar quando ocioso",
+      "cancel": "Cancelar espera",
+      "waiting": "Aguardando o fim das tarefas",
+      "countdown": "Atualização em {seconds} s",
+      "hint": "As tarefas podem continuar. Novos trabalhos reiniciam a contagem; cancelar mantém a atualização baixada.",
+      "agent": "Um Agent está trabalhando ou aguardando sua resposta.",
+      "terminal": "Um comando está em execução ou seu término não foi confirmado.",
+      "automation": "Uma automação ainda está em execução.",
+      "workTask": "Uma tarefa está em andamento ou aguardando revisão.",
+      "newWork": "Novo trabalho detectado. Aguardando novamente.",
+      "unknown": "Não foi possível confirmar a ociosidade. A espera continua.",
+      "actionFailed": "Não foi possível alterar a espera. Atualize o estado e tente novamente."
+    },
     "loading": "Carregando...",
     "sectionTitle": "Gerenciamento do sistema",
     "sectionDescription": "Gerencie atualizações do app, o início automático ao fazer login, o proxy de rede e as preferências de idioma.",

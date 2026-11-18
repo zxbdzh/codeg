@@ -422,6 +422,20 @@
     }
   },
   "SystemSettings": {
+    "idleUpdate": {
+      "schedule": "Actualizar cuando esté libre",
+      "cancel": "Cancelar espera",
+      "waiting": "Esperando a que terminen las tareas",
+      "countdown": "Actualización en {seconds} s",
+      "hint": "Las tareas pueden continuar. El trabajo nuevo reinicia la cuenta atrás; cancelar conserva la actualización descargada.",
+      "agent": "Un Agent está trabajando o espera tu respuesta.",
+      "terminal": "Un comando de terminal sigue activo o no se ha confirmado su finalización.",
+      "automation": "Una automatización sigue ejecutándose.",
+      "workTask": "Una tarea sigue en curso o pendiente de revisión.",
+      "newWork": "Se detectó trabajo nuevo. Esperando de nuevo.",
+      "unknown": "No se puede confirmar la inactividad. Se seguirá esperando.",
+      "actionFailed": "No se pudo cambiar la espera. Actualiza el estado e inténtalo de nuevo."
+    },
     "loading": "Cargando...",
     "sectionTitle": "Administración del sistema",
     "sectionDescription": "Administra las actualizaciones de la app, el inicio al iniciar sesión, el proxy de red y las preferencias de idioma.",

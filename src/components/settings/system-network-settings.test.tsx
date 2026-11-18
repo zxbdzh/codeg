@@ -196,6 +196,30 @@ function liveServerCalls(
   }
 }
 
+describe("idle update controls", () => {
+  it("restores a waiting update and can cancel without requesting a restart", async () => {
+    const defaults = liveServerCalls({
+      seq: 9,
+      status: "waiting_for_idle",
+      blockers: ["agent"],
+      idleWaitSupported: true,
+    })
+    call.mockImplementation(async (endpoint: string) => {
+      if (endpoint === "cancel_idle_update") {
+        return { seq: 10, status: "ready_to_restart", idleWaitSupported: true }
+      }
+      return defaults(endpoint)
+    })
+    renderWithIntl()
+    expect(await screen.findByText("Waiting for tasks to finish")).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: "Cancel waiting" }))
+    expect(
+      await screen.findByRole("button", { name: "Update when idle" })
+    ).toBeEnabled()
+    expect(call).not.toHaveBeenCalledWith("restart_app")
+  })
+})
+
 // What the server reports for an install directory it can't write.
 const UNWRITABLE_BIN = {
   code: "permission_denied",

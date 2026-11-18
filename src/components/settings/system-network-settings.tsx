@@ -21,6 +21,7 @@ import { useLocale, useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { useAppI18n } from "@/components/i18n-provider"
 import { CliAccessSettings } from "@/components/settings/cli-access-settings"
+import { IdleUpdateStatus } from "@/components/settings/idle-update-status"
 import { DataSyncSettings } from "@/components/settings/data-sync-settings"
 import { ReleaseNotes } from "@/components/settings/release-notes"
 import { SettingsSection } from "@/components/shared/settings-section"
@@ -161,6 +162,8 @@ export function SystemNetworkSettings() {
     refreshLocalStatus,
     startUpdate,
     restart,
+    waitForIdle,
+    cancelWait,
     rollback,
   } = update
   const updateReady = updateState.status === "ready_to_restart"
@@ -501,16 +504,32 @@ export function SystemNetworkSettings() {
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   {t("checking")}
                 </Button>
+              ) : updateState.status === "waiting_for_idle" ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void cancelWait()}
+                >
+                  {t("idleUpdate.cancel")}
+                </Button>
               ) : updateReady ? (
                 // Download finished in the background — relaunch into it
                 // (IDE-style "Restart to update").
                 <Button
                   size="sm"
-                  onClick={() => void restart()}
+                  onClick={() =>
+                    void (updateState.idleWaitSupported
+                      ? waitForIdle()
+                      : restart())
+                  }
                   disabled={isBusy}
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
-                  {t("restartToUpdate")}
+                  {t(
+                    updateState.idleWaitSupported
+                      ? "idleUpdate.schedule"
+                      : "restartToUpdate"
+                  )}
                 </Button>
               ) : isBusy ? (
                 <Button
@@ -601,6 +620,7 @@ export function SystemNetworkSettings() {
             {updateReady && (
               <p className="text-muted-foreground">{t("updateReadyHint")}</p>
             )}
+            <IdleUpdateStatus state={updateState} />
 
             {restartCountdown !== null && (
               <p className="flex items-center gap-2 text-muted-foreground">

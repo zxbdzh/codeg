@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import { render, screen, act, waitFor } from "@testing-library/react"
+import { render, screen, act, waitFor, fireEvent } from "@testing-library/react"
 import { NextIntlClientProvider } from "next-intl"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppUpdateState } from "@/lib/updater"
@@ -87,6 +87,75 @@ function Probe() {
     </div>
   )
 }
+
+function IdleActionsProbe() {
+  const update = useAppUpdate()!
+  return (
+    <>
+      <Probe />
+      <span data-testid="idle-busy">{String(update.isBusy)}</span>
+      <button onClick={() => void update.waitForIdle()}>wait-idle</button>
+      <button onClick={() => void update.cancelWait()}>cancel-idle</button>
+    </>
+  )
+}
+
+const idleTree = () => (
+  <NextIntlClientProvider locale="en" messages={enMessages}>
+    <UpdateProvider>
+      <IdleActionsProbe />
+    </UpdateProvider>
+  </NextIntlClientProvider>
+)
+
+describe("UpdateProvider idle wait", () => {
+  it("restores waiting and countdown snapshots after remount and reconnect", async () => {
+    snapshot = {
+      seq: 9,
+      status: "waiting_for_idle",
+      blockers: ["terminal"],
+      idleWaitSupported: true,
+    }
+    const mounted = render(idleTree())
+    await waitFor(() => expect(text()).toBe("waiting_for_idle #9"))
+    expect(screen.getByTestId("idle-busy").textContent).toBe("true")
+    mounted.unmount()
+    snapshot = {
+      seq: 11,
+      status: "waiting_for_idle",
+      restartCountdownSeconds: 8,
+    }
+    render(idleTree())
+    await waitFor(() => expect(text()).toBe("waiting_for_idle #11"))
+    snapshot = { seq: 12, status: "ready_to_restart", version: "0.21.9" }
+    await act(async () => fireReconnect())
+    await waitFor(() => expect(text()).toBe("ready_to_restart #12"))
+    expect(screen.getByTestId("idle-busy").textContent).toBe("false")
+    expect(call).not.toHaveBeenCalledWith("restart_app")
+  })
+
+  it("schedules and cancels through the backend without restarting from the page", async () => {
+    snapshot = { seq: 3, status: "ready_to_restart", version: "0.21.9" }
+    callImpl = async (endpoint) => {
+      if (endpoint === "wait_for_idle_update")
+        return { seq: 4, status: "waiting_for_idle" }
+      if (endpoint === "cancel_idle_update")
+        return { seq: 5, status: "ready_to_restart" }
+      if (endpoint === "app_update_state") return snapshot
+      if (endpoint === "app_update_status") return { currentVersion: "0.21.7" }
+      throw new Error(`unexpected endpoint: ${endpoint}`)
+    }
+    render(idleTree())
+    await waitFor(() => expect(text()).toBe("ready_to_restart #3"))
+    fireEvent.click(screen.getByRole("button", { name: "wait-idle" }))
+    await waitFor(() => expect(text()).toBe("waiting_for_idle #4"))
+    fireEvent.click(screen.getByRole("button", { name: "cancel-idle" }))
+    await waitFor(() => expect(text()).toBe("ready_to_restart #5"))
+    expect(call).toHaveBeenCalledWith("wait_for_idle_update")
+    expect(call).toHaveBeenCalledWith("cancel_idle_update")
+    expect(call).not.toHaveBeenCalledWith("restart_app")
+  })
+})
 
 const makeTree = () => (
   <NextIntlClientProvider locale="en" messages={enMessages}>

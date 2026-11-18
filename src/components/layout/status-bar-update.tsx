@@ -1,5 +1,6 @@
 "use client"
 
+import { IdleUpdateStatus } from "@/components/settings/idle-update-status"
 import { type ReactNode, useState } from "react"
 import dynamic from "next/dynamic"
 import { ArrowUpCircle, Check, Sparkles } from "lucide-react"
@@ -137,6 +138,8 @@ export function StatusBarUpdate() {
     dismissAvailable,
     startUpdate,
     restart,
+    waitForIdle,
+    cancelWait,
   } = update
 
   // A relaunch is in progress: the countdown, the backend `restarting` event,
@@ -144,10 +147,12 @@ export function StatusBarUpdate() {
   const restarting =
     restartCountdown !== null || state.status === "restarting" || isRestarting
   const ready = state.status === "ready_to_restart"
+  const waiting = state.status === "waiting_for_idle"
   const failed = state.status === "error"
   // A release the user could act on right now. An update they already started
   // outranks it, so this only holds while the lifecycle is settled.
-  const offering = !!available && !restarting && !ready && !isUpdating
+  const offering =
+    !!available && !restarting && !ready && !waiting && !isUpdating
   // Dismissed: keep it reachable but strip the badge to a muted icon — no
   // accent colour, no label. It stops asking for attention without becoming
   // undiscoverable, which full hiding would (the settings page would be the
@@ -156,7 +161,7 @@ export function StatusBarUpdate() {
   const showAvailable = offering && !muted
   // A failure with nothing on offer has no actionable follow-up here; the
   // settings page reports it in full.
-  if (!restarting && !ready && !isUpdating && !offering) return null
+  if (!restarting && !ready && !waiting && !isUpdating && !offering) return null
 
   // ─── Trigger ─────────────────────────────────────────────────────────────
 
@@ -175,6 +180,12 @@ export function StatusBarUpdate() {
       restartCountdown !== null && restartCountdown > 0
         ? t("restartingIn", { seconds: restartCountdown })
         : t("restarting")
+  } else if (waiting) {
+    triggerIcon = <Spinner className="h-3 w-3" />
+    triggerLabel =
+      state.restartCountdownSeconds === undefined
+        ? t("idleUpdate.waiting")
+        : t("idleUpdate.countdown", { seconds: state.restartCountdownSeconds })
   } else if (ready) {
     triggerIcon = <ArrowUpCircle className="h-3.5 w-3.5" />
     triggerLabel = t("restartToUpdate")
@@ -217,10 +228,10 @@ export function StatusBarUpdate() {
   const activeStep: Step =
     state.status === "downloading"
       ? "download"
-      : restarting || ready
+      : restarting || ready || waiting
         ? "restart"
         : "install"
-  const showRail = restarting || ready || isUpdating
+  const showRail = restarting || ready || waiting || isUpdating
 
   const failure =
     failed && state.error
@@ -334,6 +345,7 @@ export function StatusBarUpdate() {
             {t("updateError", { message: errorMessage })}
           </div>
         )}
+        <IdleUpdateStatus state={state} />
 
         {available && (
           <div className="space-y-1.5">
@@ -368,10 +380,28 @@ export function StatusBarUpdate() {
               {t("remindLater")}
             </Button>
           )}
-          {ready ? (
-            <Button size="sm" onClick={() => void restart()} disabled={isBusy}>
+          {waiting ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void cancelWait()}
+            >
+              {t("idleUpdate.cancel")}
+            </Button>
+          ) : ready ? (
+            <Button
+              size="sm"
+              onClick={() =>
+                void (state.idleWaitSupported ? waitForIdle() : restart())
+              }
+              disabled={isBusy}
+            >
               <ArrowUpCircle className="h-3.5 w-3.5" />
-              {t("restartToUpdate")}
+              {t(
+                state.idleWaitSupported
+                  ? "idleUpdate.schedule"
+                  : "restartToUpdate"
+              )}
             </Button>
           ) : failed && canInstallInPlace ? (
             // Only while retrying can work: once the server reports what is

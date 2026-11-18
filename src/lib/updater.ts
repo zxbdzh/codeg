@@ -86,6 +86,7 @@ export type AppUpdateLifecycle =
   | "downloading"
   | "installing"
   | "ready_to_restart"
+  | "waiting_for_idle"
   | "restarting"
   | "error"
 
@@ -93,6 +94,9 @@ export interface AppUpdateState {
   /** Monotonic; keep only the highest-seq snapshot/event seen. */
   seq: number
   status: AppUpdateLifecycle
+  idleWaitSupported?: boolean
+  blockers?: string[]
+  restartCountdownSeconds?: number
   /** Bytes downloaded so far (downloading only). */
   downloaded?: number
   /** Total bytes from Content-Length, if known. */
@@ -142,6 +146,14 @@ export function startAppUpdate(): Promise<AppUpdateState> {
  * countdown + health poll using the `ReadyToRestart` snapshot's metadata). */
 export function restartApp(): Promise<void> {
   return getTransport().call("restart_app")
+}
+
+export function waitForIdleUpdate(): Promise<AppUpdateState> {
+  return getTransport().call<AppUpdateState>("wait_for_idle_update")
+}
+
+export function cancelIdleUpdate(): Promise<AppUpdateState> {
+  return getTransport().call<AppUpdateState>("cancel_idle_update")
 }
 
 export interface ServerUpdateActionResult {

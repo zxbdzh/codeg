@@ -422,6 +422,20 @@
     }
   },
   "SystemSettings": {
+    "idleUpdate": {
+      "schedule": "Mettre à jour au repos",
+      "cancel": "Annuler l’attente",
+      "waiting": "En attente de la fin des tâches",
+      "countdown": "Mise à jour dans {seconds} s",
+      "hint": "Les tâches peuvent continuer. Un nouveau travail réinitialise le compte à rebours ; l’annulation conserve la mise à jour téléchargée.",
+      "agent": "Un Agent travaille ou attend votre réponse.",
+      "terminal": "Une commande est en cours ou sa fin n’est pas confirmée.",
+      "automation": "Une automatisation est toujours en cours.",
+      "workTask": "Une tâche est en cours ou attend une validation.",
+      "newWork": "Nouveau travail détecté. Nouvelle attente.",
+      "unknown": "Impossible de confirmer l’inactivité. L’attente continue.",
+      "actionFailed": "Impossible de modifier l’attente. Actualisez l’état et réessayez."
+    },
     "loading": "Chargement...",
     "sectionTitle": "Gestion du système",
     "sectionDescription": "Gérez les mises à jour de l’app, le lancement à l’ouverture de session, le proxy réseau et les préférences de langue.",

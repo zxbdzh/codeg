@@ -484,6 +484,20 @@
     }
   },
   "SystemSettings": {
+    "idleUpdate": {
+      "schedule": "Update when idle",
+      "cancel": "Cancel waiting",
+      "waiting": "Waiting for tasks to finish",
+      "countdown": "Updating in {seconds}s",
+      "hint": "Tasks can continue. New work resets the countdown; canceling keeps the downloaded update.",
+      "agent": "An Agent is working or waiting for your response.",
+      "terminal": "A terminal command is running or its completion is not confirmed.",
+      "automation": "An automation is still running.",
+      "workTask": "A work task is still in progress or awaiting review.",
+      "newWork": "New work arrived. Waiting again.",
+      "unknown": "Cannot confirm the app is idle. Continuing to wait.",
+      "actionFailed": "Could not change the update wait. Refresh the status and try again."
+    },
     "loading": "Loading...",
     "sectionTitle": "System Management",
     "sectionDescription": "Manage app updates, launch at login, network proxy and language preferences.",

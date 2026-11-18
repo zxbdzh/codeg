@@ -484,6 +484,20 @@
     }
   },
   "SystemSettings": {
+    "idleUpdate": {
+      "schedule": "空闲后更新",
+      "cancel": "取消等待",
+      "waiting": "正在等待任务结束",
+      "countdown": "将在 {seconds} 秒后更新",
+      "hint": "等待期间任务可继续运行；新任务会重置倒计时，取消后保留已下载的更新。",
+      "agent": "Agent 正在工作，或仍有待处理的确认。",
+      "terminal": "终端命令仍在运行，或尚不能确认已结束。",
+      "automation": "自动化任务仍在运行。",
+      "workTask": "工作任务尚未结束或仍待验收。",
+      "newWork": "检测到新任务，已重新等待。",
+      "unknown": "暂时无法确认空闲，继续等待。",
+      "actionFailed": "未能更改更新等待状态，请刷新状态后重试。"
+    },
     "loading": "加载中...",
     "sectionTitle": "系统管理",
     "sectionDescription": "管理应用升级、开机自启、网络代理与语言偏好。",

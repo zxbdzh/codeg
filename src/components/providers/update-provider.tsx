@@ -15,6 +15,7 @@ import {
   type AppUpdateInfo,
   type AppUpdateState,
   beginOwnServerRestart,
+  cancelIdleUpdate,
   checkAppUpdateInfo,
   confirmRollbackVersion,
   describeAppUpdateError,
@@ -31,6 +32,7 @@ import {
   subscribeAppUpdateState,
   usesTauriUpdater,
   waitForServerHealthy,
+  waitForIdleUpdate,
 } from "@/lib/updater"
 import {
   type CachedUpdateCheck,
@@ -67,6 +69,7 @@ const LIFECYCLES = new Set([
   "downloading",
   "installing",
   "ready_to_restart",
+  "waiting_for_idle",
   "restarting",
   "error",
 ])
@@ -154,6 +157,8 @@ export interface UpdateContextValue {
    * `ready_to_restart`. Desktop relaunches the app; server drives the
    * countdown + health-poll + reload. */
   restart: () => Promise<void>
+  waitForIdle: () => Promise<void>
+  cancelWait: () => Promise<void>
   /** Revert to the previously-installed server bundle (server mode only). */
   rollback: () => Promise<void>
 }
@@ -732,6 +737,31 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     }
   }, [applyState, t])
 
+  const idleUpdateAction = useCallback(
+    async (action: () => Promise<AppUpdateState>) => {
+      const epoch = resyncEpochRef.current
+      try {
+        const snapshot = await action()
+        if (mountedRef.current && epoch === resyncEpochRef.current) {
+          applyState(snapshot)
+        }
+      } catch (error) {
+        if (!mountedRef.current || epoch !== resyncEpochRef.current) return
+        toast.error(t("idleUpdate.actionFailed"))
+        console.error("[Update] idle wait action failed:", error)
+      }
+    },
+    [applyState, t]
+  )
+  const waitForIdle = useCallback(
+    () => idleUpdateAction(waitForIdleUpdate),
+    [idleUpdateAction]
+  )
+  const cancelWait = useCallback(
+    () => idleUpdateAction(cancelIdleUpdate),
+    [idleUpdateAction]
+  )
+
   const restart = useCallback(async () => {
     setIsRestarting(true)
     // Desktop relaunches the whole app — nothing to verify, the new process
@@ -925,6 +955,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     isRollingBack ||
     isRestarting ||
     restartCountdown !== null ||
+    state.status === "waiting_for_idle" ||
     state.status === "restarting"
 
   // Desktop always drives the Tauri updater; a server only when it speaks the
@@ -963,6 +994,8 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
       refreshLocalStatus,
       startUpdate,
       restart,
+      waitForIdle,
+      cancelWait,
       rollback,
     }),
     [
@@ -990,6 +1023,8 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
       refreshLocalStatus,
       startUpdate,
       restart,
+      waitForIdle,
+      cancelWait,
       rollback,
     ]
   )

@@ -422,6 +422,20 @@
     }
   },
   "SystemSettings": {
+    "idleUpdate": {
+      "schedule": "閒置後更新",
+      "cancel": "取消等待",
+      "waiting": "正在等待工作結束",
+      "countdown": "將在 {seconds} 秒後更新",
+      "hint": "等待期間可繼續工作；新工作會重設倒數，取消後保留已下載的更新。",
+      "agent": "Agent 正在工作，或仍有待處理的確認。",
+      "terminal": "終端機命令仍在執行，或尚無法確認已結束。",
+      "automation": "自動化工作仍在執行。",
+      "workTask": "工作尚未結束或仍待驗收。",
+      "newWork": "偵測到新工作，已重新等待。",
+      "unknown": "暫時無法確認閒置，繼續等待。",
+      "actionFailed": "無法變更更新等待狀態，請重新整理狀態後重試。"
+    },
     "loading": "載入中...",
     "sectionTitle": "系統管理",
     "sectionDescription": "管理應用升級、開機自動啟動、網路代理與語言偏好。",

@@ -40,6 +40,55 @@ const startUpdate = vi.fn(async () => {})
 const restart = vi.fn(async () => {})
 const dismissAvailable = vi.fn()
 
+describe("StatusBarUpdate idle wait", () => {
+  it("shows the reason and keeps cancel available while the update is busy", async () => {
+    const cancelWait = vi.fn(async () => {})
+    renderWith({
+      state: { seq: 9, status: "waiting_for_idle", blockers: ["terminal"] },
+      isBusy: true,
+      cancelWait,
+    })
+    fireEvent.click(
+      screen.getByRole("button", { name: "Waiting for tasks to finish" })
+    )
+    expect(
+      await screen.findByText(
+        "A terminal command is running or its completion is not confirmed."
+      )
+    ).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: "Cancel waiting" }))
+    expect(cancelWait).toHaveBeenCalledOnce()
+    expect(restart).not.toHaveBeenCalled()
+  })
+
+  it("offers idle scheduling for a supported desktop instead of an immediate restart", async () => {
+    const waitForIdle = vi.fn(async () => {})
+    renderWith({
+      state: { seq: 3, status: "ready_to_restart", idleWaitSupported: true },
+      waitForIdle,
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Restart to update" }))
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Update when idle" })
+    )
+    expect(waitForIdle).toHaveBeenCalledOnce()
+    expect(restart).not.toHaveBeenCalled()
+  })
+
+  it("shows a cancelable countdown rather than claiming restart has already started", async () => {
+    renderWith({
+      state: { seq: 4, status: "waiting_for_idle", restartCountdownSeconds: 5 },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Updating in 5s" }))
+    expect(
+      await screen.findByRole("button", { name: "Cancel waiting" })
+    ).toBeEnabled()
+    expect(
+      screen.queryByText("Waiting for the server to come back...")
+    ).not.toBeInTheDocument()
+  })
+})
+
 function makeCtx(overrides: Partial<UpdateContextValue>): UpdateContextValue {
   const state: AppUpdateState = overrides.state ?? { seq: 1, status: "idle" }
   return {
@@ -67,6 +116,8 @@ function makeCtx(overrides: Partial<UpdateContextValue>): UpdateContextValue {
     refreshLocalStatus: vi.fn(async () => {}),
     startUpdate,
     restart,
+    waitForIdle: vi.fn(async () => {}),
+    cancelWait: vi.fn(async () => {}),
     rollback: vi.fn(async () => {}),
     ...overrides,
   }
