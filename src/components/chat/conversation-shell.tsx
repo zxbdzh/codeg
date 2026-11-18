@@ -108,6 +108,8 @@ interface ConversationShellProps {
    *  the agent failed to load this session) without hijacking the message
    *  area above. Renders nothing when omitted. */
   composerBanner?: ReactNode
+  /** 会话恢复等轻量操作贴近输入框，不占用消息区顶部。 */
+  composerActions?: ReactNode
   /** Optional read-only live-feedback notes list rendered just above the
    *  composer (see `FeedbackNotesDisplay`). Renders nothing when there are no
    *  notes for the current turn. */
@@ -205,6 +207,7 @@ export function ConversationShell({
   getSentHistory,
   hideInput = false,
   composerBanner,
+  composerActions,
   feedbackList,
   onAddFeedback,
   feedbackAddDisabled,
@@ -296,6 +299,12 @@ export function ConversationShell({
                 onAnswer={onAnswerPlanApproval}
               />
             </MarkdownImageProvider>
+          </div>
+        )}
+
+        {composerActions && (
+          <div className="mx-auto w-full chat-content-w px-4">
+            {composerActions}
           </div>
         )}
 

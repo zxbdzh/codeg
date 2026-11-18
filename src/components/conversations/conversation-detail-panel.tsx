@@ -1451,7 +1451,11 @@ const ConversationTabView = memo(function ConversationTabView({
           console.warn("[ConversationUndo] old connection cleanup:", error)
         }
       }
-      refetchDetail(effectiveConversationId)
+      refetchDetail(effectiveConversationId, {
+        dropBackgroundTurnIds: getRuntimeSession(
+          effectiveConversationId
+        )?.backgroundTurns.map((entry) => entry.turn.id),
+      })
       void refreshConversations()
       try {
         await conn.connect(
@@ -1475,8 +1479,15 @@ const ConversationTabView = memo(function ConversationTabView({
     ]
   )
   const handleUndoFailure = useCallback(
-    async (failedConversationId: number) => {
-      refetchDetail(effectiveConversationId)
+    async (failedConversationId: number, historyRestored = false) => {
+      refetchDetail(effectiveConversationId, {
+        // 原生恢复成功才移除旧覆盖层；撤回失败时保留全部历史，不能按较小水位猜测删除。
+        dropBackgroundTurnIds: historyRestored
+          ? getRuntimeSession(effectiveConversationId)?.backgroundTurns.map(
+              (entry) => entry.turn.id
+            )
+          : undefined,
+      })
       void refreshConversations()
       const sessionId = detail?.summary.external_id ?? sessionIdRef.current
       if (!sessionId || !workingDirForConnection) return
@@ -2517,17 +2528,6 @@ const ConversationTabView = memo(function ConversationTabView({
       topBanner={
         <>
           <ConversationForkProgress open={promptForking} />
-          {dbConversationId != null && (
-            <ConversationRedoControl
-              key={dbConversationId}
-              conversationId={dbConversationId}
-              revision={`${conversationUndo.pending}:${sendSignal}:${detail?.turns.reduce((lastId, turn) => (turn.role === "user" ? turn.id : lastId), "") ?? ""}`}
-              busy={conversationUndo.pending || isConnectionBusy(conn)}
-              onRestored={async (result) => {
-                await handleUndoFailure(result.conversationId)
-              }}
-            />
-          )}
           <ConversationUndoDialog
             open={conversationUndo.selection !== null}
             pending={conversationUndo.pending}
@@ -2586,6 +2586,19 @@ const ConversationTabView = memo(function ConversationTabView({
       injectContent={composerInject}
       onInjectConsumed={handleComposerInjectConsumed}
       composerBanner={acpLoadErrorBanner}
+      composerActions={
+        dbConversationId != null && (
+          <ConversationRedoControl
+            key={dbConversationId}
+            conversationId={dbConversationId}
+            revision={`${conversationUndo.pending}:${sendSignal}:${detail?.turns.reduce((lastId, turn) => (turn.role === "user" ? turn.id : lastId), "") ?? ""}`}
+            busy={conversationUndo.pending || isConnectionBusy(conn)}
+            onRestored={async (result) => {
+              await handleUndoFailure(result.conversationId, true)
+            }}
+          />
+        )
+      }
       feedbackList={
         feedback.showList ? (
           <FeedbackNotesDisplay

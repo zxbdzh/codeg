@@ -1,5 +1,9 @@
 {
   "ConversationUndo": {
+    "redoShort": "Restaurar",
+    "redoReady": "Conversa desfeita",
+    "redoUnavailable": "Restauração indisponível",
+    "redoOptions": "Opções de desfazer",
     "tasksToStop": "Estas tarefas devem parar antes de desfazer:",
     "runningTurn": "Turno atual",
     "runningBackground": "Tarefa em segundo plano",

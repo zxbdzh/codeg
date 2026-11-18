@@ -338,6 +338,7 @@ type Action =
        * fork actually invalidated.
        */
       dropLiveTurnIds?: string[]
+      dropBackgroundTurnIds?: string[]
     }
   | {
       type: "MARK_OUT_OF_TURN_CONTENT"
@@ -2429,6 +2430,9 @@ function reducer(
         action.detail.transcript_watermark ?? null,
         action.detail.uncovered_prefix_max_ts ?? null
       )
+      const dropBackgroundIds = action.dropBackgroundTurnIds?.length
+        ? new Set(action.dropBackgroundTurnIds)
+        : null
 
       const nextSession: ConversationRuntimeSession = {
         ...current,
@@ -2443,7 +2447,12 @@ function reducer(
         pendingOutOfTurnContent: false,
         externalId: nextExternalId ?? current.externalId,
         sessionStats: action.detail.session_stats ?? current.sessionStats,
-        backgroundTurns: nextBackgroundTurns,
+        // Undo/Redo 会重写同一历史，旧水位可能永远高于新文件；只淘汰操作前捕获的覆盖层，保留后来到达的新消息。
+        backgroundTurns: dropBackgroundIds
+          ? nextBackgroundTurns.filter(
+              (entry) => !dropBackgroundIds.has(entry.turn.id)
+            )
+          : nextBackgroundTurns,
         ...(isActivelyInteracting
           ? keepAllLiveBuffers
             ? {}
@@ -3299,7 +3308,11 @@ export interface RuntimeActions {
   fetchDetail: (conversationId: number) => void
   refetchDetail: (
     conversationId: number,
-    options?: { preserveLive?: boolean; dropLiveTurnIds?: string[] }
+    options?: {
+      preserveLive?: boolean
+      dropLiveTurnIds?: string[]
+      dropBackgroundTurnIds?: string[]
+    }
   ) => void
   /**
    * Load one page of older history above the current window and prepend it
@@ -4509,7 +4522,11 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
 
   const refetchDetail = (
     conversationId: number,
-    options?: { preserveLive?: boolean; dropLiveTurnIds?: string[] }
+    options?: {
+      preserveLive?: boolean
+      dropLiveTurnIds?: string[]
+      dropBackgroundTurnIds?: string[]
+    }
   ): void => {
     // The session key is not always a fetchable DB id: a conversation started
     // as a new-chat draft keeps its virtual (negative) key for the tab's whole
@@ -4532,6 +4549,7 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
           detail,
           preserveLive: options?.preserveLive ?? false,
           dropLiveTurnIds: options?.dropLiveTurnIds,
+          dropBackgroundTurnIds: options?.dropBackgroundTurnIds,
         })
       })
       .catch((error: unknown) => {

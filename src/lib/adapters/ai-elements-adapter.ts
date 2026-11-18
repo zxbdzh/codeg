@@ -1365,7 +1365,20 @@ export function extractUserResourcesFromText(text: string): {
   // Before anything else: the block is page content, and the `[…](…)` and
   // `@name` shapes inside it are the page's, not the sender's. Tokenizing
   // first would let a link a page happens to contain become a chip of its own.
-  const prose = liftEmbeddedContext(text, resources)
+  const embeddedLifted = liftEmbeddedContext(text, resources)
+  const prose = embeddedLifted.replace(
+    /^\[resource uri="(file:\/\/[^"\r\n]+)" mimeType="([^"\r\n]+)" 二进制内容，未内联\][\t ]*$/gm,
+    (match: string, uri: string, mime: string, offset: number) => {
+      // 原生附件占位是传输细节，只显示文件名；代码块里的示例仍按原文保留。
+      if (insideFence(embeddedLifted, offset)) return match
+      addResource(resources, {
+        name: fileNameFromUri(uri),
+        uri,
+        mime_type: mime,
+      })
+      return ""
+    }
+  )
   // Tokenize into alternating [prose, link, prose, link, …] so the
   // blocked-mention pass only ever touches PLAIN PROSE — never the inside of a
   // kept Markdown file link, whose label/uri could otherwise coincidentally

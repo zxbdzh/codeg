@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
+import { Ellipsis, Loader2, Redo2, Trash2, Undo2 } from "lucide-react"
 import { toErrorMessage } from "@/lib/app-error"
 import {
   clearConversationRedo,
@@ -12,6 +13,12 @@ import {
   type ConversationUndoResult,
 } from "@/lib/conversation-undo"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -126,27 +133,60 @@ export function ConversationRedoControl({
 
   if (!status?.hasBackup) return null
   return (
-    <div className="flex items-center justify-end gap-1 px-3 py-1">
-      <Button
-        variant="ghost"
-        size="sm"
-        className="min-h-11 sm:min-h-7"
-        disabled={
-          !status.available || statusRevision !== revision || pending || busy
-        }
-        onClick={() => void run("restore")}
-      >
-        {t("redo")}
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="min-h-11 sm:min-h-7"
-        disabled={pending || busy}
-        onClick={() => setConfirmClear(true)}
-      >
-        {t("clearRedo")}
-      </Button>
+    <div className="flex min-w-0 items-center gap-1 py-1 text-xs text-muted-foreground">
+      <Undo2 aria-hidden="true" className="mr-1 size-3.5 shrink-0" />
+      <span className="mr-auto truncate">
+        {t(status.available ? "redoReady" : "redoUnavailable")}
+      </span>
+      {status.available && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 rounded-md px-2 text-xs text-foreground"
+          aria-label={t("redo")}
+          title={t("redo")}
+          disabled={statusRevision !== revision || pending || busy}
+          onClick={() => void run("restore")}
+        >
+          {pending ? (
+            <Loader2
+              aria-hidden="true"
+              className="size-3.5 animate-spin motion-reduce:animate-none"
+            />
+          ) : (
+            <Redo2 aria-hidden="true" className="size-3.5" />
+          )}
+          {t("redoShort")}
+        </Button>
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="rounded-md"
+            aria-label={t("redoOptions")}
+            title={t("redoOptions")}
+            disabled={pending || busy}
+          >
+            <Ellipsis aria-hidden="true" className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          side="top"
+          className="w-auto min-w-44 rounded-lg"
+        >
+          <DropdownMenuItem
+            variant="destructive"
+            className="rounded-md text-xs"
+            onSelect={() => setConfirmClear(true)}
+          >
+            <Trash2 aria-hidden="true" className="size-3.5" />
+            {t("clearRedo")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <AlertDialog
         open={confirmClear}
         onOpenChange={(open) => {

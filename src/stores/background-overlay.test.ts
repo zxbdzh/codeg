@@ -144,6 +144,62 @@ describe("APPLY_BACKGROUND_ACTIVITY", () => {
 })
 
 describe("watermark hand-off on FETCH_DETAIL_SUCCESS", () => {
+  it("drops only the captured pre-Undo overlay after the shortened history is loaded", async () => {
+    actions().applyBackgroundActivity(
+      7,
+      [turn("bg-old-0", "撤回前的旧回答")],
+      8_390_036
+    )
+    actions().applyBackgroundActivity(8, [turn("bg-other", "其他会话")], 900)
+    const unchangedSession = session(8)
+    let resolveDetail!: (value: DbConversationDetail) => void
+    mockGetFolderConversation.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveDetail = resolve
+      })
+    )
+    actions().refetchDetail(7, {
+      dropBackgroundTurnIds: ["bg-old-0"],
+    })
+    expect(session(7)!.backgroundTurns).toHaveLength(1)
+    actions().applyBackgroundActivity(7, [turn("bg-new", "之后的新消息")], 700)
+    resolveDetail(
+      detail({
+        transcript_watermark: 511,
+        turns: [turn("turn-0", "保留的回答")],
+      })
+    )
+    await flushMicrotasks()
+
+    expect(
+      selectTimelineTurns(useConversationRuntimeStore.getState(), 7).map(
+        (entry) => entry.turn.blocks[0]
+      )
+    ).toEqual([
+      { type: "text", text: "保留的回答" },
+      { type: "text", text: "之后的新消息" },
+    ])
+    expect(session(8)?.backgroundTurns[0].turn.blocks[0]).toEqual({
+      type: "text",
+      text: "其他会话",
+    })
+    expect(session(8)).toBe(unchangedSession)
+  })
+
+  it("keeps the captured overlay if the post-Undo history cannot be loaded", async () => {
+    actions().applyBackgroundActivity(
+      7,
+      [turn("bg-old", "尚未重新读取的历史")],
+      900
+    )
+    const before = session(7)!.backgroundTurns
+    mockGetFolderConversation.mockRejectedValueOnce(new Error("offline"))
+    actions().refetchDetail(7, { dropBackgroundTurnIds: ["bg-old"] })
+    await vi.waitFor(() => expect(session(7)!.detailLoading).toBe(false))
+    expect(session(7)!.backgroundTurns).toBe(before)
+    expect(session(7)!.detailError).toBe("offline")
+  })
+
   it("retires exactly the entries the detail's watermark covers", async () => {
     actions().applyBackgroundActivity(7, [turn("bg-1-0", "old")], 100)
     actions().applyBackgroundActivity(7, [turn("bg-1-1", "new")], 300)

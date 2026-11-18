@@ -2126,6 +2126,28 @@ const LINUX_DO_URI = "codeg://embedded/https%3A%2F%2Flinux.do%2F"
 const LINUX_DO_SITE = "codeg://embedded/https%3A%2F%2Flinux.do"
 
 describe("extractUserResourcesFromText — codeg references stay inline", () => {
+  it("shows the saved binary attachment name instead of its internal resource marker", () => {
+    const uri =
+      "file:///F:/tmp/ego/example/data/uploads/conversation-undo/object/guide.pdf"
+    expect(
+      extractUserResourcesFromText(
+        `检查这份附件\n[resource uri="${uri}" mimeType="application/pdf" 二进制内容，未内联]`
+      )
+    ).toEqual({
+      text: "检查这份附件",
+      resources: [{ name: "guide.pdf", uri, mime_type: "application/pdf" }],
+    })
+  })
+
+  it("does not turn a quoted resource marker into an attachment", () => {
+    const quoted =
+      '```text\n[resource uri="file:///tmp/guide.pdf" mimeType="application/pdf" 二进制内容，未内联]\n```'
+    expect(extractUserResourcesFromText(quoted)).toEqual({
+      text: quoted,
+      resources: [],
+    })
+  })
+
   it("keeps a codeg://agent link inline (the @-prefixed label no longer lifts it to a chip)", () => {
     const input = "ask [@Codex](codeg://agent/codex) to review"
     const { text, resources } = extractUserResourcesFromText(input)

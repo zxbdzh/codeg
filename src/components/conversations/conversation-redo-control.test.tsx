@@ -134,7 +134,11 @@ it("clears a session's Redo backup only after explicit confirmation", async () =
       />
     </NextIntlClientProvider>
   )
-  await user.click(await screen.findByRole("button", { name: "清理撤回备份" }))
+  expect(
+    screen.queryByRole("button", { name: "清理撤回备份" })
+  ).not.toBeInTheDocument()
+  await user.click(await screen.findByRole("button", { name: "撤回选项" }))
+  await user.click(screen.getByRole("menuitem", { name: "清理撤回备份" }))
   const confirmation = screen.getByRole("alertdialog")
   expect(confirmation).toHaveTextContent("当前对话、草稿和收藏不受影响")
   expect(wire.hasBackup).toBe(true)
@@ -237,5 +241,40 @@ it("disables stale Redo immediately when a new message changes the history", asy
       expiresAt: "2026-11-24T00:00:00Z",
     })
   })
-  expect(screen.getByRole("button", { name: "恢复上次撤回" })).toBeDisabled()
+  expect(
+    screen.queryByRole("button", { name: "恢复上次撤回" })
+  ).not.toBeInTheDocument()
+  expect(screen.getByText("恢复不可用")).toBeInTheDocument()
+})
+
+it("shows a compact recovery action instead of two full-width text actions", async () => {
+  render(
+    <NextIntlClientProvider locale="zh-CN" messages={messages}>
+      <ConversationRedoControl
+        conversationId={12}
+        revision={0}
+        busy={false}
+        onRestored={async () => {}}
+        backend={{
+          status: async () => ({
+            available: true,
+            hasBackup: true,
+            expiresAt: "2026-11-24T00:00:00Z",
+          }),
+          restore: async () => ({
+            conversationId: 12,
+            sessionId: "same-session",
+          }),
+          clear: async () => {},
+        }}
+      />
+    </NextIntlClientProvider>
+  )
+  const restore = await screen.findByRole("button", { name: "恢复上次撤回" })
+  expect(restore).toHaveTextContent(/^恢复$/)
+  expect(screen.getByText("已撤回")).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "撤回选项" })).toBeEnabled()
+  expect(
+    screen.queryByRole("button", { name: "清理撤回备份" })
+  ).not.toBeInTheDocument()
 })

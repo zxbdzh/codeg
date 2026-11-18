@@ -1,5 +1,9 @@
 {
   "ConversationUndo": {
+    "redoShort": "Wiederherstellen",
+    "redoReady": "Gespräch zurückgenommen",
+    "redoUnavailable": "Wiederherstellung nicht verfügbar",
+    "redoOptions": "Rücknahmeoptionen",
     "tasksToStop": "Diese Aufgaben müssen vor der Rücknahme beendet werden:",
     "runningTurn": "Aktuelle Runde",
     "runningBackground": "Hintergrundaufgabe",

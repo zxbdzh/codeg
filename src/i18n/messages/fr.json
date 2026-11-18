@@ -1,5 +1,9 @@
 {
   "ConversationUndo": {
+    "redoShort": "Rétablir",
+    "redoReady": "Conversation annulée",
+    "redoUnavailable": "Rétablissement indisponible",
+    "redoOptions": "Options d’annulation",
     "tasksToStop": "Ces tâches doivent être arrêtées avant l’annulation :",
     "runningTurn": "Tour actuel",
     "runningBackground": "Tâche en arrière-plan",

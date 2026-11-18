@@ -158,6 +158,22 @@ describe("ConversationShell Remote Control strip", () => {
 })
 
 describe("ConversationShell cards below the transcript", () => {
+  it("keeps recovery actions next to the composer rather than above the transcript", () => {
+    renderShell({ composerActions: <button>恢复上次撤回</button> })
+    const actions = screen.getByRole("button", { name: "恢复上次撤回" })
+    const transcript = screen.getByTestId("transcript")
+    const composer = screen.getByTestId("composer")
+    expect(
+      transcript.compareDocumentPosition(actions) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      actions.compareDocumentPosition(composer) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(actions.parentElement).toHaveClass("chat-content-w")
+  })
+
   it("resolve local images against the conversation's folder", () => {
     // Outside the transcript's own image scope, but the same agent wrote
     // them: a plan or a permission request names images as a reply does.

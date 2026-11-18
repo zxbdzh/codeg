@@ -1,5 +1,9 @@
 {
   "ConversationUndo": {
+    "redoShort": "استعادة",
+    "redoReady": "تم التراجع عن المحادثة",
+    "redoUnavailable": "الاستعادة غير متاحة",
+    "redoOptions": "خيارات التراجع",
     "tasksToStop": "يجب إيقاف هذه المهام قبل التراجع:",
     "runningTurn": "الدور الحالي",
     "runningBackground": "مهمة خلفية",
