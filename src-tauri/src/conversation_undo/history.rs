@@ -369,6 +369,9 @@ fn reverted_matches(agent: AgentType, current: &[u8], backup: &Value) -> bool {
     if agent == AgentType::Gemini {
         return super::gemini::migrated_reverted_matches(current, backup);
     }
+    if agent == AgentType::DeepSeek {
+        return super::deepseek::reverted_matches(current, expected);
+    }
     if agent != AgentType::ClaudeCode {
         return false;
     }

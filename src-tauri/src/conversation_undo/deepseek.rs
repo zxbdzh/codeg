@@ -138,6 +138,46 @@ pub(super) fn history_digest(bytes: &[u8]) -> String {
     super::history::digest(bytes)
 }
 
+pub(super) fn reverted_matches(bytes: &[u8], expected: &str) -> bool {
+    let Some(mut snapshot) = decode_snapshot(bytes) else {
+        return false;
+    };
+    let Some(log) = snapshot["log"].as_str() else {
+        return false;
+    };
+    let Some((prefix, last)) = log.strip_suffix('\n').and_then(|log| log.rsplit_once('\n')) else {
+        return false;
+    };
+    let Ok(marker) = serde_json::from_str::<Value>(last) else {
+        return false;
+    };
+    let next_seq = prefix
+        .rsplit('\n')
+        .next()
+        .and_then(|line| serde_json::from_str::<Value>(line).ok())
+        .and_then(|event| {
+            if event["type"] == "session" {
+                Some(0)
+            } else {
+                event["seq"].as_u64()?.checked_add(1)
+            }
+        });
+    // 原生重连只追加空的种子结束标记；仅忽略这一条尾部记录，仍核对完整前缀和附件。
+    if marker.as_object().is_none_or(|fields| fields.len() != 4)
+        || marker["type"] != "session/end-seed"
+        || marker["data"]
+            .as_object()
+            .is_none_or(|data| !data.is_empty())
+        || marker["time"].as_i64().is_none()
+        || next_seq.is_none()
+        || marker["seq"].as_u64() != next_seq
+    {
+        return false;
+    }
+    snapshot["log"] = json!(format!("{prefix}\n"));
+    serde_json::to_vec(&snapshot).is_ok_and(|snapshot| history_digest(&snapshot) == expected)
+}
+
 fn verified_attachment(part: &Value, bytes: &[u8]) -> Result<(), AppCommandError> {
     let reference = &part["attachment"];
     let expected = reference["attachmentId"].as_str().unwrap_or_default();

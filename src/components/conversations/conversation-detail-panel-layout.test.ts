@@ -45,6 +45,20 @@ const messageListViewSource = readFileSync(
   "utf8"
 )
 
+it("keeps Undo available when a saved conversation reattaches as a co-controlling viewer", () => {
+  const messageListStart = source.indexOf("<MessageListView")
+  const undoStart = source.indexOf("onUndoFromPrompt={", messageListStart)
+  const undoEnd = source.indexOf("isActive={", undoStart)
+  expect(messageListStart).toBeGreaterThan(-1)
+  expect(undoStart).toBeGreaterThan(messageListStart)
+  expect(undoEnd).toBeGreaterThan(undoStart)
+  const undoAction = source.slice(undoStart, undoEnd)
+  expect(undoAction).toContain("hasPersistedConversation")
+  expect(undoAction).toContain("conversationUndo.requestUndo")
+  // viewer 只限制连接销毁，不代表只读；刷新重连后仍应能预览并确认原会话撤回。
+  expect(undoAction).not.toContain("isViewer")
+})
+
 describe("ConversationDetailPanel new conversation layout", () => {
   it("keeps the new-conversation input in the welcome panel with the original scroll layout", () => {
     expect(source).toContain(

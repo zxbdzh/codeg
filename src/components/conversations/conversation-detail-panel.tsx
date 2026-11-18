@@ -2386,10 +2386,9 @@ const ConversationTabView = memo(function ConversationTabView({
           connStatus={connStatus}
           forkPromptBusy={promptForking}
           undoPromptBusy={conversationUndo.pending}
+          // 共享连接仍可共同操作；isViewer 只约束断开时不误杀其他客户端的连接。
           onUndoFromPrompt={
-            hasPersistedConversation && !conn.isViewer
-              ? conversationUndo.requestUndo
-              : undefined
+            hasPersistedConversation ? conversationUndo.requestUndo : undefined
           }
           isActive={isActive}
           sendSignal={sendSignal}

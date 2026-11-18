@@ -3505,6 +3505,80 @@ async fn native_deepseek_active_writer_blocks_undo_until_the_original_owner_rele
     check_native_deepseek_writer(false).await;
 }
 
+#[tokio::test]
+async fn deepseek_redo_survives_the_native_resume_boundary_without_new_messages() {
+    let (fixture, directory) = check_deepseek_undo_and_redo(None).await;
+    let original = fixture.history().await;
+    let preview = fixture.preview_text("Undo DeepSeek question").await;
+    let response = fixture
+        .server
+        .post("/api/conversation_undo_commit")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({
+            "conversationId": fixture.conversation_id,
+            "sourceTurnId": preview["sourceTurnId"],
+            "historyRevision": preview["historyRevision"],
+        }))
+        .await;
+    assert_eq!(response.status_code(), 200, "{}", response.text());
+    let path = directory.join("session.v3.jsonl.zstd");
+    let mut log = zstd::stream::decode_all(std::fs::read(&path).unwrap().as_slice()).unwrap();
+    // 原生 Session.fromRestore 在恢复后的种子末尾追加此边界，但没有增加任何用户输入。
+    log.extend_from_slice(
+        format!(
+            "{}\n",
+            json!({"type":"session/end-seed","seq":4,"time":1794877300000_i64,"data":{}})
+        )
+        .as_bytes(),
+    );
+    let header_end = log.iter().position(|byte| *byte == b'\n').unwrap() + 1;
+    let mut frames = zstd::stream::encode_all(&log[..header_end], 3).unwrap();
+    frames.extend(zstd::stream::encode_all(&log[header_end..], 3).unwrap());
+    std::fs::write(&path, frames).unwrap();
+    let status = fixture
+        .server
+        .post("/api/conversation_redo_status")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(status.status_code(), 200, "{}", status.text());
+    assert_eq!(status.json::<Value>()["available"], true);
+    let changed = String::from_utf8(log.clone())
+        .unwrap()
+        .replace("Keep DeepSeek question", "Changed by another client");
+    let mut changed_frames =
+        zstd::stream::encode_all(&changed.as_bytes()[..header_end], 3).unwrap();
+    changed_frames.extend(zstd::stream::encode_all(&changed.as_bytes()[header_end..], 3).unwrap());
+    std::fs::write(&path, &changed_frames).unwrap();
+    let status = fixture
+        .server
+        .post("/api/conversation_redo_status")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(status.status_code(), 200, "{}", status.text());
+    assert_eq!(status.json::<Value>()["available"], false);
+    let rejected = fixture
+        .server
+        .post("/api/conversation_redo")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(rejected.status_code(), 400, "{}", rejected.text());
+    assert_eq!(std::fs::read(&path).unwrap(), changed_frames);
+    let mut frames = zstd::stream::encode_all(&log[..header_end], 3).unwrap();
+    frames.extend(zstd::stream::encode_all(&log[header_end..], 3).unwrap());
+    std::fs::write(&path, frames).unwrap();
+    let restored = fixture
+        .reopen()
+        .post("/api/conversation_redo")
+        .add_header("authorization", format!("Bearer {TOKEN}"))
+        .json(&json!({"conversationId":fixture.conversation_id}))
+        .await;
+    assert_eq!(restored.status_code(), 200, "{}", restored.text());
+    assert_eq!(fixture.history().await["turns"], original["turns"]);
+}
+
 #[cfg(windows)]
 #[tokio::test]
 #[ignore = "requires CODEG_TEST_DEEPSEEK_MODULES for native ownership through a directory link"]
