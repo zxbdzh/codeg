@@ -569,22 +569,21 @@ export function ConversationPaneSwitcher({
                       aria-hidden="true"
                     >
                       {activity.kind === "running" ? (
-                        // 运行中保持图形方向稳定，只用轻微呼吸提示持续工作，
-                        // 避免高频旋转抢走对话内容的注意力。
+                        // 12px 图标需要可辨认的明暗和尺寸变化，否则轻微呼吸看起来像静止。
                         <motion.span
                           animate={
                             reduceMotion
                               ? { opacity: 1, scale: 1 }
                               : {
-                                  opacity: [0.78, 1, 0.78],
-                                  scale: [0.94, 1, 0.94],
+                                  opacity: [0.35, 1, 0.35],
+                                  scale: [0.78, 1.08, 0.78],
                                 }
                           }
                           transition={
                             reduceMotion
                               ? { duration: 0 }
                               : {
-                                  duration: 1.8,
+                                  duration: 1.4,
                                   ease: "easeInOut",
                                   repeat: Infinity,
                                 }
