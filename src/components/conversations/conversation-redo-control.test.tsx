@@ -244,7 +244,8 @@ it("disables stale Redo immediately when a new message changes the history", asy
   expect(
     screen.queryByRole("button", { name: "恢复上次撤回" })
   ).not.toBeInTheDocument()
-  expect(screen.getByText("恢复不可用")).toBeInTheDocument()
+  // 不可恢复时只剩“更多”，用来清理已经失效的备份。
+  expect(screen.getByRole("button", { name: "撤回选项" })).toBeEnabled()
 })
 
 it("shows a compact recovery action instead of two full-width text actions", async () => {
@@ -272,7 +273,8 @@ it("shows a compact recovery action instead of two full-width text actions", asy
   )
   const restore = await screen.findByRole("button", { name: "恢复上次撤回" })
   expect(restore).toHaveTextContent(/^恢复$/)
-  expect(screen.getByText("上次撤回的对话可恢复")).toBeInTheDocument()
+  // 行内只有恢复和更多两个操作，不再重复状态说明。
+  expect(restore.parentElement).toHaveTextContent(/^恢复$/)
   expect(screen.getByRole("button", { name: "撤回选项" })).toBeEnabled()
   expect(
     screen.queryByRole("button", { name: "清理撤回备份" })
@@ -310,6 +312,4 @@ it("renders no recovery row at all when this conversation was never undone", asy
   expect(
     screen.queryByRole("button", { name: "撤回选项" })
   ).not.toBeInTheDocument()
-  expect(screen.queryByText("上次撤回的对话可恢复")).not.toBeInTheDocument()
-  expect(screen.queryByText("恢复不可用")).not.toBeInTheDocument()
 })

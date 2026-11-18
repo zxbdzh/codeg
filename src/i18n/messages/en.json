@@ -1,8 +1,6 @@
 {
   "ConversationUndo": {
     "redoShort": "Restore",
-    "redoReady": "Last undo can be restored",
-    "redoUnavailable": "Restore unavailable",
     "redoOptions": "Undo options",
     "tasksToStop": "These tasks must stop before Undo:",
     "runningTurn": "Current turn",

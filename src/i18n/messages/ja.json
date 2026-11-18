@@ -1,8 +1,6 @@
 {
   "ConversationUndo": {
     "redoShort": "復元",
-    "redoReady": "直前の取り消しを復元できます",
-    "redoUnavailable": "復元できません",
     "redoOptions": "取り消しのオプション",
     "tasksToStop": "取り消す前に、次のタスクをすべて停止します：",
     "runningTurn": "現在のターン",

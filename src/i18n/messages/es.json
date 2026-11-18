@@ -1,8 +1,6 @@
 {
   "ConversationUndo": {
     "redoShort": "Restaurar",
-    "redoReady": "El último deshacer se puede restaurar",
-    "redoUnavailable": "Restauración no disponible",
     "redoOptions": "Opciones de deshacer",
     "tasksToStop": "Estas tareas deben detenerse antes de deshacer:",
     "runningTurn": "Turno actual",

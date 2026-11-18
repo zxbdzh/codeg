@@ -1,8 +1,6 @@
 {
   "ConversationUndo": {
     "redoShort": "還原",
-    "redoReady": "上次撤回的對話可還原",
-    "redoUnavailable": "無法還原",
     "redoOptions": "撤回選項",
     "tasksToStop": "將先停止以下工作，全部停止後再撤回：",
     "runningTurn": "目前回合",

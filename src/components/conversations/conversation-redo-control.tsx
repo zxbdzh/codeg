@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
-import { Ellipsis, Loader2, Redo2, Trash2, Undo2 } from "lucide-react"
+import { Ellipsis, Loader2, Redo2, Trash2 } from "lucide-react"
 import { toErrorMessage } from "@/lib/app-error"
 import {
   clearConversationRedo,
@@ -133,11 +133,8 @@ export function ConversationRedoControl({
 
   if (!status?.hasBackup) return null
   return (
-    <div className="flex min-w-0 items-center gap-1 py-1 text-xs text-muted-foreground">
-      <Undo2 aria-hidden="true" className="mr-1 size-3.5 shrink-0" />
-      <span className="mr-auto truncate">
-        {t(status.available ? "redoReady" : "redoUnavailable")}
-      </span>
+    // 只保留操作本身：状态已在确认框里说明，行内再写一遍只会多占输入框上方一行。
+    <div className="flex min-w-0 items-center justify-end gap-1 py-1 text-xs text-muted-foreground">
       {status.available && (
         <Button
           variant="ghost"
