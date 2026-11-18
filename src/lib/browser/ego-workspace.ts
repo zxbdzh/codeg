@@ -3,10 +3,15 @@ import { useSyncExternalStore } from "react"
 
 const views = new Map<
   string,
-  { sessionId: number; pending: Promise<unknown>; tabId?: string | null }
+  {
+    sessionId: number
+    tabId?: string | null
+    connected: boolean
+  }
 >()
 const approved = new Set<string>()
 const closing = new Set<string>()
+const suspended = new Set<string>()
 const pages = new Map<
   string,
   { title: string; url: string; requestedUrl: string }
@@ -20,7 +25,32 @@ export function registerEgoView(
   sessionId: number,
   pending: Promise<unknown>
 ) {
-  views.set(id, { ...views.get(id), sessionId, pending })
+  approved.delete(id)
+  const view = { ...views.get(id), sessionId, connected: false }
+  views.set(id, view)
+  void pending.catch(() => {
+    if (views.get(id) === view) view.connected = false
+  })
+}
+
+export function markEgoViewDisconnected(id: string) {
+  const view = views.get(id)
+  if (view) view.connected = false
+}
+
+export function setEgoWorkspaceSuspended(id: string, value: boolean) {
+  if (suspended.has(id) === value) return
+  if (value) suspended.add(id)
+  else suspended.delete(id)
+  for (const listener of listeners) listener()
+}
+
+export function useEgoWorkspaceSuspended(id: string) {
+  return useSyncExternalStore(
+    subscribeEgoWorkspacePages,
+    () => suspended.has(id),
+    () => false
+  )
 }
 
 export function publishEgoSession(session: EgoSession) {
@@ -39,6 +69,7 @@ export function publishEgoSession(session: EgoSession) {
   let changed = false
   for (const [id, view] of views) {
     if (view.sessionId !== session.sessionId) continue
+    view.connected = session.connected
     const tabId = session.views?.[id] ?? view.tabId
     const page = session.tabs.find((tab) => tab.id === tabId)
     if (
@@ -100,7 +131,16 @@ export function guardEgoWorkspaceClose(
   retry: () => void,
   failed: (error: unknown) => void
 ): boolean {
-  const targets = ids.filter((id) => views.has(id) && !approved.has(id))
+  const targets = ids.filter((id) => {
+    const view = views.get(id)
+    if (!view || approved.has(id)) return false
+    // 未确认真实页面或已断线时只关闭本地入口，不能为了关闭再等待或启动连接。
+    if (!view.connected || !view.tabId) {
+      approved.add(id)
+      return false
+    }
+    return true
+  })
   if (!targets.length) return false
   if (targets.some((id) => closing.has(id))) return true
   for (const id of targets) closing.add(id)
@@ -108,11 +148,18 @@ export function guardEgoWorkspaceClose(
     try {
       for (const id of targets) {
         const view = views.get(id)!
-        await view.pending
-        const session = await egoRequest<EgoSession>({
-          method: "session",
-          sessionId: view.sessionId,
-        })
+        let session: EgoSession
+        try {
+          session = await egoRequest<EgoSession>({
+            method: "session",
+            sessionId: view.sessionId,
+          })
+        } catch {
+          // 断线后无法确认远端页面，只移除本地入口，不重试关闭或重放其他操作。
+          view.connected = false
+          approved.add(id)
+          continue
+        }
         // 后端关闭成功才移除工作区标签；只读、离线或确认阻塞时保留原入口。
         await egoRequest({
           method: "closeView",

@@ -48,6 +48,124 @@ describe("Ego 执行端配置同步", () => {
   })
 })
 
+describe("Ego 查看挂起", () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800)
+    mocks.video.mockReset()
+    mocks.video.mockReturnValue(null)
+    mocks.rtc.mockReset()
+    mocks.rtc.mockReturnValue(null)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  function gateway(id: string) {
+    return (
+      <EgoBrowserGateway
+        tab={
+          {
+            id,
+            browser: {
+              conversationId: 7,
+              initialUrl: "https://example.com/one",
+            },
+          } as BrowserWorkspaceTab
+        }
+      >
+        <p>原来的浏览器</p>
+      </EgoBrowserGateway>
+    )
+  }
+
+  it("连接中也能挂起，停止轮询并阻止迟到的连接创建页面", async () => {
+    let finishConnection: (session: EgoSession) => void = () => {}
+    const connecting = new Promise<EgoSession>((resolve) => {
+      finishConnection = resolve
+    })
+    mocks.request.mockReset()
+    mocks.request.mockImplementation(async (request) => {
+      if (request.method === "config")
+        return {
+          config: {
+            enabled: true,
+            endpoint: "http://127.0.0.1:54146",
+            serverName: "codeg-daily",
+          },
+        }
+      if (request.method === "session") return connecting
+      return initialSession()
+    })
+
+    render(gateway("suspend-connecting"))
+    await waitFor(() =>
+      expect(mocks.request).toHaveBeenCalledWith({
+        method: "session",
+        sessionId: 7,
+      })
+    )
+    fireEvent.click(await screen.findByRole("button", { name: "挂起 Ego" }))
+    expect(screen.getByText("Ego 已挂起")).toBeVisible()
+    const requestCount = mocks.request.mock.calls.length
+    await act(async () => finishConnection(initialSession()))
+    vi.useFakeTimers()
+    await act(async () => vi.advanceTimersByTime(3500))
+    expect(mocks.request).toHaveBeenCalledTimes(requestCount)
+  })
+
+  it("挂起状态在切回标签后保留，继续使用复用原页面", async () => {
+    mocks.request.mockReset()
+    mocks.request.mockImplementation(async (request) => {
+      if (request.method === "config")
+        return {
+          config: {
+            enabled: true,
+            endpoint: "http://127.0.0.1:54146",
+            serverName: "codeg-daily",
+          },
+        }
+      if (request.method === "frame")
+        return {
+          data: "",
+          width: 800,
+          height: 600,
+          chooser: null,
+          dialog: null,
+        }
+      return initialSession()
+    })
+    const first = render(gateway("suspend-remount"))
+    await screen.findByAltText("Ego 执行端真实页面")
+    fireEvent.click(screen.getByRole("button", { name: "挂起 Ego" }))
+    first.unmount()
+    mocks.request.mockClear()
+
+    render(gateway("suspend-remount"))
+    expect(screen.getByText("Ego 已挂起")).toBeVisible()
+    expect(mocks.request).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "继续使用 Ego" }))
+    await screen.findByAltText("Ego 执行端真实页面")
+    expect(mocks.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "visit",
+        sessionId: 7,
+        viewId: "suspend-remount",
+        url: "https://example.com/one",
+      })
+    )
+    expect(
+      mocks.request.mock.calls.some(
+        ([request]) =>
+          request.method === "closeView" ||
+          request.method === "return" ||
+          (request.method === "human" && request.action.kind === "close")
+      )
+    ).toBe(false)
+  })
+})
+
 function initialSession(): EgoSession {
   return {
     sessionId: 7,

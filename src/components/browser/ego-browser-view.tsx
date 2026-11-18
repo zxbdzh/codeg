@@ -9,6 +9,8 @@ import {
   Maximize,
   Minimize,
   MousePointer2,
+  Pause,
+  Play,
   Plus,
   RotateCw,
   Settings2,
@@ -34,7 +36,13 @@ import { useMobileViewport } from "@/hooks/use-mobile-viewport"
 import { useEgoDisplaySize } from "@/hooks/use-ego-display-size"
 import { normalizeTypedAddress } from "./browser-toolbar"
 import { EgoContextMenu, type EgoContextMenuState } from "./ego-context-menu"
-import { publishEgoSession, registerEgoView } from "@/lib/browser/ego-workspace"
+import {
+  markEgoViewDisconnected,
+  publishEgoSession,
+  registerEgoView,
+  setEgoWorkspaceSuspended,
+  useEgoWorkspaceSuspended,
+} from "@/lib/browser/ego-workspace"
 import { EgoInputQueue } from "@/lib/browser/ego-input-queue"
 import { egoPagePoint } from "@/lib/browser/ego-display"
 import { watchEgoFrames } from "@/lib/browser/ego-frame-stream"
@@ -66,6 +74,7 @@ export function EgoBrowserGateway({
   tab: BrowserWorkspaceTab
   children: ReactNode
 }) {
+  const suspended = useEgoWorkspaceSuspended(tab.id)
   const [config, setConfig] = useState<EgoConfig | null>(null)
   const [pixelDisplay, setPixelDisplay] = useState(false)
   const [settings, setSettings] = useState(false)
@@ -75,6 +84,7 @@ export function EgoBrowserGateway({
   const [loaded, setLoaded] = useState(false)
   const configRevision = useRef(0)
   useEffect(() => {
+    if (suspended) return
     let disposed = false
     let timer: ReturnType<typeof setTimeout>
     const refresh = async () => {
@@ -110,7 +120,7 @@ export function EgoBrowserGateway({
       clearTimeout(timer)
       window.removeEventListener("codeg:ego-config-changed", changed)
     }
-  }, [])
+  }, [suspended])
 
   const save = async (enabled: boolean) => {
     try {
@@ -120,6 +130,7 @@ export function EgoBrowserGateway({
       setConfig(next)
       setSettings(false)
       setError("")
+      setEgoWorkspaceSuspended(tab.id, false)
       window.dispatchEvent(new Event("codeg:ego-config-changed"))
     } catch (reason) {
       setError(egoError(reason))
@@ -130,8 +141,23 @@ export function EgoBrowserGateway({
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       <div className="flex min-h-11 shrink-0 items-center gap-2 border-b px-2 text-xs sm:min-h-8">
         <span className="min-w-0 flex-1 truncate">
-          {config?.enabled ? "Ego · 执行端真实页面" : "内置浏览器"}
+          {config?.enabled || suspended ? "Ego · 执行端真实页面" : "内置浏览器"}
         </span>
+        {(config?.enabled || suspended) && (
+          <Button
+            variant="ghost"
+            className={actionClass}
+            aria-label={suspended ? "继续使用 Ego" : "挂起 Ego"}
+            onClick={() => setEgoWorkspaceSuspended(tab.id, !suspended)}
+          >
+            {suspended ? (
+              <Play className="size-3.5" />
+            ) : (
+              <Pause className="size-3.5" />
+            )}
+            {suspended ? "继续使用" : "挂起"}
+          </Button>
+        )}
         <Button
           variant="ghost"
           className={actionClass}
@@ -204,13 +230,18 @@ export function EgoBrowserGateway({
           </div>
         </div>
       )}
-      {error && (
+      {error && !suspended && (
         <p role="alert" className="border-b px-3 py-2 text-xs text-destructive">
           {error}
         </p>
       )}
       <div className="min-h-0 flex-1">
-        {!loaded ? (
+        {suspended ? (
+          <div className="space-y-1 p-3 text-xs text-muted-foreground">
+            <p>Ego 已挂起</p>
+            <p>画面连接已暂停，真实网页和 Agent 任务保留。</p>
+          </div>
+        ) : !loaded ? (
           <p className="p-3 text-xs text-muted-foreground">
             正在读取浏览器配置…
           </p>
@@ -556,6 +587,7 @@ export function EgoBrowserView({
         accept(next)
       } catch (reason) {
         if (!stopped) {
+          markEgoViewDisconnected(viewId)
           inputVersion.current += 1
           setError(egoError(reason))
         }
@@ -565,6 +597,8 @@ export function EgoBrowserView({
     }
     const visit = egoRequest<EgoSession>({ method: "session", sessionId }).then(
       (state) => {
+        // 连接返回时查看可能已关闭或挂起，不能再为已离开的入口创建真实页面。
+        if (stopped) return state
         const mobile = window.matchMedia(
           "(max-width: 767px), (max-width: 1023px) and (pointer: coarse)"
         ).matches
