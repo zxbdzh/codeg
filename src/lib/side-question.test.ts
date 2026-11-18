@@ -134,7 +134,6 @@ describe("side question transport", () => {
         requestId: "request-1",
         question: "why?",
         selection: null,
-        context: [],
         sourceConnectionId: "codex-connection",
         sourceConversationId: null,
         sourceAgentType: "codex",

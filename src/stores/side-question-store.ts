@@ -83,13 +83,15 @@ interface SideQuestionStore {
 
 const pending = new Map<string, PendingQuestion>()
 
-/** 标签草稿绑定到真实会话后仍沿用原 key，切换项目或代理则隔离旁问。 */
+/** 原生会话身份参与隔离，同一标签切换会话后不能复用旧旁问。 */
 export function sideQuestionSourceKey(source: {
   id: string
   folderId: number
   agentType: string
+  sessionId?: string | null
 }): string {
-  return `${source.id}:${source.folderId}:${source.agentType}`
+  const key = `${source.id}:${source.folderId}:${source.agentType}`
+  return source.sessionId ? `${key}:${source.sessionId}` : key
 }
 
 export const useSideQuestionStore = create<SideQuestionStore>((set, get) => {
@@ -170,7 +172,7 @@ export const useSideQuestionStore = create<SideQuestionStore>((set, get) => {
       const question = entry.question.trim()
       if (!question && entry.attachments.length === 0) return
       const job = { requestId: randomUUID(), transport: getTransport() }
-      // 追问沿用首次引用的主线快照，避免主线继续输出时悄悄改变讨论依据。
+      // 保留旧调用方的本地状态兼容；原生请求不会发送这份主线正文快照。
       const contextSnapshot =
         entry.contextSnapshot ??
         (entry.selection ? [] : context.map((item) => ({ ...item })))
@@ -178,29 +180,32 @@ export const useSideQuestionStore = create<SideQuestionStore>((set, get) => {
         (turn): SideQuestionContextEntry[] =>
           turn.status === "done" && turn.result
             ? [
-                { role: "user", text: turn.question },
+                { role: "user", text: turn.question || "[Attached file]" },
                 { role: "assistant", text: turn.result.answer },
               ]
             : []
       )
       const history: SideQuestionContextEntry[] = []
       let remaining = SIDE_QUESTION_MAX_CONTEXT_CHARS
-      // 只裁剪发给模型的近期历史；界面保留原文，按 Unicode 字符避免拆开表情。
+      // 按完整问答对裁剪，避免大回答吃完预算后留下原生协议无法接受的孤立答案。
       for (
-        let index = completed.length - 1;
+        let index = completed.length - 2;
         index >= 0 &&
         history.length < SIDE_QUESTION_MAX_MESSAGES &&
-        remaining > 0;
-        index -= 1
+        remaining >= 2;
+        index -= 2
       ) {
-        const item = completed[index]
-        const chars = Array.from(item.text.trim())
-        if (chars.length === 0) continue
-        const kept = chars.slice(-remaining)
-        history.push({ role: item.role, text: kept.join("") })
-        remaining -= kept.length
+        const questionChars = Array.from(completed[index].text)
+        const keptQuestion = questionChars.slice(0, remaining - 1)
+        const keptAnswer = Array.from(completed[index + 1].text).slice(
+          -(remaining - keptQuestion.length)
+        )
+        history.unshift(
+          { role: "user", text: keptQuestion.join("") },
+          { role: "assistant", text: keptAnswer.join("") }
+        )
+        remaining -= keptQuestion.length + keptAnswer.length
       }
-      history.reverse()
       const turn: SideQuestionTurn = {
         id: job.requestId,
         question,

@@ -72,6 +72,26 @@ describe("side question isolation", () => {
     ).toBe("tab-1:2:codex")
   })
 
+  it("isolates native sessions even when the same conversation tab is reused", () => {
+    const first = sideQuestionSourceKey({
+      id: "tab",
+      folderId: 1,
+      agentType: "codex",
+      sessionId: "native-first",
+    })
+    const second = sideQuestionSourceKey({
+      id: "tab",
+      folderId: 1,
+      agentType: "codex",
+      sessionId: "native-second",
+    })
+    useSideQuestionStore
+      .getState()
+      .setQuestion(first, "Previous native session")
+    expect(first).not.toBe(second)
+    expect(useSideQuestionStore.getState().bySource[second]).toBeUndefined()
+  })
+
   it("sends attachment-only questions and keeps a separate immutable sent snapshot", async () => {
     const waiting = deferred<SideQuestionAnswer>()
     mocks.call.mockReturnValue(waiting.promise)
@@ -130,7 +150,6 @@ describe("side question isolation", () => {
         requestId: expect.any(String),
         question: "question",
         selection: null,
-        context: [{ role: "user", text: "context" }],
         ...source,
       },
       { timeoutMs: 30 * 60_000 }
@@ -162,7 +181,6 @@ describe("side question isolation", () => {
       "side_question_ask",
       expect.objectContaining({
         question: "Why that approach?",
-        context: [{ role: "user", text: "Original context" }],
         history: [
           { role: "user", text: "How should it run?" },
           { role: "assistant", text: "Use a dedicated task" },
@@ -197,9 +215,7 @@ describe("side question isolation", () => {
     )
 
     const request = mocks.call.mock.calls[mocks.call.mock.calls.length - 1][1]
-    expect(request.context).toEqual([
-      { role: "user", text: "Updated mainline" },
-    ])
+    expect(request).not.toHaveProperty("context")
     expect(request.history).toBeUndefined()
     expect(useSideQuestionStore.getState().bySource.first.turns).toMatchObject([
       { question: "Fresh question", result: { answer: "Previous answer" } },
@@ -232,9 +248,13 @@ describe("side question isolation", () => {
     actions.setQuestion("first", "Continue")
     await actions.ask("first", [], source)
 
-    expect(mocks.call.mock.calls[1][1].history).toHaveLength(1)
+    expect(mocks.call.mock.calls[1][1].history).toHaveLength(2)
     expect(mocks.call.mock.calls[1][1].history).toEqual([
-      { role: "assistant", text: "🙂".repeat(12_000) },
+      { role: "user", text: "Original question" },
+      {
+        role: "assistant",
+        text: "🙂".repeat(12_000 - "Original question".length),
+      },
     ])
     expect(
       useSideQuestionStore.getState().bySource.first.turns[0].result?.answer
@@ -249,7 +269,7 @@ describe("side question isolation", () => {
     await actions.ask("first", [{ role: "user", text: "not sent" }], source)
     expect(mocks.call).toHaveBeenCalledWith(
       "side_question_ask",
-      expect.objectContaining({ selection: "selected", context: [] }),
+      expect.objectContaining({ selection: "selected" }),
       expect.anything()
     )
   })

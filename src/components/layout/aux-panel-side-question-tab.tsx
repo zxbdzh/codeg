@@ -46,6 +46,7 @@ import {
 } from "@/contexts/acp-connections-context"
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { useTabStore } from "@/contexts/tab-context"
+import { useNativeSideQuestion } from "@/hooks/use-native-side-question"
 import { filesFromClipboard } from "@/lib/clipboard-images"
 import {
   SIDE_ATTACHMENT_MAX_TEXT_CHARS,
@@ -56,11 +57,9 @@ import {
 } from "@/lib/side-question-attachments"
 import { copyTextToClipboard } from "@/lib/utils"
 import {
-  buildSideQuestionContext,
   SIDE_QUESTION_MAX_QUESTION_CHARS,
   unicodeLength,
 } from "@/lib/side-question"
-import { getTimelineTurns } from "@/stores/conversation-runtime-store"
 import {
   EMPTY_SIDE_QUESTION,
   sideQuestionSourceKey,
@@ -159,7 +158,7 @@ export function SideQuestionTab() {
     () => tabs.find((tab) => tab.id === activeTabId) ?? null,
     [tabs, activeTabId]
   )
-  const sourceKey = source ? sideQuestionSourceKey(source) : null
+  const native = useNativeSideQuestion(source)
   const sourceTabId = source?.id ?? null
   const connectionStore = useOptionalConnectionStore()
   const subscribeConnection = useCallback(
@@ -179,8 +178,13 @@ export function SideQuestionTab() {
     getConnection,
     () => undefined
   )
+  const sourceKey = source
+    ? sideQuestionSourceKey({ ...source, sessionId: connection?.sessionId })
+    : null
   const connectionReady = Boolean(
-    source && canFollowConnection(connection, source.agentType)
+    native.supported &&
+    source &&
+    canFollowConnection(connection, source.agentType)
   )
   const modelOption = connectionReady
     ? connection?.configOptions?.find(
@@ -264,6 +268,10 @@ export function SideQuestionTab() {
       )
       // 读取文件时可能切会话或清空；旧读取不能重新填回已撤销的附件。
       if (intake.current !== job) return
+      if (!native.images && attachments.some((item) => item.type === "image")) {
+        toast.error(t("imagesUnsupported"))
+        return
+      }
       const latest =
         useSideQuestionStore.getState().bySource[targetKey]?.attachments ?? []
       const conflict = validateSideAttachmentBatch(
@@ -305,18 +313,18 @@ export function SideQuestionTab() {
       (tab) => tab.id === tabState.activeTabId
     )
     // 点击与渲染之间可能换标签、代理或重连，不能沿用旧闭包里的连接身份。
-    if (!currentSource || sideQuestionSourceKey(currentSource) !== sourceKey)
-      return
+    if (!currentSource) return
     const currentConnection = connectionStore.getConnection(currentSource.id)
+    if (
+      sideQuestionSourceKey({
+        ...currentSource,
+        sessionId: currentConnection?.sessionId,
+      }) !== sourceKey
+    )
+      return
     if (!canFollowConnection(currentConnection, currentSource.agentType)) return
-    const runtimeId =
-      currentSource.runtimeConversationId ?? currentSource.conversationId
-    // 点击发送时再取快照，随后主线的新输出不会改变本次旁问的引用范围。
-    const context =
-      runtimeId == null
-        ? []
-        : buildSideQuestionContext(getTimelineTurns(runtimeId))
-    void useSideQuestionStore.getState().ask(sourceKey, context, {
+    // 原生代理自行继承会话历史；前端不再截取正文来冒充主线上下文。
+    void useSideQuestionStore.getState().ask(sourceKey, [], {
       sourceConnectionId: currentConnection.connectionId,
       sourceConversationId: currentSource.conversationId,
       sourceAgentType: currentSource.agentType,
@@ -504,10 +512,7 @@ export function SideQuestionTab() {
                             ? t("selectionStats", {
                                 chars: turn.result.selectionChars,
                               })
-                            : t("contextStats", {
-                                messages: turn.result.contextMessages,
-                                chars: turn.result.contextChars,
-                              })}
+                            : (turn.result.modelName ?? t("followCurrent"))}
                         </p>
                         <Button
                           type="button"
@@ -573,7 +578,7 @@ export function SideQuestionTab() {
         <ComposerSurface {...chromeFocus} dragActive={draggingFiles}>
           {draggingFiles && (
             <p role="status" className="text-[11px] text-muted-foreground">
-              {t("dropFiles")}
+              {native.images ? t("dropFiles") : t("dropTextFiles")}
             </p>
           )}
           {entry.attachments.length > 0 && (

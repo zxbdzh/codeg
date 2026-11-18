@@ -176,17 +176,6 @@ pub async fn run(
     run_inner(manager, db, data_dir, request, Vec::new(), cancel, false).await
 }
 
-pub(crate) async fn run_with_verified_blocks(
-    manager: &ConnectionManager,
-    db: &AppDatabase,
-    data_dir: &Path,
-    request: OneShotRequest,
-    images: Vec<PromptInputBlock>,
-    cancel: &CancellationToken,
-) -> Result<String, OneShotError> {
-    run_inner(manager, db, data_dir, request, images, cancel, true).await
-}
-
 async fn run_inner(
     manager: &ConnectionManager,
     db: &AppDatabase,

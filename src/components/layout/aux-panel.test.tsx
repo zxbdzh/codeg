@@ -105,6 +105,19 @@ const scene = vi.hoisted(() => ({
   provider: null as "github" | "gitlab" | "gitea" | null,
   /** Every folder the panel asked the forge lookup about, in order. */
   providerAsked: [] as (number | null)[],
+  nativeSideQuestion: true,
+  nativeResolved: true,
+}))
+vi.mock("@/hooks/use-native-side-question", () => ({
+  useNativeSideQuestion: () => ({
+    supported: scene.nativeSideQuestion,
+    images: true,
+    resolved: scene.nativeResolved,
+  }),
+}))
+vi.mock("@/contexts/tab-context", () => ({
+  useTabStore: (select: (state: unknown) => unknown) =>
+    select({ tabs: [], activeTabId: null }),
 }))
 // A live selection and open state, so a press on the rail really switches the
 // panel, and a click that closes it really does.
@@ -260,6 +273,8 @@ describe("AuxPanel", () => {
       mobile: false,
       provider: null,
       providerAsked: [],
+      nativeSideQuestion: true,
+      nativeResolved: true,
     })
     motion.onReorder = null
     motion.dragStart.clear()
@@ -270,6 +285,39 @@ describe("AuxPanel", () => {
     scene.isOpen = false
     const { container } = renderPanel()
     expect(container).toBeEmptyDOMElement()
+  })
+
+  it.each([false, true])(
+    "hides an unsupported side-question tab and falls back to details (mobile: %s)",
+    (mobile) => {
+      scene.mobile = mobile
+      scene.nativeSideQuestion = false
+      scene.initialTab = "side_question"
+      renderPanel()
+      expect(
+        screen.queryByRole("tab", { name: "Side question", hidden: true })
+      ).toBeNull()
+      expect(screen.queryByTestId("body-side_question")).toBeNull()
+      expect(screen.getByTestId("body-session_details")).toBeInTheDocument()
+    }
+  )
+
+  it("restores the selected side-question tab when a new native connection finishes probing", () => {
+    scene.initialTab = "side_question"
+    scene.nativeSideQuestion = false
+    scene.nativeResolved = false
+    const view = renderPanel()
+    scene.nativeSideQuestion = true
+    scene.nativeResolved = true
+    view.rerender(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <AuxPanel />
+      </NextIntlClientProvider>
+    )
+    expect(
+      screen.getByRole("tab", { name: "Side question", hidden: true })
+    ).toHaveAttribute("aria-selected", "true")
+    expect(screen.getByTestId("body-side_question")).toBeInTheDocument()
   })
 
   it("lists every tab on the vertical rail, in the built-in order by default", () => {

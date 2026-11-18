@@ -765,6 +765,10 @@ pub fn build_router_with_proxy_auth(
             post(handlers::commit_message::git_generate_commit_message_cancel),
         )
         .route(
+            "/side_question_capability",
+            post(handlers::side_question::side_question_capability),
+        )
+        .route(
             "/side_question_ask",
             post(handlers::side_question::side_question_ask).layer(
                 axum::extract::DefaultBodyLimit::max(12 * 1024 * 1024),

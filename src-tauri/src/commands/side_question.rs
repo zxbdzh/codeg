@@ -5,6 +5,52 @@ use crate::app_error::AppCommandError;
 use crate::db::AppDatabase;
 use crate::side_question::{self, AskRequest, SideQuestionAnswer};
 
+pub async fn side_question_capability_core(
+    db: &AppDatabase,
+    manager: &ConnectionManager,
+    data_dir: &Path,
+    source_connection_id: String,
+    source_conversation_id: Option<i32>,
+    source_agent_type: crate::models::AgentType,
+) -> Result<side_question::NativeCapability, AppCommandError> {
+    side_question::capability(
+        db,
+        manager,
+        data_dir,
+        source_connection_id,
+        source_conversation_id,
+        source_agent_type,
+    )
+    .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn side_question_capability(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDatabase>,
+    manager: tauri::State<'_, ConnectionManager>,
+    source_connection_id: String,
+    source_conversation_id: Option<i32>,
+    source_agent_type: crate::models::AgentType,
+) -> Result<side_question::NativeCapability, AppCommandError> {
+    use tauri::Manager;
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map(|path| crate::paths::resolve_effective_data_dir(&path))
+        .map_err(|error| AppCommandError::invalid_input(error.to_string()))?;
+    side_question_capability_core(
+        &db,
+        &manager,
+        &data_dir,
+        source_connection_id,
+        source_conversation_id,
+        source_agent_type,
+    )
+    .await
+}
+
 pub async fn side_question_ask_core(
     db: &AppDatabase,
     manager: &ConnectionManager,

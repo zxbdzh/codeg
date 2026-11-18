@@ -36,6 +36,7 @@ import {
   sideQuestionSourceKey,
   useSideQuestionStore,
 } from "@/stores/side-question-store"
+import { useNativeSideQuestion } from "@/hooks/use-native-side-question"
 import { FolderTabsEmptyState } from "@/components/conversations/folder-tabs-empty-state"
 import { useTabActions, useTabStore } from "@/contexts/tab-context"
 import {
@@ -1974,17 +1975,27 @@ const ConversationTabView = memo(function ConversationTabView({
   }, [])
 
   const { openTab: openAuxTab } = useAuxPanelContext()
+  const nativeSideQuestion = useNativeSideQuestion(
+    isActive
+      ? {
+          id: tabId,
+          conversationId: dbConversationId,
+          agentType: selectedAgent,
+        }
+      : null
+  )
   const handleSideQuestionSelection = useCallback(
     (selected: string) => {
       const sourceKey = sideQuestionSourceKey({
         id: tabId,
         folderId,
         agentType: selectedAgent,
+        sessionId: conn.sessionId,
       })
       useSideQuestionStore.getState().setSelection(sourceKey, selected)
       openAuxTab("side_question")
     },
-    [folderId, openAuxTab, selectedAgent, tabId]
+    [conn.sessionId, folderId, openAuxTab, selectedAgent, tabId]
   )
 
   /**
@@ -2411,7 +2422,11 @@ const ConversationTabView = memo(function ConversationTabView({
           // rather than a usable composer here — a transcript whose composer is
           // blocked (session/load failure) can still spawn the question elsewhere.
           onAskSelection={canAskSelection ? handleAskSelection : undefined}
-          onSideQuestionSelection={handleSideQuestionSelection}
+          onSideQuestionSelection={
+            nativeSideQuestion.supported
+              ? handleSideQuestionSelection
+              : undefined
+          }
           // A prompt fork moves the selected text into the draft after the
           // session fork succeeds; it is not queued or sent on its own.
           onForkFromPrompt={

@@ -19,6 +19,18 @@ export interface SideQuestionSource {
   sourceAgentType: AgentType
 }
 
+export interface NativeSideQuestionCapability {
+  supported: boolean
+  images: boolean
+}
+
+export function getSideQuestionCapability(
+  transport: Transport,
+  source: SideQuestionSource
+): Promise<NativeSideQuestionCapability> {
+  return transport.call("side_question_capability", { ...source })
+}
+
 export interface SideQuestionRequest extends SideQuestionSource {
   requestId: string
   question: string
@@ -85,7 +97,6 @@ export function askSideQuestion(
       requestId: request.requestId,
       question: request.question,
       selection: request.selection,
-      context: request.context,
       ...(request.history?.length ? { history: request.history } : {}),
       ...(request.attachments?.length
         ? { attachments: request.attachments }

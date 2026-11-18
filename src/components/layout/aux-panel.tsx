@@ -26,6 +26,8 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { usePlatform } from "@/hooks/use-platform"
 import { useTabReselect } from "@/hooks/use-tab-reselect"
 import { useZoomLevel } from "@/hooks/use-appearance"
+import { useNativeSideQuestion } from "@/hooks/use-native-side-question"
+import { useTabStore } from "@/contexts/tab-context"
 import { useAuxTabOrder, type AuxTabOrder } from "@/lib/aux-panel-tab-order"
 import { useFolderForgeProvider } from "@/lib/forge-provider-cache"
 import { isDesktop } from "@/lib/platform"
@@ -134,15 +136,23 @@ export function AuxPanel() {
   const { isWindows, isLinux } = usePlatform()
   const { zoomLevel } = useZoomLevel()
   const tabOrder = useAuxTabOrder()
+  const source = useTabStore(
+    (state) => state.tabs.find((tab) => tab.id === state.activeTabId) ?? null
+  )
+  const sideQuestion = useNativeSideQuestion(source)
   const [mountedTabs, setMountedTabs] = useState<Set<AuxPanelTab>>(
     () => new Set(LAZY_TABS.filter((tab) => tab === activeTab))
   )
 
-  const { showFolderTabs, effectiveTab } = resolveAuxTabView(
+  const { showFolderTabs, effectiveTab: resolvedTab } = resolveAuxTabView(
     activeTab,
     activeFolderId,
     isChatMode
   )
+  const effectiveTab =
+    resolvedTab === "side_question" && !sideQuestion.supported
+      ? "session_details"
+      : resolvedTab
   // GitLab calls them merge requests, GitHub and Gitea pull requests: the tab
   // is named for the forge the project's remote is on, as the repository
   // panel's own switcher is. Looked up only while the tab is on the rail.
@@ -164,10 +174,21 @@ export function AuxPanel() {
   // chat session), so other consumers of `activeTab` stay in sync with what's
   // shown. Done in an effect — never a render-time setState on the provider.
   useEffect(() => {
-    if (!showFolderTabs && !SESSION_TABS.includes(activeTab)) {
+    if (
+      (!showFolderTabs && !SESSION_TABS.includes(activeTab)) ||
+      (activeTab === "side_question" &&
+        sideQuestion.resolved &&
+        !sideQuestion.supported)
+    ) {
       setActiveTab("session_details")
     }
-  }, [showFolderTabs, activeTab, setActiveTab])
+  }, [
+    showFolderTabs,
+    activeTab,
+    setActiveTab,
+    sideQuestion.supported,
+    sideQuestion.resolved,
+  ])
 
   const handleTabValueChange = useCallback(
     (value: string) => {
@@ -224,9 +245,11 @@ export function AuxPanel() {
     ]
   )
 
-  const shownTabs = showFolderTabs
-    ? tabOrder
-    : tabOrder.filter((tab) => SESSION_TABS.includes(tab))
+  const shownTabs = tabOrder.filter(
+    (tab) =>
+      (showFolderTabs || SESSION_TABS.includes(tab)) &&
+      (tab !== "side_question" || sideQuestion.supported)
+  )
 
   if (!isOpen) return null
 
@@ -244,7 +267,9 @@ export function AuxPanel() {
         forceMount
         className="mt-0 flex-1 min-h-0 overflow-hidden"
       >
-        {mountedTabs.has("side_question") ? <SideQuestionTab /> : null}
+        {sideQuestion.supported && mountedTabs.has("side_question") ? (
+          <SideQuestionTab />
+        ) : null}
       </TabsContent>
       <TabsContent
         value="conversation_fork"

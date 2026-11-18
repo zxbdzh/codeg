@@ -21,6 +21,7 @@ type TestConnection = Pick<
   | "configOptions"
   | "isViewer"
   | "configStale"
+  | "sessionId"
 >
 
 const scene = vi.hoisted(() => ({
@@ -41,10 +42,17 @@ const scene = vi.hoisted(() => ({
   toastError: vi.fn(),
   getTimelineTurns: vi.fn(() => []),
   editorSubmit: null as (() => void) | null,
+  nativeImages: true,
 }))
 
 vi.mock("@/lib/transport", () => ({
   getTransport: () => ({ call: scene.call }),
+}))
+vi.mock("@/hooks/use-native-side-question", () => ({
+  useNativeSideQuestion: () => ({
+    supported: true,
+    images: scene.nativeImages,
+  }),
 }))
 vi.mock("@/lib/utils", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/utils")>()),
@@ -185,6 +193,7 @@ function connection(overrides: Partial<TestConnection> = {}): TestConnection {
     selectorsReady: true,
     isViewer: false,
     configStale: false,
+    sessionId: null,
     configOptions: [
       {
         id: "model",
@@ -212,6 +221,7 @@ function updateConnection(next: TestConnection | undefined, tabId = "tab-1") {
 describe("SideQuestionTab", () => {
   beforeEach(() => {
     resetSideQuestions()
+    scene.nativeImages = true
     scene.isOpen = true
     scene.activeTab = "side_question"
     scene.activeTabId = "tab-1"
@@ -296,12 +306,29 @@ describe("SideQuestionTab", () => {
       requestId: expect.any(String),
       question: "What does this mean?",
       selection: null,
-      context: [],
       sourceConnectionId: "codex-connection",
       sourceConversationId: 12,
       sourceAgentType: "codex",
     })
-    expect(scene.getTimelineTurns).toHaveBeenCalledWith(12)
+    expect(scene.getTimelineTurns).not.toHaveBeenCalled()
+  })
+
+  it("sends from a live native session and isolates the saved side thread by session id", async () => {
+    scene.connections["tab-1"] = connection({ sessionId: "native-first" })
+    renderTab()
+    enterQuestion("Native question")
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
+    await screen.findByText("Independent answer")
+    expect(
+      useSideQuestionStore.getState().bySource["tab-1:1:codex:native-first"]
+        ?.result?.answer
+    ).toBe("Independent answer")
+    updateConnection(connection({ sessionId: "native-second" }))
+    expect(screen.queryByText("Independent answer")).toBeNull()
+    enterQuestion("Another native question")
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
+    await screen.findByText("Independent answer")
+    expect(scene.call).toHaveBeenCalledTimes(2)
   })
 
   it("keeps earlier exchanges visible while continuing the side conversation", async () => {
@@ -322,10 +349,8 @@ describe("SideQuestionTab", () => {
     expect(screen.getByText("Independent answer")).toBeInTheDocument()
     expect(screen.getByText("What about the alternative?")).toBeInTheDocument()
     expect(
-      screen.getAllByText(
-        "Main conversation context: 0 messages · 0 characters"
-      )
-    ).toHaveLength(2)
+      screen.queryByText("Main conversation context: 0 messages · 0 characters")
+    ).toBeNull()
     expect(scene.call).toHaveBeenLastCalledWith(
       "side_question_ask",
       expect.objectContaining({
@@ -360,6 +385,19 @@ describe("SideQuestionTab", () => {
       }),
       expect.anything()
     )
+  })
+
+  it("rejects images when the native side-question protocol accepts text only", async () => {
+    scene.nativeImages = false
+    renderTab()
+    dropFiles([new File(["image"], "screen.png", { type: "image/png" })])
+    await waitFor(() => {
+      expect(scene.toastError).toHaveBeenCalledWith(
+        enMessages.Folder.sideQuestion.imagesUnsupported
+      )
+    })
+    expect(screen.queryByAltText("screen.png")).toBeNull()
+    expect(scene.call).not.toHaveBeenCalled()
   })
 
   it("accepts pasted and dropped files and removes an attachment before asking", async () => {
@@ -649,7 +687,7 @@ describe("SideQuestionTab", () => {
     }
   )
 
-  it("sends a null persisted source for a draft while reading its runtime context", async () => {
+  it("sends the native source identity without reading the frontend timeline", async () => {
     scene.tabs[0] = {
       ...scene.tabs[0],
       conversationId: null,
@@ -659,7 +697,7 @@ describe("SideQuestionTab", () => {
     enterQuestion()
     fireEvent.click(screen.getByRole("button", { name: "Ask" }))
     await screen.findByText("Independent answer")
-    expect(scene.getTimelineTurns).toHaveBeenCalledWith(-12)
+    expect(scene.getTimelineTurns).not.toHaveBeenCalled()
     expect(scene.call).toHaveBeenCalledWith(
       "side_question_ask",
       expect.objectContaining({ sourceConversationId: null }),
@@ -684,7 +722,7 @@ describe("SideQuestionTab", () => {
       }),
       expect.anything()
     )
-    expect(scene.getTimelineTurns).toHaveBeenCalledWith(42)
+    expect(scene.getTimelineTurns).not.toHaveBeenCalled()
   })
 
   it.each(["missing", "agent", "selectors", "disconnected", "tab", "retarget"])(
@@ -846,7 +884,7 @@ describe("SideQuestionTab", () => {
     await waitFor(() => {
       expect(scene.call).toHaveBeenCalledWith(
         "side_question_ask",
-        expect.objectContaining({ selection: "Chosen passage", context: [] }),
+        expect.objectContaining({ selection: "Chosen passage" }),
         expect.anything()
       )
     })

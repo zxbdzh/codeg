@@ -1985,6 +1985,7 @@ mod tauri_app {
                 commit_message_commands::get_commit_message_settings,
                 commit_message_commands::set_commit_message_settings,
                 commit_message_commands::delete_commit_message_settings,
+                side_question_commands::side_question_capability,
                 side_question_commands::side_question_ask,
                 research_branch_commands::conversation_fork,
                 research_branch_commands::conversation_redo_status,
