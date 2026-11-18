@@ -2580,7 +2580,7 @@
       "followingModel": "Suivre la conversation actuelle · {model}",
       "connectionRequired": "Connectez d’abord la conversation actuelle. Les questions annexes suivent le modèle et l’intensité de raisonnement de cette connexion.",
       "modelPending": "Synchronisation des réglages du modèle de la conversation actuelle. Veuillez patienter avant de poser une question.",
-      "unsupported": "Le suivi de cet agent n’est pas encore pris en charge. Seuls Claude Code et Codex sont actuellement compatibles avec les questions annexes.",
+      "unsupported": "Cette connexion ne dispose d’aucune fonction native de question annexe ni d’extension compatible.",
       "settings": {
         "title": "Modèle des questions annexes",
         "description": "Les questions annexes suivent le modèle et l’intensité de raisonnement de la conversation actuelle. Aucun réglage séparé n’est nécessaire.",

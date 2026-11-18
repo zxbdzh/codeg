@@ -650,17 +650,29 @@ describe("SideQuestionTab", () => {
   })
 
   it("shows unsupported agents explicitly even with a ready connection", () => {
+    scene.tabs[1] = { ...scene.tabs[1], agentType: "gemini" }
     scene.activeTabId = "tab-2"
-    scene.connections["tab-2"] = connection({ agentType: "pi" })
+    scene.connections["tab-2"] = connection({ agentType: "gemini" })
     renderTab()
     enterQuestion()
     expect(
-      screen.getByText(/Following this agent is not supported yet/)
+      screen.getByText(/no available native side-question capability/)
     ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled()
     expect(screen.queryByText(/Follow current conversation ·/)).toBeNull()
     expect(scene.call).not.toHaveBeenCalled()
   })
+
+  it.each(["pi", "deepseek"] as const)(
+    "sends a plugin-backed side question for %s",
+    (agentType) => {
+      scene.tabs[0] = { ...scene.tabs[0], agentType }
+      scene.connections["tab-1"] = connection({ agentType })
+      renderTab()
+      enterQuestion()
+      expect(screen.getByRole("button", { name: "Ask" })).toBeEnabled()
+    }
+  )
 
   it.each(["connected", "prompting"] as const)(
     "allows a Claude viewer to ask while %s",

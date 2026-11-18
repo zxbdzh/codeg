@@ -2580,7 +2580,7 @@
       "followingModel": "Seguir la conversación actual · {model}",
       "connectionRequired": "Conecta primero la conversación actual. Las preguntas aparte siguen el modelo y la intensidad de razonamiento de esa conexión.",
       "modelPending": "Sincronizando los ajustes del modelo de la conversación actual. Espera antes de preguntar.",
-      "unsupported": "Aún no se puede seguir a este agente. Las preguntas aparte solo admiten Claude Code y Codex por ahora.",
+      "unsupported": "Esta conexión no tiene una función nativa de preguntas aparte ni un complemento compatible disponible.",
       "settings": {
         "title": "Modelo de preguntas paralelas",
         "description": "Las preguntas aparte siguen el modelo y la intensidad de razonamiento de la conversación actual. No necesitan una configuración independiente.",

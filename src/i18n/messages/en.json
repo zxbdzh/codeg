@@ -2642,7 +2642,7 @@
       "followingModel": "Follow current conversation · {model}",
       "connectionRequired": "Connect the current conversation first. Side questions follow that connection's model and reasoning effort.",
       "modelPending": "Syncing the current conversation's model settings. Please wait before asking.",
-      "unsupported": "Following this agent is not supported yet. Side questions currently support Claude Code and Codex only.",
+      "unsupported": "This connection has no available native side-question capability or compatible plugin.",
       "settings": {
         "title": "Side question model",
         "description": "Side questions follow the current conversation's model and reasoning effort. No separate configuration is needed.",

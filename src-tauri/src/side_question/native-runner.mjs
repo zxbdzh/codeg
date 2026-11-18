@@ -1,10 +1,257 @@
 import { spawn, execFile } from "node:child_process"
-import { existsSync, realpathSync } from "node:fs"
+import { existsSync, readFileSync, realpathSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { randomUUID } from "node:crypto"
+import { createRequire } from "node:module"
 import { createInterface } from "node:readline"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 const MAX_FRAME_BYTES = 8 * 1024 * 1024
+
+export function packageDirectory(program, name) {
+  for (const start of [dirname(resolve(program)), dirname(realpathSync(program))]) {
+    let directory = start
+    for (let depth = 0; depth < 7; depth += 1) {
+      for (const candidate of [directory, join(directory, "node_modules", name)]) {
+        const manifest = join(candidate, "package.json")
+        if (existsSync(manifest) && JSON.parse(readFileSync(manifest, "utf8")).name === name) {
+          return candidate
+        }
+      }
+      const parent = dirname(directory)
+      if (parent === directory) break
+      directory = parent
+    }
+  }
+  throw new Error(`The connection's ${name} package is unavailable`)
+}
+
+async function piRuntime(request) {
+  const directory = packageDirectory(request.program, "@earendil-works/pi-coding-agent")
+  const plugin = packageDirectory(request.program, "pi-btw")
+  const version = JSON.parse(readFileSync(join(directory, "package.json"), "utf8")).version
+  const pluginVersion = JSON.parse(readFileSync(join(plugin, "package.json"), "utf8")).version
+  if (!versionAtLeast(version, [1, 5, 0]) || !versionAtLeast(pluginVersion, [0, 8, 1])) {
+    throw new Error("Pi or pi-btw is too old for this native bridge")
+  }
+  return { sdk: join(directory, "dist", "index.js"), plugin, version, minimum: [1, 5, 0] }
+}
+
+export function completedPiLeaf(entries) {
+  return entries.findLast((entry) =>
+    entry.type === "message" &&
+    entry.message?.role === "assistant" &&
+    entry.message.stopReason === "stop"
+  )?.id ?? null
+}
+
+async function askPi(runtime, request) {
+  if (request.images?.length) throw new Error("The Pi side-question plugin accepts text only")
+  const sdk = await import(pathToFileURL(runtime.sdk).href)
+  const file = sdk.SessionManager.findById(request.cwd, request.sessionId)
+  if (!file) throw new Error("The current native Pi session is unavailable")
+  const entries = readFileSync(file, "utf8").split("\n").filter(Boolean).map(JSON.parse)
+  if (entries[0]?.type !== "session" || entries[0].id !== request.sessionId) {
+    throw new Error("Pi session identity does not match the connection")
+  }
+  const modelRuntime = await sdk.ModelRuntime.create({ allowModelNetwork: false })
+  const model = modelRuntime.getAllModels().find(
+    (candidate) => `${candidate.provider}/${candidate.id}` === request.model
+  )
+  if (!model) throw new Error("The connection's Pi model is unavailable")
+  const settings = sdk.SettingsManager.inMemory({})
+  const loader = new sdk.DefaultResourceLoader({
+    cwd: request.cwd,
+    agentDir: sdk.getAgentDir(),
+    settingsManager: settings,
+    // 仅加载已安装的旁问插件，避免重放主线扩展的启动钩子或自动安装其他包。
+    noExtensions: true,
+    additionalExtensionPaths: [join(runtime.plugin, "extensions", "btw.ts")],
+    noSkills: true,
+    noPromptTemplates: true,
+    noThemes: true,
+  })
+  await loader.reload()
+  if (loader.getExtensions().errors.length) throw new Error("The Pi side-question plugin could not load")
+  // 原生日志只读；插件的隐藏状态和会话备注全部写入内存副本。
+  const memory = sdk.SessionManager.inMemory(request.cwd, undefined, entries)
+  const completedLeaf = completedPiLeaf(memory.getBranch())
+  // 主线正在生成时，只继承最后一个已完成回合，不把悬空工具调用带入旁问。
+  if (completedLeaf) memory.branch(completedLeaf)
+  else memory.resetLeaf()
+  memory.appendCustomEntry("btw-thread-reset", { timestamp: Date.now(), mode: "readonly" })
+  for (const pair of claudeHistory(request.history)) {
+    memory.appendCustomEntry("btw-thread-entry", {
+      question: pair.question, answer: pair.response, thinking: "",
+      provider: model.provider, model: model.id, api: model.api,
+      thinkingLevel: request.effort ?? "off", timestamp: Date.now(),
+    })
+  }
+  const { session } = await sdk.createAgentSession({
+    cwd: request.cwd,
+    modelRuntime,
+    model,
+    thinkingLevel: request.effort ?? "off",
+    tools: [],
+    sessionManager: memory,
+    settingsManager: settings,
+    resourceLoader: loader,
+  })
+  let callable = false
+  try {
+    await session.bindExtensions({
+      onError: () => { throw new Error("The Pi side-question plugin failed") },
+    })
+    callable = Boolean(session.extensionRunner.getCommand("btw:ask"))
+    if (!callable) throw new Error("The installed Pi plugin has no callable side-question command")
+    if (request.operation === "probe") return { supported: true, images: false }
+    await session.prompt(`/btw:ask ${request.question}`)
+    const note = session.state.messages.findLast(
+      (message) => message.role === "custom" && message.customType === "btw-note"
+    )
+    if (!note?.details?.answer?.trim()) throw new Error("The Pi plugin did not return a side-question answer")
+    return { answer: note.details.answer }
+  } finally {
+    try {
+      if (callable) await session.prompt("/btw:clear")
+    } finally {
+      session.dispose()
+    }
+  }
+}
+
+async function dshRuntime(request) {
+  const directory = packageDirectory(request.program, "deepseek-acp")
+  const require = createRequire(join(directory, "package.json"))
+  const plugin = packageDirectory(request.program, "@dsh-external/dsh-sidechain")
+  const manifest = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"))
+  const pluginManifest = JSON.parse(readFileSync(join(plugin, "package.json"), "utf8"))
+  const version = manifest.version
+  const harness = manifest.dependencies["@deepseek-ai/dsh-agent-loop"]
+  // Cordis 服务与日志格式按运行时系列配套，不能把旧插件强挂到新会话上。
+  if (!versionAtLeast(version, [0, 11, 0]) ||
+      !pluginManifest.peerDependencies["@deepseek-ai/dsh-agent"].includes(harness)) {
+    throw new Error("DSH Sidechain is incompatible with the connection's runtime")
+  }
+  const load = (name) => import(pathToFileURL(require.resolve(name)).href)
+  await load("@deepseek-ai/dsh-subagent")
+  await load("@deepseek-ai/dsh-subagent-fork-in-process")
+  return { directory, plugin, load, version, minimum: [0, 11, 0] }
+}
+
+async function askDsh(runtime, request) {
+  if (request.images?.length) throw new Error("This DSH side-question bridge accepts text only")
+  const { load, directory } = runtime
+  const [{ Context }, boot, persistence, subagent, fork, plugin, credentials, deepseek, settings, piAi, sessionTypes] = await Promise.all([
+    load("@deepseek-ai/cordis"),
+    import(pathToFileURL(join(directory, "lib", "launcher", "boot.js")).href),
+    load("@deepseek-ai/dsh-session-persistence-jsonl"),
+    load("@deepseek-ai/dsh-subagent"),
+    load("@deepseek-ai/dsh-subagent-fork-in-process"),
+    import(pathToFileURL(join(runtime.plugin, "lib", "index.js")).href),
+    load("@deepseek-ai/dsh-credentials-local"),
+    load("@deepseek-ai/dsh-llm-deepseek-api-key"),
+    import(pathToFileURL(join(directory, "lib", "composition", "settings.js")).href),
+    import(pathToFileURL(join(directory, "lib", "composition", "pi-ai.js")).href),
+    load("@deepseek-ai/dsh-session"),
+  ])
+  const reader = new Context()
+  let stored
+  try {
+    await reader.plugin(persistence, { root: boot.sessionsRoot(process.env) })
+    const handle = await reader.sessionPersistence.open(sessionTypes.SessionId(request.sessionId), "read")
+    try {
+      stored = { header: handle.header, events: (await handle.read()).events }
+    } finally {
+      await handle.close()
+    }
+  } finally {
+    await reader.fiber.dispose()
+  }
+  if (resolve(stored.header.cwd) !== resolve(request.cwd)) throw new Error("DSH session workspace does not match the connection")
+  const temporary = await mkdtemp(join(tmpdir(), "codeg-dsh-side-"))
+  const ctx = new Context()
+  let parent
+  try {
+    await boot.composeAgent(ctx, { sessionsRoot: temporary })
+    await ctx.plugin(credentials.default, { watch: false })
+    await ctx.plugin(deepseek, boot.DEEPSEEK_PROVIDER_CONFIG)
+    await ctx.plugin((await load("@deepseek-ai/cordis-plugin-loader")).default, {
+      baseUrl: pathToFileURL(join(directory, "lib", "launcher", "boot.js")).href,
+    })
+    await ctx.plugin(settings.AcpSettings, {})
+    if (ctx.acpSettings.mentionsPiAi()) await piAi.ensurePiAi(ctx)
+    await ctx.plugin(subagent.default, {})
+    await ctx.plugin(fork, {})
+    await ctx.plugin(plugin, { readOnlyTools: ["grep", "glob"] })
+    const provider = ctx.llm.listProviders()
+      .map((entry) => entry.id)
+      .sort((left, right) => right.length - left.length)
+      .find((id) => request.model.startsWith(`${id}::`))
+      ?? process.env.DEEPSEEK_ACP_PROVIDER ?? "deepseek-official"
+    const model = request.model.startsWith(`${provider}::`)
+      ? request.model.slice(provider.length + 2) : request.model
+    const last = stored.events.findLastIndex((event) => event.type === "turn/end")
+    const seed = stored.events.slice(0, last + 1)
+    parent = await ctx.agents.create({
+      sessionId: sessionTypes.SessionId(randomUUID()),
+      meta: { cwd: request.cwd, ...(seed.length ? { isSeeded: true } : {}) },
+      seed,
+      ...(seed.length ? { inheritedEventCount: sessionTypes.SessionLogOffset(seed.length) } : {}),
+      agentOptions: { provider, model, ...(request.effort ? { reasoningEffort: request.effort } : {}) },
+    })
+    const selection = {
+      provider, model, ...(request.effort ? { reasoningEffort: request.effort } : {}),
+    }
+    // fork 只复制闭合回合，子会话创建后再次选择，避免历史 request/header 覆盖当前配置。
+    ctx.on("agent/created", ({ agent }) => {
+      if (agent.session.header.parentSession === parent.agent.session.id) {
+        agent.model.select(selection)
+      }
+      return undefined
+    })
+    const command = ctx.commands.find(parent.agent, "btw")
+    if (!command || !ctx.subagents.getProvider("fork")?.inheritsParentContext) {
+      throw new Error("The DSH Sidechain command is unavailable")
+    }
+    if (request.operation === "probe") return { supported: true, images: false }
+    let settle
+    const completed = new Promise((accept) => { settle = accept })
+    let ended
+    ctx.on("subagent/end", (info) => {
+      if (info.parentSessionId === parent.agent.session.id) {
+        ended = info
+        settle(info)
+      }
+    })
+    const question = request.history?.length
+      ? `${request.question}\n\nPrevious side-conversation exchanges (reference only):\n${JSON.stringify(claudeHistory(request.history))}`
+      : request.question
+    // 直接调用插件命令处理器：command/run 和子会话元数据仅进入临时副本。
+    const result = await command.handler({
+      agent: parent.agent, rawInput: question, attachments: [],
+      signal: new AbortController().signal,
+    })
+    if (result.kind !== "success") throw new Error("DSH Sidechain could not start the side question")
+    const outcome = ended ?? await completed
+    if (outcome.stopReason !== "completed") throw new Error("DSH Sidechain did not complete the side question")
+    const answer = outcome.lastAssistantMessage?.filter((part) => part.type === "text").map((part) => part.text).join("\n")
+    if (!answer?.trim()) throw new Error("DSH Sidechain returned no answer")
+    return { answer }
+  } finally {
+    try {
+      await parent?.dispose()
+    } finally {
+      try {
+        await ctx.fiber.dispose()
+      } finally {
+        await rm(temporary, { recursive: true, force: true })
+      }
+    }
+  }
+}
 
 export function versionAtLeast(raw, minimum) {
   const match = raw.match(/\b(\d+)\.(\d+)\.(\d+)\b/)
@@ -46,6 +293,8 @@ async function claudeProgram(adapter) {
 }
 
 export async function runtimeFor(request) {
+  if (request.agent === "pi" && request.program) return piRuntime(request)
+  if (request.agent === "deepseek" && request.program) return dshRuntime(request)
   if (request.agent === "codex" && request.program) {
     const javascript = /\.(?:mjs|cjs|js)$/i.test(request.program)
     return {
@@ -359,12 +608,20 @@ export async function execute(request) {
   try {
     runtime = await runtimeFor(request)
     if (request.agent === "codex") codexConfigArgs()
-    if (!versionAtLeast(await versionOf(runtime), runtime.minimum)) {
+    if (!versionAtLeast(runtime.version ?? await versionOf(runtime), runtime.minimum)) {
       throw new Error("The native runtime is too old for verified side questions")
     }
   } catch {
     if (request.operation === "probe") return { supported: false, images: false }
     throw new Error("This connection has no compatible native side-question runtime")
+  }
+  if (request.agent === "pi" || request.agent === "deepseek") {
+    try {
+      return await (request.agent === "pi" ? askPi : askDsh)(runtime, request)
+    } catch (error) {
+      if (request.operation === "probe") return { supported: false, images: false }
+      throw error
+    }
   }
   if (request.operation === "probe") {
     return { supported: true, images: request.agent === "codex" }

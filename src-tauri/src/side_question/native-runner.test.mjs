@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
@@ -8,7 +8,9 @@ import {
   claudeHistory,
   codexConfigArgs,
   codexForkParams,
+  completedPiLeaf,
   execute,
+  packageDirectory,
   versionAtLeast,
 } from "./native-runner.mjs"
 
@@ -17,6 +19,65 @@ test("native version checks fail closed for old or unrecognized runtimes", () =>
   assert.equal(versionAtLeast("0.165.9", [0, 166, 0]), false)
   assert.equal(versionAtLeast("2.1.321 (Claude Code)", [2, 1, 321]), true)
   assert.equal(versionAtLeast("unknown", [0, 166, 0]), false)
+})
+
+test("Pi side questions exclude incomplete turns and unresolved tool calls", () => {
+  const entries = [
+    { id: "completed", type: "message", message: { role: "assistant", stopReason: "stop" } },
+    { id: "new-user", type: "message", message: { role: "user" } },
+    { id: "calling-tool", type: "message", message: { role: "assistant", stopReason: "toolUse" } },
+    { id: "interrupted", type: "message", message: { role: "assistant", stopReason: "aborted" } },
+  ]
+  assert.equal(completedPiLeaf(entries), "completed")
+  assert.equal(completedPiLeaf(entries.slice(1)), null)
+})
+
+test("plugin lookup uses the connection install and rejects incompatible plugins", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "codeg-plugin-runtime-"))
+  try {
+    const program = join(directory, "pi.mjs")
+    await writeFile(program, "")
+    const modules = join(directory, "node_modules")
+    const sdk = join(modules, "@earendil-works", "pi-coding-agent")
+    const plugin = join(modules, "pi-btw")
+    await mkdir(sdk, { recursive: true })
+    await mkdir(plugin, { recursive: true })
+    await writeFile(join(sdk, "package.json"), JSON.stringify({
+      name: "@earendil-works/pi-coding-agent", version: "1.5.2",
+    }))
+    await writeFile(join(plugin, "package.json"), JSON.stringify({
+      name: "pi-btw", version: "0.1.0",
+    }))
+    assert.equal(packageDirectory(program, "pi-btw"), plugin)
+    assert.deepEqual(await execute({ operation: "probe", agent: "pi", program }), {
+      supported: false, images: false,
+    })
+    await assert.rejects(execute({ agent: "pi", program, question: "question" }), /compatible/)
+    await writeFile(join(plugin, "package.json"), JSON.stringify({
+      name: "pi-btw", version: "0.8.1",
+    }))
+    await assert.rejects(execute({
+      agent: "pi", program, images: [{ mime_type: "image/png", data: "test" }],
+    }), /text only/)
+    const adapter = join(modules, "deepseek-acp")
+    const sidechain = join(modules, "@dsh-external", "dsh-sidechain")
+    await mkdir(adapter, { recursive: true })
+    await mkdir(sidechain, { recursive: true })
+    await writeFile(join(adapter, "package.json"), JSON.stringify({
+      name: "deepseek-acp", version: "0.9.0",
+      dependencies: { "@deepseek-ai/dsh-agent-loop": "0.1.5-rc.1" },
+    }))
+    await writeFile(join(sidechain, "package.json"), JSON.stringify({
+      name: "@dsh-external/dsh-sidechain",
+      peerDependencies: { "@deepseek-ai/dsh-agent": "0.2.2-rc.3" },
+    }))
+    assert.deepEqual(await execute({ operation: "probe", agent: "deepseek", program }), {
+      supported: false, images: false,
+    })
+    assert.throws(() => packageDirectory(program, "uninstalled-plugin"), /unavailable/)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })
 
 test("native fork keeps the parent identity and uses an ephemeral read-only child", () => {

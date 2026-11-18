@@ -2580,7 +2580,7 @@
       "followingModel": "현재 대화 따라가기 · {model}",
       "connectionRequired": "먼저 현재 대화에 연결하세요. 별도 질문은 해당 연결의 모델과 추론 강도를 따릅니다.",
       "modelPending": "현재 대화의 모델 설정을 동기화하고 있습니다. 잠시 후 질문하세요.",
-      "unsupported": "이 에이전트를 따라가는 기능은 아직 지원하지 않습니다. 현재 별도 질문은 Claude Code와 Codex만 지원합니다.",
+      "unsupported": "현재 연결에 사용할 수 있는 기본 별도 질문 기능이나 호환 플러그인이 없습니다.",
       "settings": {
         "title": "보조 질문 모델",
         "description": "별도 질문은 현재 대화의 모델과 추론 강도를 따르며, 따로 설정할 필요가 없습니다.",

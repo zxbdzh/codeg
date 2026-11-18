@@ -8,6 +8,10 @@ export const SIDE_QUESTION_MAX_CONTEXT_CHARS = 12_000
 export const SIDE_QUESTION_MAX_SELECTION_CHARS = 8_000
 export const SIDE_QUESTION_MAX_QUESTION_CHARS = 4_000
 
+export function supportsNativeSideQuestion(agentType: string): boolean {
+  return ["codex", "claude_code", "pi", "deepseek"].includes(agentType)
+}
+
 export interface SideQuestionContextEntry {
   role: "user" | "assistant"
   text: string

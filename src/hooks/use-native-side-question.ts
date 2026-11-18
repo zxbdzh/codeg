@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react"
 import { useOptionalConnectionStore } from "@/contexts/acp-connections-context"
 import {
   getSideQuestionCapability,
+  supportsNativeSideQuestion,
   type NativeSideQuestionCapability,
 } from "@/lib/side-question"
 import { getTransport } from "@/lib/transport"
@@ -47,27 +48,34 @@ export function useNativeSideQuestion(
   const connection = useSyncExternalStore(subscribe, snapshot, () => undefined)
   const sourceAgent = source?.agentType
   const conversationId = source?.conversationId ?? null
+  const modelOption = connection?.configOptions?.find(
+    (option) => option.id === "model" || option.category === "model"
+  )
+  const modelValue =
+    modelOption?.kind.type === "select"
+      ? modelOption.kind.current_value.trim()
+      : null
   const ready =
-    (sourceAgent === "codex" || sourceAgent === "claude_code") &&
-    connection?.agentType === sourceAgent &&
+    supportsNativeSideQuestion(sourceAgent ?? "") &&
+    connection != null &&
+    connection.agentType === sourceAgent &&
     Boolean(connection.connectionId && connection.sessionId) &&
     (connection.status === "connected" || connection.status === "prompting") &&
     connection.selectorsReady &&
-    Boolean(
-      connection.configOptions?.some(
-        (option) =>
-          (option.id === "model" || option.category === "model") &&
-          option.kind.type === "select" &&
-          option.kind.current_value.trim()
-      )
-    ) &&
+    Boolean(modelValue) &&
     !connection.configStale
   const connectionId = ready ? connection?.connectionId : null
   const sessionId = ready ? connection?.sessionId : null
   const transport =
     ready && typeof window !== "undefined" ? getTransport() : null
   const key = connectionId
-    ? JSON.stringify([connectionId, sessionId, conversationId, sourceAgent])
+    ? JSON.stringify([
+        connectionId,
+        sessionId,
+        conversationId,
+        sourceAgent,
+        modelValue,
+      ])
     : null
   const [result, setResult] = useState<{
     key: string
@@ -112,7 +120,7 @@ export function useNativeSideQuestion(
 
   return key && result?.key === key && result.transport === transport
     ? result.capability
-    : sourceAgent && sourceAgent !== "codex" && sourceAgent !== "claude_code"
+    : sourceAgent && !supportsNativeSideQuestion(sourceAgent)
       ? UNAVAILABLE
       : CHECKING
 }

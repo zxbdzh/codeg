@@ -2580,7 +2580,7 @@
       "followingModel": "Aktuellem Gespräch folgen · {model}",
       "connectionRequired": "Verbinde zuerst das aktuelle Gespräch. Nebenfragen übernehmen Modell und Denkintensität dieser Verbindung.",
       "modelPending": "Die Modelleinstellungen des aktuellen Gesprächs werden synchronisiert. Bitte warte mit deiner Frage.",
-      "unsupported": "Diesem Agenten kann noch nicht gefolgt werden. Nebenfragen unterstützen derzeit nur Claude Code und Codex.",
+      "unsupported": "Diese Verbindung bietet keine native Nebenfragefunktion und kein kompatibles Plugin.",
       "settings": {
         "title": "Modell für Nebenfragen",
         "description": "Nebenfragen übernehmen Modell und Denkintensität des aktuellen Gesprächs. Eine separate Konfiguration ist nicht nötig.",

@@ -2642,7 +2642,7 @@
       "followingModel": "跟随当前对话 · {model}",
       "connectionRequired": "请先连接当前会话，旁问会跟随该连接的模型与推理强度。",
       "modelPending": "正在同步当前会话的模型设置，请稍候再提问。",
-      "unsupported": "此智能体暂不支持旁问跟随，目前仅支持 Claude Code 和 Codex。",
+      "unsupported": "当前连接没有可用的原生旁问能力或兼容插件。",
       "settings": {
         "title": "旁问模型",
         "description": "旁问跟随当前对话的模型与推理强度，无需单独配置。",

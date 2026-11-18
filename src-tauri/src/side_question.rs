@@ -90,7 +90,7 @@ struct VerifiedSource {
 }
 
 fn conversation_model(state: &SessionState) -> Result<ConversationModel, AppCommandError> {
-    if !matches!(state.agent_type, AgentType::ClaudeCode | AgentType::Codex) {
+    if !native::has_bridge(state.agent_type) {
         return Err(AppCommandError::invalid_input(
             "This agent does not support following the current model for side questions",
         ));
@@ -115,7 +115,16 @@ fn conversation_model(state: &SessionState) -> Result<ConversationModel, AppComm
             continue;
         }
         // 只继承模型和推理选项，不继承主线的权限、工具和模式。
-        if option.id == "model" || option.category.as_deref() == Some("model") {
+        // DSH 的 reasoning 也归在 model 类，须先按精确 ID 区分推理档位。
+        if matches!(
+            option.id.as_str(),
+            "effort" | "reasoning_effort" | "reasoning"
+        ) || option.category.as_deref() == Some("thought_level")
+        {
+            effort = Some(select.current_value.clone());
+        } else if option.id == "model"
+            || (model.is_none() && option.category.as_deref() == Some("model"))
+        {
             let name = select
                 .options
                 .iter()
@@ -124,10 +133,6 @@ fn conversation_model(state: &SessionState) -> Result<ConversationModel, AppComm
                 .map(|item| item.name.clone())
                 .unwrap_or_else(|| select.current_value.clone());
             model = Some((select.current_value.clone(), name));
-        } else if matches!(option.id.as_str(), "effort" | "reasoning_effort")
-            || option.category.as_deref() == Some("thought_level")
-        {
-            effort = Some(select.current_value.clone());
         } else {
             continue;
         }
@@ -666,6 +671,23 @@ mod tests {
         request.source_agent_type = Some(AgentType::Codex);
         state.write().await.config_stale = true;
         assert!(source_model(&db, &manager, &request).await.is_err());
+        for agent in [AgentType::Pi, AgentType::DeepSeek] {
+            {
+                let mut state = state.write().await;
+                state.agent_type = agent;
+                state.config_stale = false;
+                if agent == AgentType::DeepSeek {
+                    let reasoning = &mut state.config_options.as_mut().unwrap()[1];
+                    reasoning.id = "reasoning".into();
+                    reasoning.category = Some("model".into());
+                }
+            }
+            request.source_agent_type = Some(agent);
+            let source = source_model(&db, &manager, &request).await.unwrap();
+            assert_eq!(source.model.agent, agent);
+            assert_eq!(source.model.id, "provider/selected");
+            assert_eq!(source.model.effort.as_deref(), Some("high"));
+        }
     }
 
     #[test]

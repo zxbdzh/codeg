@@ -23,8 +23,10 @@ pub struct NativeCapability {
 }
 
 pub(super) fn has_bridge(agent: AgentType) -> bool {
-    // pi-acp 会将插件命令排入主回合；deepseek-acp 使用固定插件组合，不加载 DSH Web profile。
-    matches!(agent, AgentType::Codex | AgentType::ClaudeCode)
+    matches!(
+        agent,
+        AgentType::Codex | AgentType::ClaudeCode | AgentType::Pi | AgentType::DeepSeek
+    )
 }
 
 pub(super) async fn run(
@@ -78,6 +80,21 @@ pub(super) async fn run(
         }
         AgentType::ClaudeCode => {
             crate::commands::acp::resolve_npx_command_for(*agent, "claude-agent-acp").await
+        }
+        AgentType::Pi => {
+            let configured = runtime_env
+                .get("PI_ACP_PI_COMMAND")
+                .cloned()
+                .or_else(|| std::env::var("PI_ACP_PI_COMMAND").ok())
+                .filter(|value| !value.trim().is_empty());
+            // 自定义命令无法定位时拒绝借用全局 pi，以免旁问跑到不同运行时。
+            match configured {
+                Some(program) => which::which(program).ok(),
+                None => which::which("pi").ok(),
+            }
+        }
+        AgentType::DeepSeek => {
+            crate::commands::acp::resolve_npx_command_for(*agent, "deepseek-acp").await
         }
         _ => None,
     }
@@ -194,8 +211,8 @@ mod tests {
     fn only_verified_native_bridges_are_offered() {
         assert!(has_bridge(AgentType::Codex));
         assert!(has_bridge(AgentType::ClaudeCode));
-        assert!(!has_bridge(AgentType::Pi));
-        assert!(!has_bridge(AgentType::DeepSeek));
+        assert!(has_bridge(AgentType::Pi));
+        assert!(has_bridge(AgentType::DeepSeek));
         assert!(!has_bridge(AgentType::Gemini));
     }
 }

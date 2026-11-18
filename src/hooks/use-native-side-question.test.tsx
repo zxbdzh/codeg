@@ -71,7 +71,7 @@ describe("native side-question availability", () => {
     )
   })
 
-  it.each(["codex", "claude_code"] as const)(
+  it.each(["codex", "claude_code", "pi", "deepseek"] as const)(
     "offers %s only after its actual native runtime is verified",
     async (agentType) => {
       scene.connection = { ...scene.connection!, agentType }
@@ -91,7 +91,7 @@ describe("native side-question availability", () => {
     }
   )
 
-  it.each(["pi", "deepseek", "gemini"] as const)(
+  it.each(["gemini", "open_code"] as const)(
     "hides %s when there is no callable native plugin bridge",
     (agentType) => {
       scene.connection = { ...scene.connection!, agentType }
@@ -103,11 +103,50 @@ describe("native side-question availability", () => {
     }
   )
 
+  it.each(["pi", "deepseek"] as const)(
+    "hides %s when its installed plugin cannot be called",
+    async (agentType) => {
+      scene.connection = { ...scene.connection!, agentType }
+      scene.transport.call.mockResolvedValue({
+        supported: false,
+        images: false,
+      })
+      const { result } = renderHook(() =>
+        useNativeSideQuestion({ ...source, agentType })
+      )
+      await waitFor(() => expect(result.current.resolved).toBe(true))
+      expect(result.current.supported).toBe(false)
+      expect(scene.transport.call).toHaveBeenCalledTimes(1)
+    }
+  )
+
   it("hides the entry while a native session has not been created", () => {
     scene.connection = { ...scene.connection!, sessionId: null }
     const { result } = renderHook(() => useNativeSideQuestion(source))
     expect(result.current.supported).toBe(false)
     expect(scene.transport.call).not.toHaveBeenCalled()
+  })
+
+  it("rechecks plugin availability when the live model changes", async () => {
+    const { result } = renderHook(() => useNativeSideQuestion(source))
+    await waitFor(() => expect(result.current.supported).toBe(true))
+    scene.transport.call.mockResolvedValue({ supported: false, images: false })
+    act(() => {
+      scene.connection = {
+        ...scene.connection!,
+        configOptions: scene.connection!.configOptions!.map((option) => ({
+          ...option,
+          kind: {
+            ...option.kind,
+            current_value: "replacement-model",
+          },
+        })),
+      } as ConnectionState
+      scene.listeners.forEach((listener) => listener())
+    })
+    await waitFor(() => expect(scene.transport.call).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(result.current.resolved).toBe(true))
+    expect(result.current.supported).toBe(false)
   })
 
   it("keeps the entry hidden when runtime probing fails", async () => {

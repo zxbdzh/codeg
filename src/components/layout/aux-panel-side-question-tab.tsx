@@ -58,6 +58,7 @@ import {
 import { copyTextToClipboard } from "@/lib/utils"
 import {
   SIDE_QUESTION_MAX_QUESTION_CHARS,
+  supportsNativeSideQuestion,
   unicodeLength,
 } from "@/lib/side-question"
 import {
@@ -66,16 +67,12 @@ import {
   useSideQuestionStore,
 } from "@/stores/side-question-store"
 
-function supportsSideQuestion(agentType: string): boolean {
-  return agentType === "claude_code" || agentType === "codex"
-}
-
 function canFollowConnection(
   connection: ConnectionState | undefined,
   agentType: string
 ): connection is ConnectionState {
   return Boolean(
-    supportsSideQuestion(agentType) &&
+    supportsNativeSideQuestion(agentType) &&
     connection?.agentType === agentType &&
     connection.connectionId &&
     (connection.status === "connected" || connection.status === "prompting") &&
@@ -202,7 +199,7 @@ export function SideQuestionTab() {
       : null
   const unavailable = !source
     ? null
-    : !supportsSideQuestion(source.agentType)
+    : !supportsNativeSideQuestion(source.agentType)
       ? t("unsupported")
       : connection?.agentType !== source.agentType ||
           !connection.connectionId ||
