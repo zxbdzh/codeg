@@ -92,6 +92,7 @@ import type {
   AcpAgentStatus,
   AgentLatestRelease,
   AgentDiagnosticsReport,
+  AgentPluginIndicator,
   GrokStructuredConfig,
   CodexSandboxStructuredConfig,
   CursorStructuredConfig,
@@ -1621,6 +1622,16 @@ export async function acpListAgentRuntimeSkills(params: {
   workspacePath?: string | null
 }): Promise<AgentSkillsListResult> {
   return getTransport().call("acp_list_agent_runtime_skills", {
+    agentType: params.agentType,
+    workspacePath: params.workspacePath ?? null,
+  })
+}
+
+export async function acpListAgentPluginIndicators(params: {
+  agentType: AgentType
+  workspacePath?: string | null
+}): Promise<AgentPluginIndicator[]> {
+  return getTransport().call("acp_list_agent_plugin_indicators", {
     agentType: params.agentType,
     workspacePath: params.workspacePath ?? null,
   })

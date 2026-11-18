@@ -17,6 +17,7 @@ use crate::app_state::AppState;
 use crate::commands::acp as acp_commands;
 use crate::commands::custom_agents as custom_agent_commands;
 use crate::commands::deepseek_settings as deepseek_settings_commands;
+use crate::commands::plugin_indicators as plugin_indicator_commands;
 use crate::models::agent::AgentType;
 
 #[derive(Deserialize)]
@@ -275,6 +276,19 @@ pub async fn acp_list_agent_runtime_skills(
     .await
     .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
     Ok(Json(result))
+}
+
+pub async fn acp_list_agent_plugin_indicators(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<AcpListAgentSkillsParams>,
+) -> Json<Vec<plugin_indicator_commands::AgentPluginIndicator>> {
+    let result = plugin_indicator_commands::list_agent_plugin_indicators_core(
+        params.agent_type,
+        params.workspace_path,
+        &state.db,
+    )
+    .await;
+    Json(result)
 }
 
 #[derive(Deserialize)]

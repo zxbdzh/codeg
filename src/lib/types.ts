@@ -4494,6 +4494,19 @@ export interface AgentSkillsListResult {
   skills: AgentSkillItem[]
 }
 
+export interface AgentPluginIndicator {
+  id: "i-have-adhd" | "ponytail"
+  enabled: boolean | null
+  state: "always_on_configured" | "off" | "lite" | "full" | "ultra" | "unknown"
+  source:
+    | "always_on_config"
+    | "session_state_unobservable"
+    | "project_mode_marker"
+    | "shared_mode_marker"
+    | "plugin_disabled"
+  scope: "user" | "session" | "project_shared" | "user_shared"
+}
+
 export interface AgentSkillContent {
   skill: AgentSkillItem
   content: string

@@ -63,6 +63,7 @@ pub mod model_provider;
 pub mod notification;
 pub mod office_tools;
 pub mod open_in;
+pub mod plugin_indicators;
 /// OpenCode 2's provider credentials, through OpenCode's own API (both
 /// runtimes).
 pub mod opencode_credentials;
