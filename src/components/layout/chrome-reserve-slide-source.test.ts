@@ -82,9 +82,13 @@ describe("corner reserve slide", () => {
     expect(layout).toContain(
       'const conversationFillsArea = mode === "conversation" || conversationMaximized'
     )
-    expect(layout).toContain("const convHoldsRight = conversationFillsArea")
+    expect(layout).toContain(
+      "const convHoldsRight = conversationFillsArea || conversationFocused"
+    )
     expect(layout).toContain('const fileHoldsRight = mode === "fusion"')
-    expect(layout).toContain("const fileHoldsLeft = filesMaximized")
+    expect(layout).toContain(
+      "const fileHoldsLeft = filesMaximized || fileFocused"
+    )
 
     // Every conditionally mounted reserve, whatever its guard looks like — so a
     // reserve mounted on sidebar/aux state again shows up here.
@@ -110,11 +114,12 @@ describe("corner reserve slide", () => {
     expect(start).toBeGreaterThan(-1)
     const body = panel.slice(start, panel.indexOf("\n}\n", start))
     expect(body).toContain(
-      "const { mode, conversationMaximized } = useWorkspaceView()"
+      "const { mode, conversationMaximized, focusedTabPane } = useWorkspaceView()"
     )
     expect(body).not.toContain("if (focusedTabId !== null) return null")
-    expect(body).toContain(
-      'const holdsRight = mode === "conversation" || conversationMaximized'
+    expect(body).toContain('focusedTabPane === "conversation"')
+    expect(body).toMatch(
+      /const holdsRight =\s*mode === "conversation" \|\|\s*conversationMaximized \|\|\s*focusedTabPane === "conversation"/
     )
     expect(body).toContain('if (side === "right" && !holdsRight) return null')
     expect(body).not.toContain("width <= 0")
@@ -143,12 +148,8 @@ describe("corner reserve slide", () => {
     expect(layout).toContain("<StatusBar />")
     expect(layout).toContain("{!isMobile && (")
     expect(layout).not.toContain("FocusHideSurface")
-    expect(layout).toMatch(
-      /const leftReserve = leftChromeReserve\(/
-    )
-    expect(layout).toMatch(
-      /const rightReserve = rightChromeReserve\(/
-    )
+    expect(layout).toMatch(/const leftReserve = leftChromeReserve\(/)
+    expect(layout).toMatch(/const rightReserve = rightChromeReserve\(/)
   })
 
   // 顶层灵动岛只占顶部 40px，并始终按窗口 chrome 的较大预留居中；否则

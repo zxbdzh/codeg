@@ -148,17 +148,20 @@ describe("ConversationDetailPanel new conversation layout", () => {
       'const conversationFillsArea = mode === "conversation" || conversationMaximized'
     )
     expect(workspaceLayoutSource).toContain(
-      'conversationFillsArea && "conversation-tab-hidden invisible"'
+      'filesHidden && "conversation-tab-hidden invisible"'
     )
     expect(workspaceLayoutSource).toMatch(
       /conversationFillsArea &&\s*"absolute inset-0 z-30 bg-background ws-transparent-bg"/
     )
     expect(workspaceLayoutSource).toContain(
-      "conversationFillsArea || conversationFocused || undefined"
+      "const filesHidden = conversationFillsArea || conversationFocused"
     )
     // The conversation column under the files-maximized overlay.
     expect(workspaceLayoutSource).toContain(
-      'fileFocused && "conversation-tab-hidden invisible"'
+      "const conversationHidden = filesMaximized || fileFocused"
+    )
+    expect(workspaceLayoutSource).toContain(
+      'conversationHidden && "conversation-tab-hidden invisible"'
     )
   })
 
@@ -175,7 +178,7 @@ describe("ConversationDetailPanel new conversation layout", () => {
       )
     }
     const conversationColumn = span(
-      "<OverlayHostHiddenProvider hidden={fileFocused}>"
+      "<OverlayHostHiddenProvider hidden={conversationHidden}>"
     )
     expect(conversationColumn).toContain('data-workspace-pane="conversation"')
     expect(conversationColumn).not.toContain('data-workspace-pane="files"')
@@ -184,21 +187,15 @@ describe("ConversationDetailPanel new conversation layout", () => {
     )
     expect(conversationColumn).toContain("<TabBar maximizeControl />")
 
-    const fileColumn = span(
-      "<OverlayHostHiddenProvider hidden={conversationFocused}>"
-    )
+    const fileColumn = span("<OverlayHostHiddenProvider hidden={filesHidden}>")
     expect(fileColumn).toContain('data-workspace-pane="files"')
     expect(fileColumn).toContain("<FileWorkspaceTabBar />")
     expect(fileColumn).not.toContain('data-workspace-pane="conversation"')
     expect(fileColumn).toContain(
-      'conversationFillsArea && "conversation-tab-hidden invisible"'
+      'filesHidden && "conversation-tab-hidden invisible"'
     )
-    expect(fileColumn).toContain(
-      "aria-hidden={conversationFillsArea || conversationFocused}"
-    )
-    expect(fileColumn).toContain(
-      "conversationFillsArea || conversationFocused || undefined"
-    )
+    expect(fileColumn).toContain("aria-hidden={filesHidden}")
+    expect(fileColumn).toContain("inert={filesHidden || undefined}")
   })
 
   /**
@@ -213,7 +210,7 @@ describe("ConversationDetailPanel new conversation layout", () => {
   it("publishes the hidden flag from every conversation-hosting subtree", () => {
     // File column under the conversation overlay.
     expect(workspaceLayoutSource).toContain(
-      "<OverlayHostHiddenProvider hidden={conversationFocused}>"
+      "<OverlayHostHiddenProvider hidden={filesHidden}>"
     )
     // Full-page workbench route, both shells.
     expect(workspaceLayoutSource).toContain(
@@ -221,7 +218,7 @@ describe("ConversationDetailPanel new conversation layout", () => {
     )
     // Conversation column under the files-maximized overlay.
     expect(workspaceLayoutSource).toContain(
-      "<OverlayHostHiddenProvider hidden={fileFocused}>"
+      "<OverlayHostHiddenProvider hidden={conversationHidden}>"
     )
     // A backgrounded conversation tab behind the selected one.
     expect(source).toContain("<OverlayHostHiddenProvider hidden={!visible}>")

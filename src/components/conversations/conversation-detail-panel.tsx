@@ -2856,11 +2856,15 @@ function SplitStripCornerReserve({ side }: { side: "left" | "right" }) {
   const isMobile = useIsMobile()
   const { isOpen: sidebarOpen } = useSidebarContext()
   const { isOpen: auxOpen } = useAuxPanelContext()
-  const { mode, conversationMaximized } = useWorkspaceView()
+  const { mode, conversationMaximized, focusedTabPane } = useWorkspaceView()
   const { isMac, isWindows, isLinux } = usePlatform()
   const { zoomLevel } = useZoomLevel()
   if (isMobile) return null
-  const holdsRight = mode === "conversation" || conversationMaximized
+  // 分屏标签聚焦后同样铺满会话区，退出按钮不能落到固定窗口按钮下方。
+  const holdsRight =
+    mode === "conversation" ||
+    conversationMaximized ||
+    focusedTabPane === "conversation"
   if (side === "right" && !holdsRight) return null
   const width =
     side === "left"

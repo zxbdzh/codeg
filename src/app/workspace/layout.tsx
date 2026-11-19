@@ -402,9 +402,13 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
   // mount starts at its final width.
   const conversationFocused = focusedTabPane === "conversation"
   const fileFocused = focusedTabPane === "files"
-  const convHoldsRight = conversationFillsArea
+  // 透明覆盖层不会遮住底层；绘制、交互和原生/Portal 浮层必须共用隐藏条件。
+  const conversationHidden = filesMaximized || fileFocused
+  const filesHidden = conversationFillsArea || conversationFocused
+  // 聚焦列也占据窗口边缘，须为固定 chrome 预留空间，避免遮住退出按钮。
+  const convHoldsRight = conversationFillsArea || conversationFocused
   const fileHoldsRight = mode === "fusion"
-  const fileHoldsLeft = filesMaximized
+  const fileHoldsLeft = filesMaximized || fileFocused
 
   return (
     <div className="relative h-full min-h-0 overflow-hidden">
@@ -424,7 +428,7 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
             {/* Conversations live in here, so a session viewer opened from one
                 portals to the body and escapes the hiding below — same reason
                 `KeptMountedSurface` carries this flag. */}
-            <OverlayHostHiddenProvider hidden={fileFocused}>
+            <OverlayHostHiddenProvider hidden={conversationHidden}>
               <section
                 className={cn(
                   "flex h-full min-h-0 flex-col overflow-hidden",
@@ -441,12 +445,12 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
                   // conversation-tab-hidden is the shared hardening for a hidden
                   // keep-alive subtree (kills its transitions, and re-hides the
                   // descendants that declare `visibility: visible` themselves).
-                  fileFocused && "conversation-tab-hidden invisible",
+                  conversationHidden && "conversation-tab-hidden invisible",
                   conversationFocused &&
                     "absolute inset-0 z-30 w-full bg-background ws-transparent-bg [&_[role='separator']]:hidden"
                 )}
-                inert={fileFocused || undefined}
-                aria-hidden={fileFocused || undefined}
+                inert={conversationHidden || undefined}
+                aria-hidden={conversationHidden || undefined}
                 style={{
                   position:
                     conversationFillsArea || conversationFocused
@@ -509,7 +513,7 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
                   data-workspace-pane="conversation"
                   className={cn(
                     "relative flex-1 min-h-0 overflow-hidden",
-                    fileFocused &&
+                    conversationHidden &&
                       "conversation-tab-hidden invisible pointer-events-none"
                   )}
                   onPointerDownCapture={markConversationActive}
@@ -570,7 +574,7 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
                 its host has to take it off screen — and this flag tells it so
                 directly, without leaning on the engine reporting the
                 placeholder's CSS visibility. */}
-            <OverlayHostHiddenProvider hidden={conversationFocused}>
+            <OverlayHostHiddenProvider hidden={filesHidden}>
               <section
                 className={cn(
                   "flex h-full min-h-0 flex-col overflow-hidden",
@@ -587,12 +591,10 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
                   // lives in this column and Monaco's diff panes set their own
                   // inline `visibility: visible` (see globals.css), so
                   // `invisible` alone leaves them painting.
-                  conversationFillsArea && "conversation-tab-hidden invisible"
+                  filesHidden && "conversation-tab-hidden invisible"
                 )}
-                aria-hidden={conversationFillsArea || conversationFocused}
-                inert={
-                  conversationFillsArea || conversationFocused || undefined
-                }
+                aria-hidden={filesHidden}
+                inert={filesHidden || undefined}
                 style={{
                   position:
                     filesMaximized || fileFocused ? "absolute" : "relative",
