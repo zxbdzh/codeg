@@ -34,6 +34,7 @@ use crate::browser::agent::{ActionOutcome, ActionRequest, AgentTabSummary, PageS
 use crate::browser::capture::{CaptureOutcome, CaptureRequest};
 use crate::browser::console::{ConsoleQuery, ConsoleReadout};
 use crate::browser::eval::{EvalOutcome, EvalRequest};
+use crate::browser::session_import::EgoImportOutcome;
 
 /// The tab exists, and this agent may not read it: nobody shared it, or the
 /// page left the origin it was shared for.
@@ -547,6 +548,11 @@ pub trait BrowserToolAccess: Send + Sync {
     /// "no browser" are both listings, distinguished by `note`.
     async fn list_tabs(&self) -> BrowserTabsOutcome;
 
+    /// 为该标签当前网站导入已绑定的 Ego 登录态。
+    async fn import_ego_session(&self, tab_id: &str, _reason: &str) -> EgoImportOutcome {
+        EgoImportOutcome::refused(tab_id, ERROR_UNAVAILABLE, NO_BROWSER_NOTE)
+    }
+
     /// Read one shared page. `max_chars` is the caller's own cap; `None` means
     /// [`DEFAULT_SNAPSHOT_MAX_CHARS`].
     async fn snapshot(&self, tab_id: &str, max_chars: Option<usize>) -> BrowserSnapshotOutcome;
@@ -591,6 +597,10 @@ pub const NO_BROWSER_NOTE: &str =
 impl BrowserToolAccess for NoBrowserTabs {
     async fn list_tabs(&self) -> BrowserTabsOutcome {
         BrowserTabsOutcome::unavailable(NO_BROWSER_NOTE)
+    }
+
+    async fn import_ego_session(&self, tab_id: &str, _reason: &str) -> EgoImportOutcome {
+        EgoImportOutcome::refused(tab_id, ERROR_UNAVAILABLE, NO_BROWSER_NOTE)
     }
 
     async fn snapshot(&self, tab_id: &str, _max_chars: Option<usize>) -> BrowserSnapshotOutcome {

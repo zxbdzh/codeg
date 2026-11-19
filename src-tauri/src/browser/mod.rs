@@ -56,11 +56,17 @@ pub mod agent;
 pub mod capture;
 pub mod console;
 pub mod eval;
+pub mod ego_session;
+#[cfg(feature = "tauri-runtime")]
+pub mod ego_source;
+#[cfg(all(feature = "tauri-runtime", feature = "browser-child", target_os = "windows"))]
+pub mod ego_target;
 // The terminal that prints a dev server's address runs in both runtimes, so
 // the watch that notices it does too — `service_url` is pure text work and
 // `services` is a socket probe plus an event; neither touches a webview.
 pub mod service_url;
 pub mod services;
+pub mod session_import;
 pub mod types;
 
 #[cfg(feature = "tauri-runtime")]

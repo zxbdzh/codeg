@@ -358,6 +358,27 @@
     }
   },
   {
+    "name": "browser_import_ego_session",
+    "description": "Import the bound Ego profile's login state for the current website into this Codeg browser tab. Use when the task needs a login and the tab is signed out or the login has expired. This does not grant permission to read or control the tab, and importing data does not prove the site accepted the session. Reload the page and inspect it to verify. Cookie and localStorage values are never returned.",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "tabId",
+        "reason"
+      ],
+      "properties": {
+        "tabId": {
+          "type": "string",
+          "description": "The current tab's id from browser_list_tabs."
+        },
+        "reason": {
+          "type": "string",
+          "description": "A short explanation of why this task needs the site's login."
+        }
+      }
+    }
+  },
+  {
     "name": "browser_open_tab",
     "description": "Open a page in codeg's built-in browser — the browser panel inside the app, not the user's Chrome or Safari. The tab is opened IN FRONT OF THE USER: it appears in their tab strip and becomes the tab they are looking at, interrupting whatever was there, so open one because the work needs it and not to park a page for later. It uses the user's own browser profile, which means their cookies and their signed-in sessions. Returns the tab once its page has loaded, with the `tabId` to name it by afterwards and whether it is shared with you. WHETHER YOU MAY READ IT IS A SEPARATE MATTER: opening a tab does not share it. Most users have a standing sharing level that shares each page as it loads, in which case the answer says so and you can read it straight away with browser_snapshot; otherwise the answer says the tab is not shared, and only the user can change that by pressing \"Share with agents\" in that tab's toolbar. `browser_blocked` means a site rule the user or their administrator wrote refuses that host — the same address will be refused next time. If the address is already open in a tab, that tab is brought to the front instead of a second one being opened.",
     "inputSchema": {

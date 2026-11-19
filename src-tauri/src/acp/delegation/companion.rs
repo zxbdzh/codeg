@@ -51,20 +51,21 @@ use crate::acp::chat_authoring::{
 use crate::acp::delegation::transport::{
     client_ask_round_trip, client_browser_act_round_trip, client_browser_capture_round_trip,
     client_browser_console_round_trip, client_browser_eval_round_trip,
-    client_browser_snapshot_round_trip, client_browser_tab_op_round_trip,
-    client_browser_tabs_round_trip, client_cancel, client_cancel_task_round_trip,
-    client_commit_feedback, client_computer_act_round_trip, client_computer_apps_round_trip,
-    client_computer_capture_round_trip, client_computer_clipboard_round_trip,
-    client_computer_launch_round_trip, client_computer_snapshot_round_trip,
-    client_computer_verify_round_trip, client_computer_windows_round_trip,
+    client_browser_import_ego_session_round_trip, client_browser_snapshot_round_trip,
+    client_browser_tab_op_round_trip, client_browser_tabs_round_trip, client_cancel,
+    client_cancel_task_round_trip, client_commit_feedback, client_computer_act_round_trip,
+    client_computer_apps_round_trip, client_computer_capture_round_trip,
+    client_computer_clipboard_round_trip, client_computer_launch_round_trip,
+    client_computer_snapshot_round_trip, client_computer_verify_round_trip,
+    client_computer_windows_round_trip,
     client_create_automation_round_trip, client_create_work_task_round_trip,
     client_feedback_round_trip, client_list_assistants_round_trip, client_ping,
     client_result_schema_round_trip, client_resume_task_round_trip, client_round_trip,
     client_session_round_trip, client_status_round_trip, client_submit_result_round_trip,
     client_task_complete_round_trip, client_task_progress_round_trip, BrokerAskRequest,
     BrokerBrowserActRequest, BrokerBrowserCaptureRequest, BrokerBrowserConsoleRequest,
-    BrokerBrowserEvalRequest, BrokerBrowserSnapshotRequest, BrokerBrowserTabOpRequest,
-    BrokerBrowserTabsRequest, BrokerCancelRequest, BrokerCancelTaskRequest,
+    BrokerBrowserEgoImportRequest, BrokerBrowserEvalRequest, BrokerBrowserSnapshotRequest,
+    BrokerBrowserTabOpRequest, BrokerBrowserTabsRequest, BrokerCancelRequest, BrokerCancelTaskRequest,
     BrokerCommitFeedbackRequest, BrokerComputerActRequest, BrokerComputerAppsRequest,
     BrokerComputerCaptureRequest, BrokerComputerClipboardRequest, BrokerComputerLaunchRequest,
     BrokerComputerSnapshotRequest, BrokerComputerVerifyRequest, BrokerComputerWindowsRequest,
@@ -288,9 +289,9 @@ impl CompanionFeatures {
             "create_automation" => self.automations,
             "create_work_task" => self.taskboard,
             "browser_list_tabs" | "browser_snapshot" | "browser_console_messages"
-            | "browser_screenshot" | "browser_click" | "browser_hover" | "browser_type"
-            | "browser_press_key" | "browser_select_option" | "browser_open_tab"
-            | "browser_navigate" | "browser_close_tab" => self.browser,
+            | "browser_import_ego_session" | "browser_screenshot" | "browser_click"
+            | "browser_hover" | "browser_type" | "browser_press_key" | "browser_select_option"
+            | "browser_open_tab" | "browser_navigate" | "browser_close_tab" => self.browser,
             // Both, so a `--features browser_eval` with no `browser` — a
             // parent bug, or someone editing the agent's MCP config by hand —
             // cannot leave the strongest tool as the only one present.
@@ -1120,6 +1121,26 @@ async fn build_tools_call_spawn(
             let round_trip =
                 Box::pin(async move { client_browser_tabs_round_trip(&socket, &req).await });
             register_and_spawn(inflight, id, None, round_trip, render_browser_tabs_result).await
+        }
+        "browser_import_ego_session" => {
+            let tab_id = match required_string(&arguments, "tabId", &name) {
+                Ok(value) => value,
+                Err(message) => return LineAction::Respond(err(id, -32602, message)),
+            };
+            let reason = match required_string(&arguments, "reason", &name) {
+                Ok(value) => value,
+                Err(message) => return LineAction::Respond(err(id, -32602, message)),
+            };
+            let req = BrokerBrowserEgoImportRequest {
+                token: ctx.token.clone(),
+                tab_id,
+                reason,
+            };
+            let round_trip = Box::pin(async move {
+                client_browser_import_ego_session_round_trip(&socket, &req).await
+            });
+            register_and_spawn(inflight, id, None, round_trip, render_browser_ego_import_result)
+                .await
         }
         "browser_snapshot" => {
             let Some(tab_id) = arguments
@@ -3012,6 +3033,73 @@ pub fn render_browser_tabs_result(outcome: &Value) -> Value {
         "content": [{ "type": "text", "text": text }],
         "isError": false,
         "structuredContent": outcome.clone(),
+    })
+}
+
+/// 只把公开计数和受控拒绝说明交给 MCP，不透传任意会话数据。
+pub fn render_browser_ego_import_result(outcome: &Value) -> Value {
+    let tab_id = outcome.get("tabId").and_then(Value::as_str).unwrap_or("?");
+    let status = outcome
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("refused");
+    let cookies = outcome
+        .get("cookiesImported")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let storage = outcome
+        .get("storageImported")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let skipped_expired = outcome
+        .get("skippedExpired")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let error = outcome.get("error").and_then(Value::as_str);
+    let note = outcome.get("note").and_then(Value::as_str);
+
+    let mut text = match status {
+        "imported" => format!("Ego login data imported into browser tab {tab_id}."),
+        "unchanged" => format!("Browser tab {tab_id} already has the imported login data."),
+        _ => note.unwrap_or(error.unwrap_or("Ego login import was refused.")).to_string(),
+    };
+    if status == "imported" || status == "unchanged" {
+        text.push_str(&format!(
+            "\n{cookies} cookies and {storage} localStorage entries imported."
+        ));
+        if skipped_expired > 0 {
+            let cookie_label = if skipped_expired == 1 {
+                "cookie"
+            } else {
+                "cookies"
+            };
+            text.push_str(&format!(
+                "\n{skipped_expired} expired {cookie_label} skipped."
+            ));
+        }
+        if let Some(note) = note {
+            text.push('\n');
+            text.push_str(note);
+        }
+    }
+
+    let mut structured = json!({
+        "tabId": tab_id,
+        "status": status,
+        "cookiesImported": cookies,
+        "storageImported": storage,
+        "skippedExpired": skipped_expired,
+    });
+    if let Some(error) = error {
+        structured["error"] = json!(error);
+    }
+    if let Some(note) = note {
+        structured["note"] = json!(note);
+    }
+    json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": false,
+        "structuredContent": structured,
     })
 }
 
@@ -6619,15 +6707,18 @@ mod tests {
         let names = list_tool_names(dispatch_for_test(list).await);
         assert!(!names.contains(&"browser_list_tabs".to_string()));
         assert!(!names.contains(&"browser_snapshot".to_string()));
+        assert!(!names.contains(&"browser_import_ego_session".to_string()));
         // Not on the neighbouring read-only group either.
         let names = list_tool_names(dispatch_with_features(SESSIONS_ONLY, list).await);
         assert!(!names.contains(&"browser_snapshot".to_string()));
+        assert!(!names.contains(&"browser_import_ego_session".to_string()));
 
         let names = list_tool_names(dispatch_with_features(BROWSER_ONLY, list).await);
         assert_eq!(
             names,
             vec![
                 "browser_list_tabs".to_string(),
+                "browser_import_ego_session".to_string(),
                 // The three that decide which tabs exist ride the same switch:
                 // the group is the user's one decision about whether an agent
                 // may drive the built-in browser.
@@ -6644,6 +6735,23 @@ mod tests {
                 "browser_select_option".to_string(),
             ]
         );
+        let listed = unwrap_respond(dispatch_with_features(BROWSER_ONLY, list).await)
+            .result
+            .unwrap()["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["name"] == "browser_import_ego_session")
+            .cloned()
+            .expect("Ego import tool is listed");
+        assert_eq!(
+            listed["inputSchema"]["required"],
+            json!(["tabId", "reason"])
+        );
+        assert!(listed["description"]
+            .as_str()
+            .unwrap()
+            .contains("current website"));
         // The strongest tool in the group is not in the group: sharing the
         // browser with an agent does not advertise a way to run code in it.
         assert!(!names.contains(&"browser_eval".to_string()));
@@ -7250,6 +7358,10 @@ mod tests {
         for (name, args) in [
             ("browser_list_tabs", json!({})),
             ("browser_snapshot", json!({ "tabId": "t1" })),
+            (
+                "browser_import_ego_session",
+                json!({ "tabId": "t1", "reason": "Need access" }),
+            ),
         ] {
             let line = json!({
                 "jsonrpc": "2.0", "id": 60, "method": "tools/call",
@@ -7295,6 +7407,39 @@ mod tests {
             .to_string();
             let resp = unwrap_respond(dispatch_with_features(BROWSER_ONLY, &line).await);
             assert_eq!(resp.error.unwrap().code, -32602);
+        }
+    }
+
+    #[tokio::test]
+    async fn ego_import_call_requires_tab_and_reason_and_spawns_when_valid() {
+        let call = |arguments| {
+            json!({
+                "jsonrpc": "2.0", "id": 73, "method": "tools/call",
+                "params": { "name": "browser_import_ego_session", "arguments": arguments }
+            })
+            .to_string()
+        };
+        assert!(matches!(
+            dispatch_with_features(
+                BROWSER_ONLY,
+                &call(json!({ "tabId": "t1", "reason": "Need access to the dashboard" }))
+            )
+            .await,
+            LineAction::Spawn(_)
+        ));
+
+        for arguments in [
+            json!({ "reason": "Need access to the dashboard" }),
+            json!({ "tabId": "t1" }),
+            json!({ "tabId": " ", "reason": "Need access" }),
+            json!({ "tabId": "t1", "reason": " " }),
+            json!({ "tabId": 7, "reason": "Need access" }),
+            json!({ "tabId": "t1", "reason": 7 }),
+        ] {
+            let response = unwrap_respond(
+                dispatch_with_features(BROWSER_ONLY, &call(arguments)).await,
+            );
+            assert_eq!(response.error.unwrap().code, -32602);
         }
     }
 
@@ -7351,6 +7496,54 @@ mod tests {
             none_here["content"][0]["text"],
             "The built-in browser is not available."
         );
+    }
+
+    #[test]
+    fn an_ego_import_result_reports_counts_without_exposing_session_values() {
+        let result = render_browser_ego_import_result(&json!({
+            "tabId": "t1",
+            "status": "imported",
+            "cookiesImported": 2,
+            "storageImported": 3,
+            "skippedExpired": 1,
+            "note": "The site may still require a reload."
+        }));
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("2 cookies"));
+        assert!(text.contains("3 localStorage entries"));
+        assert!(text.contains("1 expired cookie skipped"));
+        assert!(text.contains("may still require a reload"));
+        assert_eq!(result["isError"], false);
+        assert_eq!(result["structuredContent"]["tabId"], "t1");
+        assert!(result["structuredContent"].get("cookieValues").is_none());
+        assert!(result["structuredContent"].get("storageValues").is_none());
+
+        let unchanged = render_browser_ego_import_result(&json!({
+            "tabId": "t1",
+            "status": "unchanged",
+            "cookiesImported": 0,
+            "storageImported": 0,
+            "skippedExpired": 0
+        }));
+        assert!(unchanged["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("already has the imported login data"));
+
+        let refused = render_browser_ego_import_result(&json!({
+            "tabId": "t1",
+            "status": "refused",
+            "cookiesImported": 0,
+            "storageImported": 0,
+            "skippedExpired": 0,
+            "error": "ego_not_connected",
+            "note": "Ego is not connected."
+        }));
+        assert_eq!(
+            refused["content"][0]["text"],
+            "Ego is not connected."
+        );
+        assert_eq!(refused["isError"], false);
     }
 
     #[test]

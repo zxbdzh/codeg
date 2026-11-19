@@ -713,6 +713,7 @@ mod tauri_app {
             ))
             .manage(ConnectionManager::new())
             .manage(crate::browser::BrowserRegistry::default())
+            .manage(crate::commands::browser_ego_import::EgoImportRuntime::default())
             .manage(crate::browser::egress::EgressRegistry::default())
             .manage(crate::browser::BrowserDownloads::default())
             .manage(crate::browser::DocGuests::default())
@@ -1596,6 +1597,8 @@ mod tauri_app {
                         .title("Codeg")
                         .inner_size(1260.0, 860.0)
                         .min_inner_size(400.0, 600.0)
+                        .focused(!(cfg!(feature = "browser-smoke")
+                            && std::env::var_os("CODEG_BROWSER_SMOKE_DIR").is_some()))
                         .visible(restore.show_local());
                     let builder = windows::apply_platform_window_style(builder);
                     // The workspace title bar is taller than the shared default
@@ -1815,6 +1818,10 @@ mod tauri_app {
                 crate::ego::api::ego_browser,
                 browser_commands::browser_capabilities,
                 browser_commands::browser_open_tab,
+                crate::commands::browser_ego_import::browser_ego_import_profiles,
+                crate::commands::browser_ego_import::browser_ego_import_settings,
+                crate::commands::browser_ego_import::browser_set_ego_import_settings,
+                crate::commands::browser_ego_import::browser_import_ego_session,
                 browser_commands::browser_close,
                 browser_commands::browser_set_bounds,
                 browser_commands::browser_set_window_viewport,

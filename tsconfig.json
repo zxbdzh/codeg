@@ -36,6 +36,7 @@
   ],
   "exclude": [
     "node_modules",
+    "out",
     "src-tauri",
     "browser-agent",
     ".next/dev/types/validator.ts"

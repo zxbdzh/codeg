@@ -11,11 +11,12 @@
     "开发服务器生成的 .next/dev 类型只适用于 next dev，不能混入生产构建；",
     "否则残留的 validator 会触发 noUnusedLocals，导致打包失败。",
     "`exclude` replaces tsconfig.json's list instead of adding to it, so the",
-    "first three entries must stay in step with that file."
+    "shared exclusions must stay in step with that file."
   ],
   "extends": "./tsconfig.json",
   "exclude": [
     "node_modules",
+    "out",
     "src-tauri",
     "browser-agent",
     ".next/dev",

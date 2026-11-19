@@ -445,6 +445,15 @@ fn call_async(
         .map_err(|e| e.to_string())
 }
 
+pub fn session_cdp(
+    webview: &wry::WebView,
+    method: &str,
+    params: &str,
+    done: impl FnOnce(Result<String, String>) + Send + 'static,
+) -> Result<(), String> {
+    call_async(&core(webview), method, params, done)
+}
+
 /// Route one CDP event into `on_event`, keeping the receiver alive with the
 /// surface.
 fn subscribe(webview: &ICoreWebView2, key: usize, event: &str) -> Result<(), String> {

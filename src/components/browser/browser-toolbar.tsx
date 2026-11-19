@@ -7,6 +7,7 @@ import {
   Bug,
   Copy,
   ExternalLink,
+  KeyRound,
   MoreVertical,
   RotateCw,
   UserRound,
@@ -30,6 +31,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
+  browserCapabilities,
   browserGoBack,
   browserGoForward,
   browserNavigate,
@@ -37,6 +39,7 @@ import {
   browserReload,
   browserStop,
 } from "@/lib/browser/browser-api"
+import { BrowserEgoImportDialog } from "./browser-ego-import"
 import {
   toLocalizedErrorMessage,
   type AppErrorTranslator,
@@ -188,10 +191,30 @@ export function BrowserToolbar({
   // errors (`browser.inspector.error.*`); unknown keys fall back to the
   // English message the error already carries.
   const tRoot = useTranslations()
-  const inspectorEnabled = useBrowserPrefs().devtools
+  const browserPrefs = useBrowserPrefs()
+  const inspectorEnabled = browserPrefs.devtools
   const openBrowserTab = useOptionalWorkspaceActions()?.openBrowserTab ?? null
   const backendId = browserTabBackendId(tab.id)
   const currentUrl = state?.url || state?.requestedUrl || tab.browser.initialUrl
+  const [egoImportSupported, setEgoImportSupported] = useState(false)
+  const [egoImportOpen, setEgoImportOpen] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    browserCapabilities().then((caps) => {
+      if (!cancelled) {
+        setEgoImportSupported(caps.available && caps.platform === "windows")
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const targetProfileName =
+    tab.browser.profile === DEFAULT_BROWSER_PROFILE_ID
+      ? t("profileDefault")
+      : (browserPrefs.profiles.find(
+          (profile) => profile.id === tab.browser.profile
+        )?.name ?? tab.browser.profile)
   // The blank page is the absence of an address, so the bar shows its
   // placeholder rather than the literal `about:blank` — which nobody types,
   // and which would be selected-and-overtyped on every visit anyway. The
@@ -489,8 +512,29 @@ export function BrowserToolbar({
               {t("openInspector")}
             </DropdownMenuItem>
           ) : null}
+          {egoImportSupported && tab.browser.remote !== true ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={!backendId || !/^https?:\/\//i.test(currentUrl)}
+                onSelect={() => setEgoImportOpen(true)}
+              >
+                <KeyRound />
+                {t("importEgoLogin")}
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+      {egoImportSupported && tab.browser.remote !== true && egoImportOpen ? (
+        <BrowserEgoImportDialog
+          open={egoImportOpen}
+          onOpenChange={setEgoImportOpen}
+          tabId={backendId ?? ""}
+          url={currentUrl}
+          targetProfileName={targetProfileName}
+        />
+      ) : null}
       {loading ? (
         <div
           aria-hidden

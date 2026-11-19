@@ -8,6 +8,8 @@ pub mod background;
 pub mod backup;
 #[cfg(feature = "tauri-runtime")]
 pub mod browser;
+#[cfg(feature = "tauri-runtime")]
+pub mod browser_ego_import;
 /// The browser tool group's on/off switch. Unlike `browser` itself this is not
 /// desktop-only: the shared codeg-mcp plumbing reads it in both runtimes.
 pub mod browser_tools;
