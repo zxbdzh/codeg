@@ -68,6 +68,10 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ConversationStatusDot } from "./conversation-status-dot"
+import {
+  SidebarRelativeTime,
+  type SidebarRelativeClock,
+} from "./sidebar-relative-time"
 import { SessionDetailsDialog } from "./session-details-dialog"
 import { SidebarConversationHoverDetails } from "./sidebar-conversation-hover-details"
 import { ConversationTagChips } from "./conversation-tag-chip"
@@ -193,6 +197,8 @@ interface SidebarConversationCardProps {
   isSelected: boolean
   isOpenInTab?: boolean
   timeLabel?: string
+  relativeTimeAt?: string
+  relativeTimeClock?: SidebarRelativeClock
   onSelect: (id: number, agentType: string, folderId: number) => void
   onDoubleClick?: (id: number, agentType: string, folderId: number) => void
   onRename: (id: number, newTitle: string) => Promise<void>
@@ -227,6 +233,8 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
   isSelected,
   isOpenInTab = false,
   timeLabel,
+  relativeTimeAt,
+  relativeTimeClock,
   onSelect,
   onDoubleClick,
   onRename,
@@ -247,6 +255,12 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
   const tStatus = useTranslations("Folder.statusLabels")
   const tPanes = useTranslations("ConversationPanes")
   const tDetails = useTranslations("Folder.sessionDetails")
+  const timeLabelClassName = cn(
+    "relative shrink-0 tabular-nums text-[0.71875rem]",
+    isSelected
+      ? "font-medium text-muted-foreground"
+      : "font-normal text-muted-foreground/70"
+  )
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
@@ -643,18 +657,14 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
                             {tSidebar("statusCancelledBadge")}
                           </span>
                         </span>
+                      ) : relativeTimeClock && relativeTimeAt !== undefined ? (
+                        <SidebarRelativeTime
+                          timestamp={relativeTimeAt}
+                          clock={relativeTimeClock}
+                          className={timeLabelClassName}
+                        />
                       ) : timeLabel ? (
-                        <span
-                          className={cn(
-                            "relative shrink-0 tabular-nums",
-                            "text-[0.71875rem]",
-                            isSelected
-                              ? "font-medium text-muted-foreground"
-                              : "font-normal text-muted-foreground/70"
-                          )}
-                        >
-                          {timeLabel}
-                        </span>
+                        <span className={timeLabelClassName}>{timeLabel}</span>
                       ) : null}
                     </span>
                     {/* Hover quick actions — roots only (sub-sessions opt out above).
