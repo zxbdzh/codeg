@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 use tauri::State;
 
 use crate::app_error::AppCommandError;
+use crate::db::entities::conversation_tag::TagDimension;
 use crate::db::service::conversation_service;
 use crate::db::service::conversation_tag_service::{self, TagError};
 use crate::db::AppDatabase;
@@ -84,8 +85,17 @@ pub async fn create_conversation_tag_core(
     folder_id: Option<i32>,
     name: String,
     color: String,
+    dimension: Option<TagDimension>,
 ) -> Result<ConversationTagDetail, AppCommandError> {
-    let tag = conversation_tag_service::create_tag(&db.conn, folder_id, &name, &color).await?;
+    let tag = conversation_tag_service::create_tag_with_policy(
+        &db.conn,
+        folder_id,
+        &name,
+        &color,
+        dimension.unwrap_or(TagDimension::Theme),
+        true,
+    )
+    .await?;
     emit_tag_change(emitter, ConversationTagChange::Upsert { tag: tag.clone() });
     Ok(tag)
 }
@@ -96,12 +106,15 @@ pub async fn update_conversation_tag_core(
     tag_id: i32,
     name: Option<String>,
     color: Option<String>,
+    dimension: Option<TagDimension>,
 ) -> Result<ConversationTagDetail, AppCommandError> {
-    let tag = conversation_tag_service::update_tag(
+    let tag = conversation_tag_service::update_tag_definition(
         &db.conn,
         tag_id,
         name.as_deref(),
         color.as_deref(),
+        dimension,
+        true,
     )
     .await?;
     emit_tag_change(emitter, ConversationTagChange::Upsert { tag: tag.clone() });
@@ -210,8 +223,17 @@ pub async fn create_conversation_tag(
     folder_id: Option<i32>,
     name: String,
     color: String,
+    dimension: Option<TagDimension>,
 ) -> Result<ConversationTagDetail, AppCommandError> {
-    create_conversation_tag_core(&EventEmitter::from_app(&app), &db, folder_id, name, color).await
+    create_conversation_tag_core(
+        &EventEmitter::from_app(&app),
+        &db,
+        folder_id,
+        name,
+        color,
+        dimension,
+    )
+    .await
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -222,8 +244,17 @@ pub async fn update_conversation_tag(
     tag_id: i32,
     name: Option<String>,
     color: Option<String>,
+    dimension: Option<TagDimension>,
 ) -> Result<ConversationTagDetail, AppCommandError> {
-    update_conversation_tag_core(&EventEmitter::from_app(&app), &db, tag_id, name, color).await
+    update_conversation_tag_core(
+        &EventEmitter::from_app(&app),
+        &db,
+        tag_id,
+        name,
+        color,
+        dimension,
+    )
+    .await
 }
 
 #[cfg(feature = "tauri-runtime")]

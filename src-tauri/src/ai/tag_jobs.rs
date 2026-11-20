@@ -91,6 +91,10 @@ pub async fn worker(
     manager: crate::acp::manager::ConnectionManager,
     emitter: crate::web::event_bridge::EventEmitter,
 ) {
+    tokio::spawn(crate::ai::tag_curation::worker(
+        conn.clone(),
+        manager.clone_ref(),
+    ));
     let client = match crate::ai::client::HttpAiClient::new() {
         Ok(client) => client,
         Err(error) => {

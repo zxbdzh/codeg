@@ -2477,14 +2477,19 @@ export async function createConversationTag(args: {
   folderId: number | null
   name: string
   color: string
+  dimension?: ConversationTagDetail["dimension"]
 }): Promise<ConversationTagDetail> {
   return getTransport().call("create_conversation_tag", args)
 }
 
-/** Rename and/or recolour a tag. An omitted field is left alone. */
+/** Edit a tag. An omitted field is left alone. */
 export async function updateConversationTag(
   tagId: number,
-  patch: { name?: string; color?: string }
+  patch: {
+    name?: string
+    color?: string
+    dimension?: ConversationTagDetail["dimension"]
+  }
 ): Promise<ConversationTagDetail> {
   return getTransport().call("update_conversation_tag", { tagId, ...patch })
 }

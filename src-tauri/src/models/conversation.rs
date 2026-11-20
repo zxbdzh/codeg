@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::agent::AgentType;
 use super::message::{MessageTurn, TurnUsage};
 use crate::db::entities::conversation::ConversationKind;
+use crate::db::entities::conversation_tag::TagDimension;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationSummary {
@@ -93,13 +94,16 @@ pub struct DbConversationSummary {
 /// A conversation tag as the UI sees it. `folder_id` is the scope: `None` for
 /// a global tag, otherwise the root folder whose conversations it is offered
 /// on. `color` is always a normalized `#rrggbb`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConversationTagDetail {
     pub id: i32,
     pub folder_id: Option<i32>,
     pub name: String,
     pub color: String,
     pub sort_order: i32,
+    pub dimension: Option<TagDimension>,
+    pub is_protected: bool,
+    pub aliases: Vec<String>,
 }
 
 /// The branch tag: every conversation's git branch (the one it started on)

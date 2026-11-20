@@ -415,6 +415,8 @@ pub enum ConversationTagChange {
     /// Positions changed across a whole scope; re-fetch the tag list. A nudge
     /// rather than N upserts for the same reason as [`FolderGroupChange::Layout`].
     Reordered,
+    /// A curation batch can restore deleted ids; re-fetch to confirm them.
+    Resync,
     /// The branch tag setting as just saved, whole.
     BranchTag {
         setting: crate::models::ConversationBranchTag,
@@ -1091,6 +1093,7 @@ mod tests {
         // The shapes the tag store switches on. A global tag's scope must reach
         // the client as an explicit `null`, not a missing key: the frontend
         // reads `folder_id === null` as "global".
+        use crate::db::entities::conversation_tag::TagDimension;
         use crate::models::ConversationTagDetail;
 
         let broadcaster = Arc::new(WebEventBroadcaster::new());
@@ -1107,6 +1110,9 @@ mod tests {
                     name: "Bug".to_string(),
                     color: "#d73a4a".to_string(),
                     sort_order: 1,
+                    dimension: Some(TagDimension::Action),
+                    is_protected: true,
+                    aliases: vec!["Defect".into()],
                 },
             },
         );
@@ -1119,6 +1125,9 @@ mod tests {
         assert_eq!(p["tag"]["name"], "Bug");
         assert_eq!(p["tag"]["color"], "#d73a4a");
         assert_eq!(p["tag"]["sort_order"], 1);
+        assert_eq!(p["tag"]["dimension"], "action");
+        assert_eq!(p["tag"]["is_protected"], true);
+        assert_eq!(p["tag"]["aliases"], serde_json::json!(["Defect"]));
 
         emit_event(
             &emitter,
@@ -1139,6 +1148,15 @@ mod tests {
         let p = &*evt.payload;
         assert_eq!(p["kind"], "reordered");
         assert!(p["tag"].is_null(), "the reorder nudge carries no payload");
+
+        emit_event(
+            &emitter,
+            CONVERSATION_TAG_CHANGED_EVENT,
+            ConversationTagChange::Resync,
+        );
+        let evt = rx.try_recv().expect("curation resync should broadcast");
+        assert_eq!(evt.channel, CONVERSATION_TAG_CHANGED_EVENT);
+        assert_eq!(*evt.payload, serde_json::json!({ "kind": "resync" }));
 
         emit_event(
             &emitter,

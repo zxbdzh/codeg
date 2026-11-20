@@ -58,10 +58,15 @@ export interface ConversationTagsState {
     folderId: number | null
     name: string
     color: string
+    dimension?: ConversationTagDetail["dimension"]
   }) => Promise<ConversationTagDetail>
   updateTag: (
     tagId: number,
-    patch: { name?: string; color?: string }
+    patch: {
+      name?: string
+      color?: string
+      dimension?: ConversationTagDetail["dimension"]
+    }
   ) => Promise<ConversationTagDetail>
   deleteTag: (tagId: number) => Promise<void>
   /** Persist one scope's new order (its complete id list, first to last).
@@ -83,12 +88,11 @@ function withTags(tags: ConversationTagDetail[]) {
 // Every applied change is stamped with a mutation sequence number, so a reply
 // that was requested BEFORE a change can tell it arrived after it.
 //
-// - `deletedTagSeq`: deleted ids. Ids come from an AUTOINCREMENT column and are
-//   never reused, so an upsert or snapshot naming one later can only be a
-//   resurrection (a rename's broadcast racing the delete's, say).
+// - `deletedTagSeq`: ignore late upserts for deleted ids. A fresh list read
+//   can confirm that an undo restored the original id.
 // - `upsertedTagSeq`: the last upsert applied per id, from a broadcast or a
-//   reply. A snapshot requested before it is older than what is on screen for
-//   that tag, and must not put the older version back.
+//   reply, including ids restored by a fresh list read. Older requests must
+//   not put the older version back.
 //
 // Both are bounded FIFOs. Evicting an entry only matters for a reply that has
 // been out for more than 512 changes, and the next broadcast or refetch still
@@ -121,11 +125,14 @@ function sameBranchTag(
   return a.enabled === b.enabled && a.color === b.color
 }
 
-function stamp(map: Map<number, number>, tagId: number): void {
-  mutationSeq += 1
+function stamp(
+  map: Map<number, number>,
+  tagId: number,
+  sequence: number
+): void {
   // Re-insert so the FIFO order follows the latest stamp.
   map.delete(tagId)
-  map.set(tagId, mutationSeq)
+  map.set(tagId, sequence)
   if (map.size > SEQ_CAP) {
     const oldest = map.keys().next().value
     if (oldest !== undefined) map.delete(oldest)
@@ -142,11 +149,17 @@ function upsertInto(
   const idx = tags.findIndex((t) => t.id === tag.id)
   if (idx < 0) return [...tags, tag]
   const current = tags[idx]
+  const currentAliases = current.aliases ?? []
+  const aliases = tag.aliases ?? []
   if (
     current.name === tag.name &&
     current.color === tag.color &&
     current.sort_order === tag.sort_order &&
-    current.folder_id === tag.folder_id
+    current.folder_id === tag.folder_id &&
+    current.dimension === tag.dimension &&
+    current.is_protected === tag.is_protected &&
+    currentAliases.length === aliases.length &&
+    currentAliases.every((alias, index) => alias === aliases[index])
   ) {
     // Our own echo of a write already applied: no new arrays, so no chip
     // anywhere re-renders for it.
@@ -168,7 +181,7 @@ export const useConversationTagsStore = create<ConversationTagsState>()(
     branchTagLoadError: null,
 
     fetchTags: async () => {
-      const seqAtRequest = mutationSeq
+      const seqAtRequest = ++mutationSeq
       const id = ++fetchSeq
       try {
         const list = await listConversationTags()
@@ -199,6 +212,17 @@ export const useConversationTagsStore = create<ConversationTagsState>()(
           if (upsertedAt <= seqAtRequest || merged.has(tagId)) continue
           const local = current.get(tagId)
           if (local && !deletedTagSeq.has(tagId)) merged.set(tagId, local)
+        }
+        // 批次撤销可恢复原 ID。读回结果按发起次序记账，避免挡住更晚发起的读取。
+        for (const tagId of merged.keys()) {
+          if (deletedTagSeq.delete(tagId)) {
+            stamp(upsertedTagSeq, tagId, seqAtRequest)
+          }
+        }
+        for (const tagId of current.keys()) {
+          if (merged.has(tagId)) continue
+          stamp(deletedTagSeq, tagId, seqAtRequest)
+          upsertedTagSeq.delete(tagId)
         }
         set({
           ...withTags([...merged.values()]),
@@ -281,22 +305,22 @@ export const useConversationTagsStore = create<ConversationTagsState>()(
         return
       }
       if (change.kind === "upsert") {
-        // Never resurrect: see `deletedTagSeq`.
+        // Only an authoritative list read can restore a deleted id.
         if (deletedTagSeq.has(change.tag.id)) return
-        stamp(upsertedTagSeq, change.tag.id)
+        stamp(upsertedTagSeq, change.tag.id, ++mutationSeq)
         const next = upsertInto(get().tags, change.tag)
         if (next) set(withTags(next))
         return
       }
       if (change.kind === "deleted") {
-        stamp(deletedTagSeq, change.id)
+        stamp(deletedTagSeq, change.id, ++mutationSeq)
         upsertedTagSeq.delete(change.id)
         const { tags } = get()
         if (!tags.some((t) => t.id === change.id)) return
         set(withTags(tags.filter((t) => t.id !== change.id)))
         return
       }
-      // `reordered` carries no payload by design: re-read the list.
+      // Reorder and curation changes use an authoritative list read.
       void get().fetchTags()
     },
 

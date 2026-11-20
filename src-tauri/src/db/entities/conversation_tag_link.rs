@@ -1,8 +1,9 @@
 use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
 
 /// One tag on one conversation. The pair is the primary key, so a tag can sit
 /// on a conversation at most once; both sides cascade on delete.
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "conversation_tag_link")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]

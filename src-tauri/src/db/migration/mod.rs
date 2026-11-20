@@ -64,6 +64,7 @@ mod m20261106_000001_work_task_source_key;
 mod m20261110_000001_research_branch;
 mod m20261112_000001_work_task_writeback_drafts;
 mod m20261116_000001_srn_web;
+mod m20261120_000001_ai_tag_curation;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -134,15 +135,21 @@ impl MigratorTrait for Migrator {
             Box::new(m20261110_000001_research_branch::Migration),
             Box::new(m20261112_000001_work_task_writeback_drafts::Migration),
             Box::new(m20261116_000001_srn_web::Migration),
+            Box::new(m20261120_000001_ai_tag_curation::Migration),
         ]
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use sea_orm_migration::MigratorTrait;
+    use sea_orm_migration::{
+        sea_orm::{ConnectionTrait, Database},
+        MigratorTrait,
+    };
 
     use crate::db::migration::Migrator;
+    use crate::db::service::{conversation_service, conversation_tag_service, folder_service};
+    use crate::models::AgentType;
 
     /// A backup records the last migration here as its schema version, and a
     /// build refuses a backup naming a migration it does not know. A new
@@ -161,5 +168,71 @@ mod tests {
         let mut sorted = names.clone();
         sorted.sort();
         assert_eq!(names, sorted);
+    }
+
+    /// 已有标签在升版时需保留名称、颜色、次序和关联；不猜测历史维度，且先受保护。
+    #[tokio::test]
+    async fn ai_tag_curation_upgrade_preserves_legacy_tags_and_links() {
+        let conn = Database::connect("sqlite::memory:")
+            .await
+            .expect("open legacy database");
+        conn.execute_unprepared("PRAGMA foreign_keys=ON")
+            .await
+            .expect("enable foreign keys");
+
+        let steps = Migrator::migrations()
+            .iter()
+            .position(|migration| migration.name() == "m20261120_000001_ai_tag_curation")
+            .expect("find the AI curation migration");
+        Migrator::up(&conn, Some(steps as u32))
+            .await
+            .expect("create schema before tag curation");
+
+        let folder = folder_service::add_folder(&conn, "/tmp/tag-curation-legacy")
+            .await
+            .expect("create legacy folder");
+        let conversation = conversation_service::create(
+            &conn,
+            folder.id,
+            AgentType::Codex,
+            Some("Legacy conversation".into()),
+            None,
+        )
+        .await
+        .expect("create legacy conversation");
+        conn.execute_unprepared(
+            "INSERT INTO conversation_tag(id, folder_id, name, color, sort_order, created_at, updated_at)
+             VALUES (701, NULL, '保留旧名', '#123456', 7, '2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z')",
+        )
+        .await
+        .expect("insert a legacy tag");
+        conn.execute_unprepared(&format!(
+            "INSERT INTO conversation_tag_link(conversation_id, tag_id, source, created_at)
+             VALUES ({}, 701, 'user', '2026-02-01T00:00:00Z')",
+            conversation.id
+        ))
+        .await
+        .expect("insert a legacy tag link");
+
+        Migrator::up(&conn, Some(1))
+            .await
+            .expect("apply the AI curation migration");
+
+        let tags = conversation_tag_service::list_tags(&conn)
+            .await
+            .expect("read migrated tags");
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].id, 701);
+        assert_eq!(tags[0].name, "保留旧名");
+        assert_eq!(tags[0].color, "#123456");
+        assert_eq!(tags[0].sort_order, 7);
+        assert_eq!(tags[0].dimension, None);
+        assert!(tags[0].is_protected);
+        assert!(tags[0].aliases.is_empty());
+
+        let migrated = conversation_service::get_by_id(&conn, conversation.id)
+            .await
+            .expect("read the migrated conversation");
+        assert_eq!(migrated.tag_ids, vec![701]);
     }
 }

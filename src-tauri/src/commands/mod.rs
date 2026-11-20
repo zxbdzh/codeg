@@ -102,6 +102,7 @@ pub mod side_question;
 #[cfg(feature = "tauri-runtime")]
 pub mod srn;
 pub mod system_settings;
+pub mod tag_curation;
 pub mod tag_suggestions;
 pub mod terminal;
 pub mod token_usage;

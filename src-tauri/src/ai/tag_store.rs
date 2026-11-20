@@ -487,11 +487,13 @@ pub async fn confirm_batch(
             ));
         }
         let tag_id = if candidate.tag_ids.is_empty() {
-            conversation_tag_service::create_tag(
+            conversation_tag_service::create_tag_with_policy(
                 &txn,
                 choice.folder_id.or(candidate.folder_id),
                 choice.name.as_deref().unwrap_or(&candidate.name),
                 choice.color.as_deref().unwrap_or(&candidate.color),
+                crate::db::entities::conversation_tag::TagDimension::Theme,
+                false,
             )
             .await
             .map_err(|error| DbError::Validation(error.to_string()))?

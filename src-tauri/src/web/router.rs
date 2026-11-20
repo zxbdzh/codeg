@@ -425,6 +425,7 @@ pub fn build_router_with_srn(
             "/get_tag_suggestion_status",
             post(handlers::tag_suggestions::get_tag_suggestion_status),
         )
+        .route("/tag_curation", post(handlers::tag_curation::tag_curation))
         .route(
             "/generate_tag_suggestion_batch",
             post(handlers::tag_suggestions::generate_tag_suggestion_batch),

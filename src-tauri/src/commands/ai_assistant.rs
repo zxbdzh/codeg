@@ -207,11 +207,13 @@ pub async fn apply_suggested_tags_core(
                 let mut add = existing_tag_ids;
                 let mut created = Vec::new();
                 for new_tag in new_tags {
-                    let tag = conversation_tag_service::create_tag(
+                    let tag = conversation_tag_service::create_tag_with_policy(
                         txn,
                         new_tag.folder_id,
                         &new_tag.name,
                         &new_tag.color,
+                        crate::db::entities::conversation_tag::TagDimension::Theme,
+                        false,
                     )
                     .await?;
                     add.push(tag.id);

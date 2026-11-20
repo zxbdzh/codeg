@@ -514,12 +514,17 @@ export const FOLDER_GROUP_CHANGED_EVENT = "folder-group://changed"
  * `color` is always a normalized `#rrggbb`; both theme treatments are derived
  * from it (see `tagChipStyle`). `sort_order` is the position within the scope.
  */
+export type TagDimension = "theme" | "action"
+
 export interface ConversationTagDetail {
   id: number
   folder_id: number | null
   name: string
   color: string
   sort_order: number
+  dimension?: TagDimension | null
+  is_protected?: boolean
+  aliases?: string[]
 }
 
 /**
@@ -536,13 +541,14 @@ export interface ConversationBranchTag {
  * Payload for `conversation-tag://changed` — tag DEFINITIONS, plus the branch
  * tag setting. Which tags a conversation carries rides on
  * `conversation://changed` instead (the summary's `tag_ids`). `reordered`
- * carries nothing on purpose: re-read the list. Mirrors the Rust
+ * and `resync` ask the client to re-read the list. Mirrors the Rust
  * `ConversationTagChange` (serde `tag = "kind"`).
  */
 export type ConversationTagChange =
   | { kind: "upsert"; tag: ConversationTagDetail }
   | { kind: "deleted"; id: number }
   | { kind: "reordered" }
+  | { kind: "resync" }
   | { kind: "branch_tag"; setting: ConversationBranchTag }
 
 export const CONVERSATION_TAG_CHANGED_EVENT = "conversation-tag://changed"

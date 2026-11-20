@@ -93,12 +93,29 @@ describe("conversation tags store — applyChange", () => {
 
   it("treats an identical upsert (our own echo) as a no-op", () => {
     const store = useConversationTagsStore.getState()
-    store.applyChange({ kind: "upsert", tag: tag(1) })
+    store.applyChange({ kind: "upsert", tag: tag(1, { aliases: ["Old"] }) })
     const before = useConversationTagsStore.getState()
-    store.applyChange({ kind: "upsert", tag: tag(1) })
+    store.applyChange({ kind: "upsert", tag: tag(1, { aliases: ["Old"] }) })
     const after = useConversationTagsStore.getState()
     expect(after.tags).toBe(before.tags)
     expect(after.tagsById).toBe(before.tagsById)
+  })
+
+  it.each<Partial<ConversationTagDetail>>([
+    { dimension: "action" },
+    { is_protected: false },
+    { aliases: ["Old"] },
+  ])("reflects a metadata-only update from another window: %j", (patch) => {
+    const store = useConversationTagsStore.getState()
+    const before = tag(1, {
+      dimension: "theme",
+      is_protected: true,
+      aliases: [],
+    })
+    const after = { ...before, ...patch }
+    store.applyChange({ kind: "upsert", tag: before })
+    store.applyChange({ kind: "upsert", tag: after })
+    expect(useConversationTagsStore.getState().tagsById.get(1)).toEqual(after)
   })
 
   it("never resurrects a deleted tag from a late upsert", () => {
@@ -121,6 +138,38 @@ describe("conversation tags store — applyChange", () => {
 })
 
 describe("conversation tags store — fetchTags", () => {
+  it("restores a merged tag when the undo read follows an in-flight merge read", async () => {
+    const original = tag(1, { name: "Old" })
+    const retained = tag(2, { name: "Current" })
+    const merged = deferred<ConversationTagDetail[]>()
+    const undone = deferred<ConversationTagDetail[]>()
+    const store = useConversationTagsStore.getState()
+    store.applyChange({ kind: "upsert", tag: original })
+    store.applyChange({ kind: "upsert", tag: retained })
+    vi.mocked(api.listConversationTags)
+      .mockReturnValueOnce(merged.promise)
+      .mockReturnValueOnce(undone.promise)
+
+    store.applyChange({ kind: "resync" })
+    store.applyChange({ kind: "resync" })
+    merged.resolve([retained])
+    await vi.waitFor(() => expect(ids()).toEqual([2]))
+
+    vi.mocked(api.listConversationTags).mockResolvedValue([original, retained])
+    store.applyChange({ kind: "upsert", tag: tag(1, { name: "Late rename" }) })
+    expect(ids()).toEqual([2])
+    undone.resolve([original, retained])
+    await vi.waitFor(() => expect(ids()).toEqual([1, 2]))
+
+    store.applyChange({
+      kind: "upsert",
+      tag: tag(1, { name: "Renamed again" }),
+    })
+    expect(useConversationTagsStore.getState().tagsById.get(1)?.name).toBe(
+      "Renamed again"
+    )
+  })
+
   it("subtracts a delete that landed while the snapshot was in flight", async () => {
     const reply = deferred<ConversationTagDetail[]>()
     vi.mocked(api.listConversationTags).mockReturnValueOnce(reply.promise)

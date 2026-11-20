@@ -169,8 +169,7 @@ export function resolveTags(
   return out.sort(compareTags)
 }
 
-/** Case-insensitive name match within a scope, mirroring the backend's
- *  uniqueness rule (it folds with Unicode lowercase too). */
+/** 同一作用域内优先匹配现名，避免旧别名盖过后来创建的标签。 */
 export function findTagByName(
   tags: readonly ConversationTagDetail[],
   scope: number | null,
@@ -178,7 +177,16 @@ export function findTagByName(
 ): ConversationTagDetail | undefined {
   const key = name.trim().toLowerCase()
   if (!key) return undefined
-  return tags.find((t) => t.folder_id === scope && t.name.toLowerCase() === key)
+  return (
+    tags.find(
+      (tag) => tag.folder_id === scope && tag.name.toLowerCase() === key
+    ) ??
+    tags.find(
+      (tag) =>
+        tag.folder_id === scope &&
+        tag.aliases?.some((alias) => alias.toLowerCase() === key)
+    )
+  )
 }
 
 // ── Tag search ───────────────────────────────────────────────────────────
@@ -295,16 +303,21 @@ export function scoreTagMatch(query: string, name: string): number | null {
  * 在标签入口复用同一套模糊排序。空查询保留后端顺序，非空查询只返回
  * 能命中的标签；稳定排序保证同分标签不会在每次输入时跳动。
  */
-export function rankTagMatches<T extends { name: string }>(
-  query: string,
-  tags: readonly T[]
-): T[] {
+export function rankTagMatches<
+  T extends { name: string; aliases?: readonly string[] },
+>(query: string, tags: readonly T[]): T[] {
   const normalizedQuery = normalizeTagSearchText(query)
   if (!normalizedQuery) return tags.slice()
 
   const scored: Array<{ tag: T; score: number; index: number }> = []
   tags.forEach((tag, index) => {
-    const score = scoreTagMatch(normalizedQuery, tag.name)
+    let score = scoreTagMatch(normalizedQuery, tag.name)
+    for (const alias of tag.aliases ?? []) {
+      const aliasScore = scoreTagMatch(normalizedQuery, alias)
+      if (aliasScore != null) {
+        score = Math.max(score ?? -Infinity, aliasScore - TAG_SCORE_BASE / 10)
+      }
+    }
     if (score != null) scored.push({ tag, score, index })
   })
   scored.sort((a, b) => b.score - a.score || a.index - b.index)

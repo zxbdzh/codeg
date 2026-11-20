@@ -1,4 +1,15 @@
 use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
+#[serde(rename_all = "snake_case")]
+pub enum TagDimension {
+    #[sea_orm(string_value = "theme")]
+    Theme,
+    #[sea_orm(string_value = "action")]
+    Action,
+}
 
 /// A user-defined conversation label: a name plus one colour.
 ///
@@ -9,7 +20,7 @@ use sea_orm::entity::prelude::*;
 ///
 /// Hard-deleted (no `deleted_at`): its links cascade away with it. See
 /// `m20261006_000001_conversation_tag`.
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "conversation_tag")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -23,6 +34,10 @@ pub struct Model {
     pub color: String,
     /// Position among the tags of the same scope.
     pub sort_order: i32,
+    pub dimension: Option<TagDimension>,
+    pub is_protected: bool,
+    #[sea_orm(column_type = "Text")]
+    pub aliases_json: String,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }

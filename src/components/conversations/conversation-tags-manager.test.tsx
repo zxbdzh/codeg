@@ -4,6 +4,7 @@ import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import enMessages from "@/i18n/messages/en.json"
+import type { CurationJob, CurationRequest } from "@/lib/tag-curation"
 import type {
   ConversationBranchTag,
   ConversationTagDetail,
@@ -13,6 +14,7 @@ import type {
 const h = vi.hoisted(() => ({
   tags: [] as ConversationTagDetail[],
   branchTag: { enabled: false, color: "#6e7781" } as ConversationBranchTag,
+  requestCuration: vi.fn(),
   // Stores what it is given, as the backend would, for the reads after it.
   updateBranchTag: vi.fn(async (setting: ConversationBranchTag) => {
     h.branchTag = setting
@@ -25,6 +27,10 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   listConversationTags: vi.fn(async () => h.tags),
   getConversationBranchTag: vi.fn(async () => h.branchTag),
   updateConversationBranchTag: h.updateBranchTag,
+}))
+
+vi.mock("@/lib/tag-curation", () => ({
+  requestTagCuration: h.requestCuration,
 }))
 
 import {
@@ -69,7 +75,7 @@ const folder = (
 
 function renderHost() {
   return render(
-    <NextIntlClientProvider locale="en" messages={enMessages}>
+    <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
       <ConversationTagsManagerHost />
     </NextIntlClientProvider>
   )
@@ -95,9 +101,183 @@ beforeEach(() => {
   ]
   h.branchTag = { enabled: false, color: "#6e7781" }
   h.updateBranchTag.mockClear()
+  h.requestCuration.mockReset().mockResolvedValue(null)
 })
 
 describe("ConversationTagsManager", () => {
+  it("previews without writes and applies only the explicitly selected edited item", async () => {
+    const user = userEvent.setup()
+    h.requestCuration.mockImplementation(
+      async (request: { action: string }) => {
+        if (request.action === "history") return []
+        if (request.action !== "start") return null
+        return {
+          id: "test-preview",
+          state: "review",
+          total: 3,
+          scanned: 3,
+          createdAt: 1,
+          notices: [],
+          error: null,
+          items: h.tags.slice(0, 2).map((before) => ({
+            change: {
+              kind: "update",
+              tagId: before.id,
+              name: `${before.name}-suggested`,
+            },
+            before: { ...before, is_protected: false },
+            target: null,
+            affected: [],
+          })),
+        }
+      }
+    )
+    renderHost()
+    act(() => openConversationTagsManager())
+    await user.click(
+      await screen.findByRole("button", { name: "AI tag curation" })
+    )
+    await user.click(
+      await screen.findByRole("button", { name: "Scan all conversations" })
+    )
+    const apply = await screen.findByRole("button", {
+      name: "Apply selected (0)",
+    })
+    expect(apply).toBeDisabled()
+    expect(
+      h.requestCuration.mock.calls.some(
+        ([request]) => request.action === "apply"
+      )
+    ).toBe(false)
+
+    await user.click(screen.getByRole("checkbox", { name: "Update tag: bug" }))
+    const name = screen.getByRole("textbox", { name: "Tag name" })
+    await user.clear(name)
+    await user.type(name, "browser bug")
+    await user.click(screen.getByRole("button", { name: "Apply selected (1)" }))
+    expect(h.requestCuration).toHaveBeenCalledWith({
+      action: "apply",
+      id: "test-preview",
+      choices: [{ index: 0, name: "browser bug" }],
+    })
+  })
+
+  it("requires separate confirmations to delete a tag with manual links", async () => {
+    const user = userEvent.setup()
+    const preview: CurationJob = {
+      id: "delete-preview",
+      state: "review",
+      total: 1,
+      scanned: 1,
+      createdAt: 1,
+      notices: [],
+      error: null,
+      items: [
+        {
+          change: { kind: "delete", tagId: 1 },
+          before: { ...h.tags[0], is_protected: false },
+          target: null,
+          affected: [{ id: 5, title: "Browser layout", manual: true }],
+        },
+      ],
+    }
+    h.requestCuration.mockImplementation(async (request: CurationRequest) => {
+      if (request.action === "status") return preview
+      if (request.action === "history") return []
+      return null
+    })
+    renderHost()
+    act(() => openConversationTagsManager())
+    await user.click(
+      await screen.findByRole("button", { name: "AI tag curation" })
+    )
+    await user.click(
+      await screen.findByRole("checkbox", { name: "Delete tag: bug" })
+    )
+
+    const apply = screen.getByRole("button", { name: "Apply selected (1)" })
+    expect(apply).toBeDisabled()
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "Confirm deleting this tag and its links",
+      })
+    )
+    expect(apply).toBeDisabled()
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "Confirm removing the listed manual links",
+      })
+    )
+    await user.click(apply)
+    expect(h.requestCuration).toHaveBeenCalledWith({
+      action: "apply",
+      id: "delete-preview",
+      choices: [{ index: 0, confirmManual: true, confirmDelete: true }],
+    })
+  })
+
+  it("keeps history until the user confirms undo or record removal", async () => {
+    const user = userEvent.setup()
+    let history: CurationJob[] = Array.from({ length: 20 }, (_, index) => ({
+      id: `batch-${index}`,
+      state: index === 0 ? "applied" : "undone",
+      total: 1,
+      scanned: 1,
+      createdAt: 1,
+      notices: [],
+      error: null,
+      items: [],
+    }))
+    h.requestCuration.mockImplementation(async (request: CurationRequest) => {
+      if (request.action === "history") return history
+      if (request.action === "undo")
+        history = history.map((batch) =>
+          batch.id === request.id ? { ...batch, state: "undone" } : batch
+        )
+      if (request.action === "purge")
+        history = history.filter((batch) => batch.id !== request.id)
+      return null
+    })
+    renderHost()
+    act(() => openConversationTagsManager())
+    await user.click(
+      await screen.findByRole("button", { name: "AI tag curation" })
+    )
+    expect(await screen.findByText(/You have 20 batches/)).toBeVisible()
+
+    const undo = screen.getByRole("button", { name: "Undo batch" })
+    await user.click(undo)
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(h.requestCuration).not.toHaveBeenCalledWith({
+      action: "undo",
+      id: "batch-0",
+    })
+    await user.click(undo)
+    await user.click(screen.getByRole("button", { name: "Confirm" }))
+    expect(h.requestCuration).toHaveBeenCalledWith({
+      action: "undo",
+      id: "batch-0",
+    })
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Undo batch" })).toBeNull()
+    )
+
+    await user.click(
+      screen.getAllByRole("button", { name: "Remove record" })[0]
+    )
+    expect(
+      screen.getByText(/permanently removes the option to undo/)
+    ).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Confirm" }))
+    expect(h.requestCuration).toHaveBeenCalledWith({
+      action: "purge",
+      id: "batch-0",
+    })
+    await waitFor(() =>
+      expect(screen.queryByText(/You have 20 batches/)).toBeNull()
+    )
+  })
+
   it("opens on the folder it was opened about — a worktree on its repo", async () => {
     renderHost()
     expect(screen.queryByRole("dialog")).toBeNull()

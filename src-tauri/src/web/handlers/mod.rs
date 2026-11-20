@@ -51,6 +51,7 @@ pub mod science;
 pub mod session_info;
 pub mod side_question;
 pub mod system_settings;
+pub mod tag_curation;
 pub mod tag_suggestions;
 pub mod terminal;
 pub mod token_usage;

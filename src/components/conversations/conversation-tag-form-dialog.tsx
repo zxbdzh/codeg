@@ -14,6 +14,7 @@ import {
   TAG_COLOR_STRONG_COUNT,
   normalizeTagColor,
 } from "@/lib/conversation-tags"
+import type { TagDimension } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -138,6 +139,7 @@ export interface TagFormValues {
   color: string
   /** `null` = global; otherwise the folder the tag belongs to. */
   folderId: number | null
+  dimension?: TagDimension | null
 }
 
 /**
@@ -201,11 +203,13 @@ function TagFormBody({
   onCancel: () => void
 }) {
   const t = useTranslations("ConversationTags")
+  const curation = useTranslations("TagCuration")
   const ime = useImeGuard()
   const nameId = useId()
   const [name, setName] = useState(initial.name)
   const [color, setColor] = useState(initial.color)
   const [folderId, setFolderId] = useState<number | null>(initial.folderId)
+  const [dimension, setDimension] = useState(initial.dimension)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -217,7 +221,12 @@ function TagFormBody({
     setSaving(true)
     setError(null)
     try {
-      await onSubmit({ name: trimmed, color, folderId })
+      await onSubmit({
+        name: trimmed,
+        color,
+        folderId,
+        ...(dimension !== undefined ? { dimension } : {}),
+      })
     } catch (err) {
       // The backend's refusals carry `errors.*` keys under this namespace;
       // anything else falls back to its English message inside the helper.
@@ -264,6 +273,25 @@ function TagFormBody({
           <span className="text-xs font-medium">{t("form.color")}</span>
           <TagColorPicker value={color} onChange={setColor} disabled={saving} />
         </div>
+        {dimension !== undefined && (
+          <label className="grid gap-1.5 text-xs">
+            {curation("dimension")}
+            <select
+              className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+              value={dimension ?? ""}
+              disabled={saving}
+              onChange={(event) =>
+                setDimension(event.target.value as TagDimension)
+              }
+            >
+              <option value="" disabled>
+                {curation("unclassified")}
+              </option>
+              <option value="theme">{curation("theme")}</option>
+              <option value="action">{curation("action")}</option>
+            </select>
+          </label>
+        )}
         {mode === "create" && folderOption ? (
           <div className="grid gap-1.5">
             <span className="text-xs font-medium">{t("form.scope")}</span>

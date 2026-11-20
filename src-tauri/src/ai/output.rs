@@ -104,7 +104,7 @@ pub fn parse_tag_suggestion(raw: &str) -> Option<TagSuggestion> {
 
 /// 从一段回答里抠出第一个 JSON 对象：整体就是 JSON 最好，否则取第一对花括号。
 /// 宁可只取到第一个对象，也不去修一段断掉的 JSON。
-fn extract_json_object(raw: &str) -> Option<String> {
+pub(crate) fn extract_json_object(raw: &str) -> Option<String> {
     let unfenced = strip_code_fences(raw);
     let trimmed = unfenced.trim();
     if trimmed.is_empty() {

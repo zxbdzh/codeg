@@ -51,6 +51,7 @@ import {
   type FolderSelectOption,
 } from "@/components/shared/folder-select"
 import { ConversationBranchChip } from "./conversation-tag-chip"
+import { ConversationTagCuration } from "./conversation-tag-curation"
 import { TagColorPicker } from "./conversation-tag-form-dialog"
 import { ConversationTagListEditor } from "./conversation-tag-list-editor"
 
@@ -371,6 +372,8 @@ function ConversationTagsManagerDialog({
           <DialogTitle>{t("title")}</DialogTitle>
           <DialogDescription>{t("description")}</DialogDescription>
         </DialogHeader>
+
+        <ConversationTagCuration />
 
         <BranchTagSection />
 

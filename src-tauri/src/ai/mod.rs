@@ -21,6 +21,7 @@ pub mod gate;
 pub mod output;
 pub mod settings;
 pub mod suggest;
+pub mod tag_curation;
 pub mod tag_store;
 pub mod tag_jobs;
 pub mod title_gen;
@@ -29,3 +30,6 @@ pub mod wire;
 /// 测试用的假客户端。只在测试或 `test-utils` 下编译。
 #[cfg(any(test, feature = "test-utils"))]
 pub mod fake;
+
+#[cfg(test)]
+mod tag_curation_tests;

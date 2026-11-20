@@ -297,6 +297,9 @@ mod tests {
             name: name.to_string(),
             color: "#d73a4a".to_string(),
             sort_order: 0,
+            dimension: None,
+            is_protected: true,
+            aliases: Vec::new(),
         }
     }
 

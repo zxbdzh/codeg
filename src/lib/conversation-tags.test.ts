@@ -127,9 +127,24 @@ describe("findTagByName", () => {
     expect(findTagByName(tags, 8, "bug")).toBeUndefined()
     expect(findTagByName(tags, null, "  ")).toBeUndefined()
   })
+
+  it("recognizes a merged name within its scope and prefers current names", () => {
+    const merged = tag(1, { name: "内置浏览器", aliases: ["WebView"] })
+    const current = tag(2, { name: "WebView" })
+
+    expect(findTagByName([merged], null, " webview ")).toBe(merged)
+    expect(findTagByName([merged], 7, "webview")).toBeUndefined()
+    expect(findTagByName([merged, current], null, "webview")).toBe(current)
+  })
 })
 
 describe("tag search", () => {
+  it("finds the kept tag by the old name after a merge", () => {
+    const kept = tag(1, { name: "内置浏览器", aliases: ["WebView"] })
+    const unrelated = tag(2, { name: "文档预览" })
+    expect(rankTagMatches("webview", [unrelated, kept])).toEqual([kept])
+  })
+
   it.each(["shuziren", "szr", "shu zi ren", "ＳＺＲ", "shu字ren"])(
     "matches a Chinese tag with pinyin query %s",
     (query) => {

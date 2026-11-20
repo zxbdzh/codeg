@@ -39,6 +39,7 @@ use sea_orm::{
     DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder, Set, SqlErr, TransactionTrait,
 };
 
+use crate::db::entities::conversation_tag::TagDimension;
 use crate::db::entities::folder::FolderKind;
 use crate::db::entities::{conversation, conversation_tag, conversation_tag_link, folder};
 use crate::db::error::DbError;
@@ -79,13 +80,16 @@ impl From<DbErr> for TagError {
     }
 }
 
-fn to_detail(m: conversation_tag::Model) -> ConversationTagDetail {
+pub(crate) fn to_detail(m: conversation_tag::Model) -> ConversationTagDetail {
     ConversationTagDetail {
         id: m.id,
         folder_id: m.folder_id,
         name: m.name,
         color: m.color,
         sort_order: m.sort_order,
+        dimension: m.dimension,
+        is_protected: m.is_protected,
+        aliases: serde_json::from_str(&m.aliases_json).unwrap_or_default(),
     }
 }
 
@@ -207,6 +211,17 @@ pub async fn create_tag<C: ConnectionTrait>(
     name: &str,
     color: &str,
 ) -> Result<ConversationTagDetail, TagError> {
+    create_tag_with_policy(conn, folder_id, name, color, TagDimension::Theme, true).await
+}
+
+pub(crate) async fn create_tag_with_policy<C: ConnectionTrait>(
+    conn: &C,
+    folder_id: Option<i32>,
+    name: &str,
+    color: &str,
+    dimension: TagDimension,
+    is_protected: bool,
+) -> Result<ConversationTagDetail, TagError> {
     let name = normalize_tag_name(name)?;
     let color = normalize_tag_color(color)?;
     let scope = match folder_id {
@@ -230,6 +245,9 @@ pub async fn create_tag<C: ConnectionTrait>(
         name: Set(name.clone()),
         color: Set(color),
         sort_order: Set(next_order),
+        dimension: Set(Some(dimension)),
+        is_protected: Set(is_protected),
+        aliases_json: NotSet,
         created_at: Set(now),
         updated_at: Set(now),
     };
@@ -250,6 +268,17 @@ pub async fn update_tag(
     name: Option<&str>,
     color: Option<&str>,
 ) -> Result<ConversationTagDetail, TagError> {
+    update_tag_definition(conn, id, name, color, None, true).await
+}
+
+pub(crate) async fn update_tag_definition<C: ConnectionTrait>(
+    conn: &C,
+    id: i32,
+    name: Option<&str>,
+    color: Option<&str>,
+    dimension: Option<TagDimension>,
+    manual: bool,
+) -> Result<ConversationTagDetail, TagError> {
     let name = name.map(normalize_tag_name).transpose()?;
     let color = color.map(normalize_tag_color).transpose()?;
     let row = conversation_tag::Entity::find_by_id(id)
@@ -267,11 +296,17 @@ pub async fn update_tag(
             return Err(TagError::DuplicateName(name.clone()));
         }
     }
-    if name.is_none() && color.is_none() {
+    if name.is_none() && color.is_none() && dimension.is_none() {
         return Ok(to_detail(row));
     }
 
     let mut active: conversation_tag::ActiveModel = row.into();
+    if manual && (name.is_some() || color.is_some()) {
+        active.is_protected = Set(true);
+    }
+    if let Some(dimension) = dimension {
+        active.dimension = Set(Some(dimension));
+    }
     let new_name = name.clone();
     if let Some(name) = name {
         active.name = Set(name);
@@ -289,7 +324,10 @@ pub async fn update_tag(
 
 /// Delete a tag and take it off every conversation. Returns false when there
 /// was no such tag.
-pub async fn delete_tag(conn: &DatabaseConnection, id: i32) -> Result<bool, DbError> {
+pub async fn delete_tag<C: ConnectionTrait + TransactionTrait>(
+    conn: &C,
+    id: i32,
+) -> Result<bool, DbError> {
     let deleted = conn
         .transaction::<_, bool, DbErr>(|txn| {
             Box::pin(async move {
@@ -768,6 +806,9 @@ mod tests {
             name: Set("BUG".to_string()),
             color: Set("#000000".to_string()),
             sort_order: Set(9),
+            dimension: NotSet,
+            is_protected: NotSet,
+            aliases_json: NotSet,
             created_at: Set(now),
             updated_at: Set(now),
         }

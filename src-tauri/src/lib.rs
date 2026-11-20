@@ -1899,6 +1899,7 @@ mod tauri_app {
                 ai_assistant::get_ai_assistant_availability,
                 ai_assistant::suggest_conversation_tags,
                 crate::commands::tag_suggestions::get_tag_suggestion_status,
+                crate::commands::tag_curation::tag_curation,
                 crate::commands::tag_suggestions::generate_tag_suggestion_batch,
                 crate::commands::tag_suggestions::open_tag_suggestion_batch,
                 crate::commands::tag_suggestions::close_tag_suggestion_batch,

@@ -6,6 +6,7 @@ use serde::Deserialize;
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::conversation_tags as tag_commands;
+use crate::db::entities::conversation_tag::TagDimension;
 use crate::models::{ConversationBranchTag, ConversationTagDetail, DbConversationSummary};
 
 pub async fn list_conversation_tags(
@@ -24,6 +25,7 @@ pub struct CreateConversationTagParams {
     pub folder_id: Option<i32>,
     pub name: String,
     pub color: String,
+    pub dimension: Option<TagDimension>,
 }
 
 pub async fn create_conversation_tag(
@@ -37,6 +39,7 @@ pub async fn create_conversation_tag(
             params.folder_id,
             params.name,
             params.color,
+            params.dimension,
         )
         .await?,
     ))
@@ -50,6 +53,7 @@ pub struct UpdateConversationTagParams {
     pub name: Option<String>,
     #[serde(default)]
     pub color: Option<String>,
+    pub dimension: Option<TagDimension>,
 }
 
 pub async fn update_conversation_tag(
@@ -63,6 +67,7 @@ pub async fn update_conversation_tag(
             params.tag_id,
             params.name,
             params.color,
+            params.dimension,
         )
         .await?,
     ))

@@ -7,7 +7,7 @@ import {
   useState,
   type PointerEvent,
 } from "react"
-import { GripVertical, Loader2, Pencil, Plus, Trash2 } from "lucide-react"
+import { GripVertical, Loader2, Lock, Pencil, Plus, Trash2 } from "lucide-react"
 import { Reorder, useDragControls } from "motion/react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
@@ -16,6 +16,7 @@ import {
   type AppErrorTranslator,
 } from "@/lib/app-error"
 import { pickNextTagColor } from "@/lib/conversation-tags"
+import { requestTagCuration } from "@/lib/tag-curation"
 import type { ConversationTagDetail } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { useConversationTagsStore } from "@/stores/conversation-tags-store"
@@ -30,6 +31,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { ConversationTagChip } from "./conversation-tag-chip"
 import {
   ConversationTagFormDialog,
@@ -42,14 +44,19 @@ function TagRow({
   onEdit,
   onDelete,
   onDragEnd,
+  protection,
+  onSelect,
 }: {
   tag: ConversationTagDetail
   dragDisabled: boolean
   onEdit: (tag: ConversationTagDetail) => void
   onDelete: (tag: ConversationTagDetail) => void
   onDragEnd: () => void
+  protection: boolean | undefined
+  onSelect: (selected: boolean) => void
 }) {
   const t = useTranslations("ConversationTags.editor")
+  const curation = useTranslations("TagCuration")
   const dragControls = useDragControls()
   const startDrag = useCallback(
     (event: PointerEvent<HTMLButtonElement>) => {
@@ -81,9 +88,28 @@ function TagRow({
       >
         <GripVertical className="size-3.5" />
       </button>
-      <span className="min-w-0 flex-1">
+      {protection !== undefined && (
+        <Checkbox
+          checked={protection}
+          onCheckedChange={(value) => onSelect(value === true)}
+          aria-label={curation("protectionPick", { name: tag.name })}
+        />
+      )}
+      <span
+        className="min-w-0 flex-1"
+        title={
+          tag.aliases?.length
+            ? curation("aliases", { names: tag.aliases.join(" / ") })
+            : undefined
+        }
+      >
         <ConversationTagChip tag={tag} className="max-w-full" />
       </span>
+      {tag.is_protected === true && (
+        <span title={curation("protected")} aria-label={curation("protected")}>
+          <Lock className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+        </span>
+      )}
       <Button
         type="button"
         variant="ghost"
@@ -123,6 +149,7 @@ export function ConversationTagListEditor({
   className?: string
 }) {
   const t = useTranslations("ConversationTags")
+  const curation = useTranslations("TagCuration")
   const allTags = useConversationTagsStore((s) => s.tags)
   const hydrated = useConversationTagsStore((s) => s.hydrated)
   const loadError = useConversationTagsStore((s) => s.loadError)
@@ -146,6 +173,9 @@ export function ConversationTagListEditor({
   const [deleteTarget, setDeleteTarget] =
     useState<ConversationTagDetail | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [protectionMode, setProtectionMode] = useState(false)
+  const [protectionIds, setProtectionIds] = useState<number[]>([])
+  const [savingProtection, setSavingProtection] = useState(false)
 
   const reportError = useCallback(
     (title: "toasts.deleteFailed" | "toasts.reorderFailed", err: unknown) => {
@@ -161,10 +191,18 @@ export function ConversationTagListEditor({
 
   const shown = dragOrder ?? scopeTags
 
-  const handleReorder = useCallback((next: ConversationTagDetail[]) => {
-    dragOrderRef.current = next
-    setDragOrder(next)
-  }, [])
+  const handleReorder = useCallback(
+    (next: ConversationTagDetail[]) => {
+      const groupIds = new Set(next.map((tag) => tag.id))
+      const ordered = next.values()
+      const full = (dragOrderRef.current ?? scopeTags).map((tag) =>
+        groupIds.has(tag.id) ? (ordered.next().value ?? tag) : tag
+      )
+      dragOrderRef.current = full
+      setDragOrder(full)
+    },
+    [scopeTags]
+  )
 
   const handleDragEnd = useCallback(() => {
     const order = dragOrderRef.current
@@ -197,6 +235,7 @@ export function ConversationTagListEditor({
           )
         ),
         folderId: scopeFolderId,
+        dimension: "theme",
       },
     })
   }
@@ -209,16 +248,39 @@ export function ConversationTagListEditor({
         folderId: scopeFolderId,
         name: values.name,
         color: values.color,
+        ...(values.dimension === "action"
+          ? { dimension: values.dimension }
+          : {}),
       })
     } else {
-      const patch: { name?: string; color?: string } = {}
+      const patch: Parameters<typeof store.updateTag>[1] = {}
       if (values.name !== form.tag.name) patch.name = values.name
       if (values.color !== form.tag.color) patch.color = values.color
-      if (patch.name !== undefined || patch.color !== undefined) {
+      if (values.dimension && values.dimension !== form.tag.dimension)
+        patch.dimension = values.dimension
+      if (Object.keys(patch).length > 0) {
         await store.updateTag(form.tag.id, patch)
       }
     }
     setForm(null)
+  }
+
+  const changeProtection = async (protectedValue: boolean) => {
+    setSavingProtection(true)
+    try {
+      await requestTagCuration({
+        action: "set_protection",
+        tagIds: protectionIds,
+        protected: protectedValue,
+      })
+      void useConversationTagsStore.getState().fetchTags()
+      setProtectionIds([])
+      setProtectionMode(false)
+    } catch {
+      toast.error(curation("operationFailed"))
+    } finally {
+      setSavingProtection(false)
+    }
   }
 
   const confirmDelete = async () => {
@@ -252,36 +314,62 @@ export function ConversationTagListEditor({
           {t("editor.empty")}
         </p>
       ) : (
-        <Reorder.Group
-          as="ul"
-          axis="y"
-          values={shown}
-          onReorder={handleReorder}
-          className="grid gap-1.5"
-        >
-          {shown.map((tag) => (
-            <TagRow
-              key={tag.id}
-              tag={tag}
-              dragDisabled={reordering}
-              onEdit={(target) =>
-                setForm({
-                  mode: "edit",
-                  tag: target,
-                  initial: {
-                    name: target.name,
-                    color: target.color,
-                    folderId: target.folder_id,
-                  },
-                })
-              }
-              onDelete={setDeleteTarget}
-              onDragEnd={handleDragEnd}
-            />
-          ))}
-        </Reorder.Group>
+        (["theme", "action", "unclassified"] as const).map((dimension) => {
+          const group = shown.filter(
+            (tag) => (tag.dimension ?? "unclassified") === dimension
+          )
+          if (group.length === 0) return null
+          return (
+            <div key={dimension} className="grid gap-1.5">
+              <h4 className="text-xs font-medium text-muted-foreground">
+                {curation(dimension)}
+              </h4>
+              <Reorder.Group
+                as="ul"
+                axis="y"
+                values={group}
+                onReorder={handleReorder}
+                className="grid gap-1.5"
+              >
+                {group.map((tag) => (
+                  <TagRow
+                    key={tag.id}
+                    tag={tag}
+                    dragDisabled={reordering || protectionMode}
+                    onEdit={(target) =>
+                      setForm({
+                        mode: "edit",
+                        tag: target,
+                        initial: {
+                          name: target.name,
+                          color: target.color,
+                          folderId: target.folder_id,
+                          dimension: target.dimension ?? null,
+                        },
+                      })
+                    }
+                    onDelete={setDeleteTarget}
+                    onDragEnd={handleDragEnd}
+                    protection={
+                      protectionMode
+                        ? protectionIds.includes(tag.id)
+                        : undefined
+                    }
+                    onSelect={(selected) =>
+                      setProtectionIds((previous) =>
+                        selected
+                          ? [...previous, tag.id]
+                          : previous.filter((id) => id !== tag.id)
+                      )
+                    }
+                  />
+                ))}
+              </Reorder.Group>
+            </div>
+          )
+        })
       )}
-      <div>
+      <div className="flex flex-wrap gap-2">
         <Button
           type="button"
           size="sm"
@@ -292,6 +380,42 @@ export function ConversationTagListEditor({
           <Plus className="size-3.5" />
           {t("editor.add")}
         </Button>
+        {scopeTags.length > 0 && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={savingProtection}
+            onClick={() => {
+              setProtectionMode((previous) => !previous)
+              setProtectionIds([])
+            }}
+          >
+            {curation(protectionMode ? "cancel" : "manageProtection")}
+          </Button>
+        )}
+        {protectionMode && (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={savingProtection || protectionIds.length === 0}
+              onClick={() => void changeProtection(false)}
+            >
+              {curation("unprotectSelected", { count: protectionIds.length })}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={savingProtection || protectionIds.length === 0}
+              onClick={() => void changeProtection(true)}
+            >
+              {curation("protectSelected", { count: protectionIds.length })}
+            </Button>
+          </>
+        )}
       </div>
 
       <ConversationTagFormDialog
