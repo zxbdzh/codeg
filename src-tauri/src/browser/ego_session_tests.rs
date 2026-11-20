@@ -86,6 +86,109 @@ fn keeps_an_existing_account_instead_of_switching_it_to_ego() {
 }
 
 #[test]
+fn ignores_different_visitor_data_without_overwriting_it() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let mut target_data = SessionData {
+            origin: "https://www.baidu.com".into(),
+            cookies: Vec::new(),
+            storage: Default::default(),
+        };
+        target_data.cookies.push(
+            serde_json::from_value(serde_json::json!({
+                "name": "BIDUPSID", "value": "codeg-visitor", "domain": ".baidu.com", "path": "/",
+                "expires": -1.0, "session": true, "httpOnly": false,
+                "secure": true, "sameSite": "Lax"
+            }))
+            .unwrap(),
+        );
+        target_data
+            .storage
+            .insert("SpyLocalCache".into(), "codeg-cache".into());
+        let target = BrowserStore(Mutex::new(target_data.clone()));
+
+        let mut source = site_data("ego-account");
+        source.origin = "https://www.baidu.com".into();
+        source.cookies[0].domain = ".baidu.com".into();
+        source.cookies.push(
+            serde_json::from_value(serde_json::json!({
+                "name": "BIDUPSID", "value": "ego-visitor", "domain": ".baidu.com", "path": "/",
+                "expires": -1.0, "session": true, "httpOnly": false,
+                "secure": true, "sameSite": "Lax"
+            }))
+            .unwrap(),
+        );
+        source
+            .storage
+            .insert("SpyLocalCache".into(), "ego-cache".into());
+
+        let result =
+            import_site_session("t1", "https://www.baidu.com/", source, &target, 1000.0).await;
+
+        assert_eq!(result.status, "imported");
+        assert_eq!((result.cookies_imported, result.storage_imported), (1, 1));
+        let after = target.read().await.unwrap();
+        assert!(after
+            .cookies
+            .iter()
+            .any(|cookie| { cookie.name == "BIDUPSID" && cookie.value == "codeg-visitor" }));
+        assert_eq!(
+            after.storage.get("SpyLocalCache"),
+            Some(&"codeg-cache".to_string())
+        );
+        assert!(after
+            .cookies
+            .iter()
+            .any(|cookie| { cookie.name == "session" && cookie.value == "ego-account" }));
+        assert_eq!(after.storage.get("token"), Some(&"ego-account".to_string()));
+    });
+}
+
+#[test]
+fn unknown_account_data_is_never_treated_as_a_visitor_identifier() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        for case in 0..4 {
+            let mut existing = site_data("existing-account");
+            existing.cookies[0].name = "identity".into();
+            existing.cookies[0].http_only = false;
+            existing.storage.clear();
+            let mut source = existing.clone();
+            match case {
+                0 => source.cookies[0].value = "other-account".into(),
+                1 => {
+                    existing.cookies.clear();
+                    source.cookies.clear();
+                    existing
+                        .storage
+                        .insert("accountState".into(), "existing".into());
+                    source.storage.insert("accountState".into(), "other".into());
+                }
+                2 => {
+                    existing.cookies[0].name = "BIDUPSID".into();
+                    source.cookies[0].name = "BIDUPSID".into();
+                    source.cookies[0].value = "other-visitor-on-another-site".into();
+                }
+                _ => source.cookies[0].secure = false,
+            }
+            let target = BrowserStore(Mutex::new(existing.clone()));
+            let result =
+                import_site_session("t1", "https://example.com/", source, &target, 1000.0).await;
+            assert_eq!(
+                result.error.as_deref(),
+                Some("browser_ego_conflict"),
+                "case {case}"
+            );
+            assert!(target.read().await.unwrap() == existing);
+        }
+    });
+}
+
+#[test]
 fn rejects_data_from_another_origin_without_changing_the_target() {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()

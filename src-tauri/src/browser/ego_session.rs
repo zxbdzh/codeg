@@ -147,6 +147,41 @@ pub fn validate_site_data(url: &url::Url, data: &SessionData) -> Result<(), Impo
     Ok(())
 }
 
+fn baidu_visitor_cookie(url: &url::Url, cookie: &SessionCookie) -> bool {
+    // 仅放行百度首页实测的访客字段；不能用「不像 token」推断任意站点数据安全。
+    url.origin().ascii_serialization() == "https://www.baidu.com"
+        && matches!(cookie.domain.as_str(), ".baidu.com" | "www.baidu.com")
+        && cookie.path == "/"
+        && !cookie.http_only
+        && matches!(
+            cookie.name.as_str(),
+            "BAIDUID"
+                | "BAIDUID_BFESS"
+                | "__bid_n"
+                | "BIDUPSID"
+                | "PSTM"
+                | "BD_UPN"
+                | "ZFY"
+                | "H_PS_PSSID"
+                | "BD_HOME"
+                | "BA_HECTOR"
+        )
+}
+
+fn baidu_visitor_storage(url: &url::Url, key: &str) -> bool {
+    url.origin().ascii_serialization() == "https://www.baidu.com"
+        && matches!(
+            key,
+            "BIDUPSID"
+                | "CVObj"
+                | "SpyLocalCache"
+                | "ba_hector_fp"
+                | "safeIconHis"
+                | "CVStringTimestamp"
+                | "BDSUGSTORED"
+        )
+}
+
 pub async fn import_site_session(
     tab_id: &str,
     url: &str,
@@ -182,19 +217,24 @@ pub async fn import_site_session(
     if let Err(error) = validate_site_data(&url, &before) {
         return error.outcome(tab_id);
     }
-    // 不能凭 Cookie 名猜测账号；已有不同的站点数据时一律保留原状。
+    // 只跳过已确认的访客数据；未知数据、账号数据及其安全属性有差异仍整次拒绝。
     if before.cookies.iter().any(|current| {
-        !source.cookies.iter().any(|cookie| {
+        let same_cookie = source.cookies.iter().any(|cookie| {
             cookie.name == current.name
                 && cookie.domain == current.domain
                 && cookie.path == current.path
                 && cookie.value == current.value
-        })
-    }) || before
-        .storage
-        .iter()
-        .any(|(key, value)| source.storage.get(key) != Some(value))
-    {
+                && cookie.http_only == current.http_only
+                && cookie.secure == current.secure
+                && cookie.same_site == current.same_site
+        });
+        if same_cookie {
+            return false;
+        }
+        !baidu_visitor_cookie(&url, current)
+    }) || before.storage.iter().any(|(key, value)| {
+        source.storage.get(key) != Some(value) && !baidu_visitor_storage(&url, key)
+    }) {
         return ImportFailure::Conflict.outcome(tab_id);
     }
     source.cookies.retain(|wanted| {
