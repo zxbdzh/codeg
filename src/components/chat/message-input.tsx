@@ -5,6 +5,7 @@ import {
   useEffect,
   useId,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -19,6 +20,7 @@ import {
   ClipboardPaste,
   Clock,
   Copy,
+  Lightbulb,
   MessageSquareText,
   Scissors,
   Send,
@@ -45,7 +47,6 @@ import {
 } from "@/components/ui/context-menu"
 import { cn, copyTextFromMenu } from "@/lib/utils"
 import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { imageFilesFromClipboardApi } from "@/lib/clipboard-images"
 import { toErrorMessage } from "@/lib/app-error"
 import { isNoActiveTurnRejection } from "@/lib/turn-busy"
@@ -420,8 +421,6 @@ export function MessageInput({
     knownInvocationsRef.current = knownInvocations
   }, [knownInvocations])
   const { shortcuts } = useShortcutSettings()
-  // 触屏没有 Tab 键，建议条只在手机上出现；桌面继续用占位符里的 Tab 提示。
-  const isMobile = useIsMobile()
   const effectiveDraftStorageKey = draftStorageKey ?? null
   const resolvedPlaceholder = placeholder ?? t("askAnything")
   // The predicted follow-up prompt, only where sending it could follow: never
@@ -432,11 +431,7 @@ export function MessageInput({
       ? promptSuggestion?.trim() || null
       : null
   const shownPlaceholder = offeredSuggestion
-    ? // 手机与桌面共用同一句建议；手机另有右上角的可点 Tab 按钮，
-      // 因此这里只显示建议本身，不再提示「按 Tab 填入」。
-      isMobile
-      ? offeredSuggestion
-      : t("promptSuggestion", { suggestion: offeredSuggestion })
+    ? t("promptSuggestion", { suggestion: offeredSuggestion })
     : resolvedPlaceholder
   const editorRef = useRef<RichComposerHandle>(null)
   const [historyLocked, setHistoryLocked] = useState(false)
@@ -554,6 +549,7 @@ export function MessageInput({
   useEffect(() => {
     // navigator.clipboard is undefined at runtime in non-secure contexts even
     // though the DOM types claim it is always present, so guard with typeof.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- browser-only read after mount keeps static-export hydration consistent
     setClipboardReadSupported(
       typeof navigator !== "undefined" &&
         typeof navigator.clipboard?.readText === "function"
@@ -1123,15 +1119,14 @@ export function MessageInput({
   // types and the filter narrows, the previously-highlighted index can point
   // past the end of the merged list (commands + experts), which would make
   // Enter/Tab a silent no-op. Clamp back to the last available row whenever
-  // the count changes.
-  useEffect(() => {
-    if (
-      slashAutocompleteCount > 0 &&
-      slashSelectedIndex >= slashAutocompleteCount
-    ) {
-      setSlashSelectedIndex(slashAutocompleteCount - 1)
-    }
-  }, [slashAutocompleteCount, slashSelectedIndex])
+  // the count changes. Adjusted during render so no frame (and no key handler)
+  // ever sees the out-of-range index.
+  if (
+    slashAutocompleteCount > 0 &&
+    slashSelectedIndex >= slashAutocompleteCount
+  ) {
+    setSlashSelectedIndex(slashAutocompleteCount - 1)
+  }
 
   // Keep the highlighted row visible inside the popup when keyboard navigation
   // pushes it past the scroll viewport. Without this the cursor silently runs
@@ -1696,10 +1691,14 @@ export function MessageInput({
     buildDraft,
     draftStorageKey: effectiveDraftStorageKey,
   })
-  currentComposerRef.current = {
-    buildDraft,
-    draftStorageKey: effectiveDraftStorageKey,
-  }
+  // Only read after an await in the steer handler, so syncing it after commit
+  // is early enough.
+  useLayoutEffect(() => {
+    currentComposerRef.current = {
+      buildDraft,
+      draftStorageKey: effectiveDraftStorageKey,
+    }
+  })
 
   const stashCapture = useCallback((): PromptStashSnapshot | null => {
     const editor = editorRef.current
@@ -2057,6 +2056,13 @@ export function MessageInput({
     [handleModeSelect, onConfigOptionChange]
   )
 
+  const handleUsePromptSuggestion = useCallback(() => {
+    const ed = editorRef.current
+    if (historyLockedRef.current || !ed?.isEmpty() || !offeredSuggestion) return
+    ed.setText(offeredSuggestion)
+    ed.focus()
+  }, [offeredSuggestion])
+
   const actionButtons = isEditingQueueItem ? (
     <div className="flex items-center gap-1">
       <Button
@@ -2152,15 +2158,34 @@ export function MessageInput({
       </Button>
     )
   ) : (
-    <Button
-      onClick={handleSend}
-      disabled={disabled || !hasSendableContent}
-      size="icon"
-      className="size-10 touch-manipulation md:size-8"
-      title={t("send")}
-    >
-      <Send className="size-4" />
-    </Button>
+    <div className="flex items-center gap-1">
+      {/* The click twin of Tab for a keyboard without one (a phone reaching
+          the web build): fills the predicted follow-up prompt into the empty
+          composer, sending nothing. Gone as soon as the composer holds text,
+          the same moment the placeholder hint goes. */}
+      {offeredSuggestion && composerEmpty && (
+        <Button
+          onClick={handleUsePromptSuggestion}
+          disabled={historyLocked}
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          title={t("usePromptSuggestion")}
+          aria-label={t("usePromptSuggestion")}
+        >
+          <Lightbulb className="size-4" />
+        </Button>
+      )}
+      <Button
+        onClick={handleSend}
+        disabled={disabled || !hasSendableContent}
+        size="icon"
+        className="size-10 touch-manipulation md:size-8"
+        title={t("send")}
+      >
+        <Send className="size-4" />
+      </Button>
+    </div>
   )
 
   return (
@@ -2331,25 +2356,6 @@ export function MessageInput({
                 // (see above); RichComposer explains the basis.
                 className={cn("grow", editableMinHeight)}
               />
-              {/* 触屏没有 Tab 键：在输入框右上角浮一个 Tab 按钮，
-                  点它就等价于桌面按 Tab 填入。只在有建议时出现。 */}
-              {offeredSuggestion && isMobile && (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="absolute right-1.5 top-1.5 z-10 h-6 touch-manipulation rounded-md px-1.5 font-mono text-[11px] leading-none"
-                  aria-label={t("useSuggestion")}
-                  title={t("useSuggestion")}
-                  onClick={() => {
-                    if (editorRef.current?.fillPromptSuggestion()) {
-                      syncComposerEmpty()
-                    }
-                  }}
-                >
-                  Tab
-                </Button>
-              )}
               <ComposerToolbar>
                 <div className="flex min-w-0 items-end gap-1">
                   <ComposerAddMenu

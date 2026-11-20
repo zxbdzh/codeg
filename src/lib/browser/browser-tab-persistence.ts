@@ -24,8 +24,6 @@ import type { BrowserTabState } from "./types"
 import { getCurrentWindowLabel } from "./window-label"
 
 export interface PersistedBrowserTab {
-  viewId?: string
-  conversationId?: number
   /** The page the tab was on (its live URL, falling back to the address it
    *  was opened with while nothing has committed). */
   url: string
@@ -71,30 +69,16 @@ function isWebUrl(url: string): boolean {
  *  thrown on — a corrupt entry must not take the whole list with it. */
 function sanitize(raw: unknown): PersistedBrowserTab | null {
   if (!raw || typeof raw !== "object") return null
-  const {
-    url,
-    title,
-    folderId,
-    profile,
-    remote,
-    device,
-    conversationId,
-    viewId,
-  } = raw as Record<string, unknown>
+  const { url, title, folderId, profile, remote, device } = raw as Record<
+    string,
+    unknown
+  >
   if (typeof url !== "string" || !isWebUrl(url)) return null
   // A device this build does not know is a desktop: the page comes back,
   // filling the pane.
   const emulated = parseEmulatedBrowserDevice(device)
   return {
     url,
-    ...(typeof viewId === "string" && /^browser:[0-9a-f-]{36}$/i.test(viewId)
-      ? { viewId }
-      : {}),
-    ...(typeof conversationId === "number" &&
-    Number.isInteger(conversationId) &&
-    conversationId > 0
-      ? { conversationId }
-      : {}),
     title: typeof title === "string" ? title : "",
     folderId:
       typeof folderId === "number" && Number.isInteger(folderId)
@@ -150,8 +134,6 @@ export function writePersistedBrowserTabs(
       version: BROWSER_TABS_STORAGE_VERSION,
       tabs: tabs.map((tab) => ({
         url: tab.url,
-        ...(tab.viewId ? { viewId: tab.viewId } : {}),
-        ...(tab.conversationId ? { conversationId: tab.conversationId } : {}),
         title: tab.title,
         folderId: tab.folderId,
         profile: tab.profile,
@@ -178,9 +160,7 @@ export function writePersistedBrowserTabs(
  */
 export function snapshotBrowserTabs(
   fileTabs: readonly FileWorkspaceTab[],
-  stateOf: (
-    workspaceTabId: string
-  ) => Pick<BrowserTabState, "url" | "title" | "requestedUrl"> | null
+  stateOf: (workspaceTabId: string) => BrowserTabState | null
 ): PersistedBrowserTab[] {
   const out: PersistedBrowserTab[] = []
   for (const tab of fileTabs) {
@@ -192,13 +172,9 @@ export function snapshotBrowserTabs(
     if (!url) continue
     out.push({
       url,
-      ...(tab.browser.conversationId ? { viewId: tab.id } : {}),
       title: state?.title || tab.title,
       folderId: tab.folderId,
       profile: tab.browser.profile,
-      ...(tab.browser.conversationId
-        ? { conversationId: tab.browser.conversationId }
-        : {}),
       ...(tab.browser.remote ? { remote: true as const } : {}),
       ...(tab.browser.device ? { device: tab.browser.device } : {}),
     })
@@ -217,8 +193,6 @@ export function samePersistedBrowserTabs(
       a[i].title !== b[i].title ||
       a[i].folderId !== b[i].folderId ||
       a[i].profile !== b[i].profile ||
-      a[i].conversationId !== b[i].conversationId ||
-      a[i].viewId !== b[i].viewId ||
       a[i].remote !== b[i].remote ||
       !sameBrowserDevice(a[i].device, b[i].device)
     ) {

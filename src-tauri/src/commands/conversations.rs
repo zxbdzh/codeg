@@ -116,7 +116,7 @@ pub async fn list_all_conversations(
     status: Option<String>,
     include_children: Option<bool>,
 ) -> Result<Vec<DbConversationSummary>, AppCommandError> {
-    let emitter = EventEmitter::Tauri(app.clone());
+    let emitter = EventEmitter::from_app(&app);
     let db = app.state::<AppDatabase>();
     let chat_channel_manager =
         app.state::<crate::chat_channel::manager::ChatChannelManager>();
@@ -231,7 +231,7 @@ pub async fn save_opened_tabs(
 ) -> Result<SaveTabsOutcome, AppCommandError> {
     save_opened_tabs_with_panes_core(
         &db.conn,
-        &EventEmitter::Tauri(app),
+        &EventEmitter::from_app(&app),
         items,
         expected_version,
         origin,
@@ -549,7 +549,7 @@ pub async fn import_local_conversations(
 ) -> Result<ImportResult, AppCommandError> {
     import_local_conversations_core(
         &db.conn,
-        &EventEmitter::Tauri(app),
+        &EventEmitter::from_app(&app),
         &chat_channel_manager,
         folder_id,
     )
@@ -878,7 +878,7 @@ pub async fn scan_importable_sessions(
     db: tauri::State<'_, AppDatabase>,
     chat_channel_manager: tauri::State<'_, crate::chat_channel::manager::ChatChannelManager>,
 ) -> Result<ScanResult, AppCommandError> {
-    scan_importable_sessions_core(&db.conn, &EventEmitter::Tauri(app), &chat_channel_manager).await
+    scan_importable_sessions_core(&db.conn, &EventEmitter::from_app(&app), &chat_channel_manager).await
 }
 
 /// Batch-import the selected sessions, creating (or reopening) each target
@@ -1214,7 +1214,7 @@ pub async fn import_selected_sessions(
     db: tauri::State<'_, AppDatabase>,
     selections: Vec<SelectedSessionKey>,
 ) -> Result<ImportSelectedResult, AppCommandError> {
-    import_selected_sessions_core(&db.conn, &EventEmitter::Tauri(app), selections).await
+    import_selected_sessions_core(&db.conn, &EventEmitter::from_app(&app), selections).await
 }
 
 /// Build the `meta["codeg.delegation"]` value for a delegation child loaded
@@ -1756,6 +1756,7 @@ pub async fn get_folder_conversation_core(
             session_stats,
             transcript_watermark,
             in_flight_user_turn_id: None,
+            in_flight_user_source_turn_id: None,
             turns_offset: None,
             turns_total: None,
             assistant_turns_before_offset: None,
@@ -1883,9 +1884,9 @@ const MAX_IN_FLIGHT_WALK_USER_TURNS: usize = 32;
 /// hidden prompt. When `started_at` is unknown the recency check can't run, so
 /// nothing is stamped (the safe, keep-visible default).
 ///
-/// Returns the stamped turn's (new) id when a stamp is applied, so the caller can
-/// surface it on the detail response as `in_flight_user_turn_id`. The frontend
-/// uses that to locate the in-flight prompt and, while the live reply is in hand,
+/// Returns the display id and the original transcript id when a stamp is applied.
+/// The latter identifies the exact user turn for history operations. The frontend
+/// uses the display id to locate the in-flight prompt and, while the live reply is in hand,
 /// hide the partial assistant turn OpenCode/Gemini persist after it mid-stream
 /// (which would otherwise double-render against the live reply). Returning the id
 /// rather than truncating here is deliberate: removing the partial server-side
@@ -1896,7 +1897,7 @@ fn apply_in_flight_message_id(
     turns: &mut [MessageTurn],
     pending: &crate::acp::session_state::PendingUserMessage,
     started_at: Option<chrono::DateTime<chrono::Utc>>,
-) -> Option<String> {
+) -> Option<(String, String)> {
     let n = turns.len();
     if n == 0 {
         return None;
@@ -2020,8 +2021,8 @@ fn apply_in_flight_message_id(
     if collides {
         return None;
     }
-    turns[target_idx].id = pending.message_id.clone();
-    Some(pending.message_id.clone())
+    let source_turn_id = std::mem::replace(&mut turns[target_idx].id, pending.message_id.clone());
+    Some((pending.message_id.clone(), source_turn_id))
 }
 
 /// Resolve the raw `tailTurns` / `fromIndex` request fields into a window
@@ -2144,8 +2145,12 @@ pub async fn get_folder_conversation_with_live_core(
         .pending_user_message_for_conversation(conversation_id)
         .await
     {
-        detail.in_flight_user_turn_id =
-            apply_in_flight_message_id(&mut detail.turns, &pending, started_at);
+        if let Some((display_id, source_id)) =
+            apply_in_flight_message_id(&mut detail.turns, &pending, started_at)
+        {
+            detail.in_flight_user_turn_id = Some(display_id);
+            detail.in_flight_user_source_turn_id = Some(source_id);
+        }
     }
     if let Some(req) = window {
         apply_turn_window(&mut detail, req);
@@ -2219,7 +2224,7 @@ pub async fn get_folder_conversation(
         &db.conn,
         &manager,
         &chat_channel_manager,
-        &EventEmitter::Tauri(app),
+        &EventEmitter::from_app(&app),
         conversation_id,
         window,
     )
@@ -2524,7 +2529,7 @@ pub async fn create_conversation(
     title: Option<String>,
 ) -> Result<i32, AppCommandError> {
     let id = create_conversation_core(&db.conn, folder_id, agent_type, title).await?;
-    emit_conversation_upsert(&EventEmitter::Tauri(app), &db.conn, id).await;
+    emit_conversation_upsert(&EventEmitter::from_app(&app), &db.conn, id).await;
     Ok(id)
 }
 
@@ -2804,7 +2809,7 @@ pub async fn create_chat_conversation(
         existing_dir.as_deref(),
     )
     .await?;
-    emit_conversation_upsert(&EventEmitter::Tauri(app), &db.conn, result.conversation_id).await;
+    emit_conversation_upsert(&EventEmitter::from_app(&app), &db.conn, result.conversation_id).await;
     Ok(result)
 }
 
@@ -2867,7 +2872,7 @@ pub async fn update_conversation_status(
     status: String,
 ) -> Result<(), AppCommandError> {
     update_conversation_status_core(&db.conn, conversation_id, status).await?;
-    emit_conversation_upsert(&EventEmitter::Tauri(app), &db.conn, conversation_id).await;
+    emit_conversation_upsert(&EventEmitter::from_app(&app), &db.conn, conversation_id).await;
     Ok(())
 }
 
@@ -2909,7 +2914,7 @@ pub async fn update_conversation_title(
     title: String,
 ) -> Result<(), AppCommandError> {
     update_conversation_title_core(&db.conn, conversation_id, title).await?;
-    emit_conversation_upsert(&EventEmitter::Tauri(app), &db.conn, conversation_id).await;
+    emit_conversation_upsert(&EventEmitter::from_app(&app), &db.conn, conversation_id).await;
     sync_conversation_title_to_channels_core(&db.conn, &chat_channel_manager, conversation_id).await;
     Ok(())
 }
@@ -2933,7 +2938,7 @@ pub async fn update_conversation_pinned(
     pinned: bool,
 ) -> Result<(), AppCommandError> {
     update_conversation_pinned_core(&db.conn, conversation_id, pinned).await?;
-    emit_conversation_upsert(&EventEmitter::Tauri(app), &db.conn, conversation_id).await;
+    emit_conversation_upsert(&EventEmitter::from_app(&app), &db.conn, conversation_id).await;
     Ok(())
 }
 
@@ -3044,7 +3049,7 @@ pub async fn delete_conversation(
     manager: tauri::State<'_, crate::acp::manager::ConnectionManager>,
     conversation_id: i32,
 ) -> Result<(), AppCommandError> {
-    let emitter = EventEmitter::Tauri(app);
+    let emitter = EventEmitter::from_app(&app);
     delete_conversation_with_cleanup_core(&emitter, &db.conn, &manager, conversation_id).await
 }
 
@@ -3293,7 +3298,7 @@ pub async fn move_conversations(
     conversation_ids: Vec<i32>,
     target_folder_id: i32,
 ) -> Result<MoveConversationsResult, AppCommandError> {
-    let emitter = EventEmitter::Tauri(app);
+    let emitter = EventEmitter::from_app(&app);
     move_conversations_core(
         &emitter,
         &db.conn,
@@ -3505,7 +3510,7 @@ mod tests {
         ];
         let stamped =
             apply_in_flight_message_id(&mut turns, &pending_text("msg-live", "hello"), Some(turn_started()));
-        assert_eq!(stamped.as_deref(), Some("msg-live"), "reports the stamped id");
+        assert_eq!(stamped, Some(("msg-live".into(), "turn-2".into())));
         assert_eq!(turns[2].id, "msg-live");
         assert_eq!(turns[0].id, "turn-0", "earlier identical-position turn intact");
         assert_eq!(turns[1].id, "turn-1");
@@ -3528,7 +3533,7 @@ mod tests {
         ];
         let stamped =
             apply_in_flight_message_id(&mut turns, &pending_text("msg-live", "hello"), Some(turn_started()));
-        assert_eq!(stamped.as_deref(), Some("msg-live"));
+        assert_eq!(stamped, Some(("msg-live".into(), "turn-0".into())));
         assert_eq!(turns[0].id, "msg-live");
         assert_eq!(turns.len(), 2, "the partial reply is preserved (not dropped)");
         assert_eq!(turns[1].id, "turn-1", "the partial reply is untouched");
@@ -3633,7 +3638,7 @@ mod tests {
             &pending_text("msg-live", "run the tests"),
             Some(turn_started()),
         );
-        assert_eq!(stamped.as_deref(), Some("msg-live"));
+        assert_eq!(stamped, Some(("msg-live".into(), "turn-0".into())));
         assert_eq!(turns[0].id, "msg-live");
     }
 
@@ -3659,7 +3664,7 @@ mod tests {
         }
         let stamped =
             apply_in_flight_message_id(&mut turns, &pending_text("msg-live", "hello"), Some(turn_started()));
-        assert_eq!(stamped.as_deref(), Some("msg-live"));
+        assert_eq!(stamped, Some(("msg-live".into(), "turn-0".into())));
         assert_eq!(turns[2].id, "msg-live");
     }
 
@@ -3685,7 +3690,7 @@ mod tests {
         turns.pop();
         let stamped =
             apply_in_flight_message_id(&mut turns, &pending_text("msg-live", "hello"), Some(turn_started()));
-        assert_eq!(stamped.as_deref(), Some("msg-live"));
+        assert_eq!(stamped, Some(("msg-live".into(), "wanted".into())));
     }
 
     #[test]
@@ -3707,7 +3712,7 @@ mod tests {
         ];
         let stamped =
             apply_in_flight_message_id(&mut turns, &pending_text("msg-live", "hello"), Some(turn_started()));
-        assert_eq!(stamped.as_deref(), Some("msg-live"));
+        assert_eq!(stamped, Some(("msg-live".into(), "turn-0".into())));
         assert_eq!(turns[0].id, "msg-live");
     }
 
@@ -3724,7 +3729,7 @@ mod tests {
         ];
         let stamped =
             apply_in_flight_message_id(&mut turns, &pending_text("msg-live", "hello"), Some(turn_started()));
-        assert_eq!(stamped.as_deref(), Some("msg-live"));
+        assert_eq!(stamped, Some(("msg-live".into(), "turn-0".into())));
         assert_eq!(turns[0].id, "msg-live", "the prompt keeps the stamp");
         assert_eq!(turns[2].id, "turn-2", "the mid-turn message is untouched");
     }
@@ -3754,7 +3759,7 @@ mod tests {
             &pending_text("msg-live", "continue"),
             Some(turn_started()),
         );
-        assert_eq!(stamped.as_deref(), Some("msg-live"));
+        assert_eq!(stamped, Some(("msg-live".into(), "turn-0".into())));
         assert_eq!(turns[2].id, "msg-live", "the earliest copy is the prompt");
         assert_eq!(turns[4].id, "turn-2", "the mid-turn repeat is untouched");
         assert_eq!(turns[0].id, "old", "the earlier round is untouched");
@@ -7761,6 +7766,7 @@ mod tests {
             session_stats: None,
             transcript_watermark: Some(123),
             in_flight_user_turn_id: None,
+            in_flight_user_source_turn_id: None,
             turns_offset: None,
             turns_total: None,
             assistant_turns_before_offset: None,

@@ -111,12 +111,6 @@ import {
   remoteConnectionOfProfile,
 } from "@/lib/browser/remote-host"
 import { randomUUID } from "@/lib/utils"
-import { toast } from "sonner"
-import { egoError } from "@/lib/browser/ego-api"
-import {
-  guardEgoWorkspaceClose,
-  subscribeEgoClosedViews,
-} from "@/lib/browser/ego-workspace"
 
 export type WorkspaceMode = "conversation" | "fusion"
 
@@ -145,7 +139,6 @@ type LineEnding = "lf" | "crlf" | "mixed" | "none"
  *  lives in `lib/browser/browser-tab-store`, keyed by the tab id, so page
  *  activity never churns the `fileTabs` slice. */
 export interface BrowserTabSeed {
-  conversationId?: number
   /** The URL the tab was opened with; the surface navigates to it once. */
   initialUrl: string
   /** Set on a tab adopted from another tab's `window.open` (popup). */
@@ -403,8 +396,6 @@ export interface WorkspaceActionsValue {
 /** What a browser tab needs to come back after a restart (see
  *  `lib/browser/browser-tab-persistence`). */
 export interface RestorableBrowserTab {
-  viewId?: string
-  conversationId?: number
   url: string
   title: string | null
   folderId: number | null
@@ -793,7 +784,6 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   // conversation, or the conversation overlays the files. One slot, so the
   // two can never both be on.
   const [maximizedPane, setMaximizedPane] = useState<WorkspacePane | null>(null)
-  // 聚焦态只在当前窗口内存中存在；关闭标签、切换路由或按 Esc 都要立刻还原。
   // FIFO queue of unresolved disk-vs-buffer divergences (head is shown by
   // the always-mounted conflict dialog). Isolated state: never flows into
   // the fileTabs slice, so idle cost is zero.
@@ -1192,18 +1182,9 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       const normalized = normalizeUrlForDedupe(url)
       if (!normalized) return null
       const activate = options?.activate ?? true
-      const conversations = useTabStore.getState()
-      const activeConversationId =
-        conversations.rawTabs.find(
-          (entry) => entry.id === conversations.activeTabId
-        )?.conversationId ?? undefined
       const opener = options?.openerTabId
         ? fileTabsRef.current.find((tab) => tab.id === options.openerTabId)
         : undefined
-      const conversationId =
-        (opener?.kind === "browser"
-          ? opener.browser.conversationId
-          : undefined) ?? activeConversationId
       const state = useFolderTabsStore.getState()
       const targetScope =
         options?.folderId != null
@@ -1258,7 +1239,6 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
           : fileTabsRef.current.find(
               (tab) =>
                 tab.kind === "browser" &&
-                tab.browser.conversationId === conversationId &&
                 tab.browser.profile === profile &&
                 (tab.browser.remote === true) === remote &&
                 normalizeUrlForDedupe(tab.browser.initialUrl) === normalized
@@ -1287,7 +1267,6 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
         remote,
         options?.device
       )
-      if (conversationId) record.browser.conversationId = conversationId
       useFolderTabsStore
         .getState()
         .addFile(record.id, targetScope, activate !== false)
@@ -1398,7 +1377,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       // is not duplicated.
       const keyOf = (tab: FileWorkspaceTab) =>
         tab.kind === "browser"
-          ? `${tab.browser.conversationId ?? ""} ${tab.browser.remote === true ? "remote" : tab.browser.profile} ${normalizeUrlForDedupe(tab.browser.initialUrl) ?? ""}`
+          ? `${tab.browser.remote === true ? "remote" : tab.browser.profile} ${normalizeUrlForDedupe(tab.browser.initialUrl) ?? ""}`
           : null
       // Records are built once, outside the updater, so a replayed updater
       // inserts the same ids.
@@ -1416,9 +1395,9 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
             ? entry.profile
             : DEFAULT_BROWSER_PROFILE_ID
         candidates.push({
-          key: `${entry.conversationId ?? ""} ${remote ? "remote" : profile} ${normalized}`,
+          key: `${remote ? "remote" : profile} ${normalized}`,
           record: browserTabRecord(
-            entry.viewId && /^browser:[0-9a-f-]{36}$/i.test(entry.viewId) ? entry.viewId.slice(8) : randomUUID(),
+            randomUUID(),
             entry.url,
             entry.folderId,
             null,
@@ -1428,11 +1407,6 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
             entry.device
           ),
         })
-        if (entry.conversationId) {
-          const candidate = candidates[candidates.length - 1].record
-          if (candidate.kind === "browser")
-            candidate.browser.conversationId = entry.conversationId
-        }
       }
       if (candidates.length === 0) return
       // No scope registration here: the updater must not write the store
@@ -3303,11 +3277,9 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     },
     [setActiveFileTabId, activateFilePane, saveFileTab]
   )
-  useEffect(() => {
-    switchFileTabRef.current = switchFileTab
-  }, [switchFileTab])
+
   const closeFileTab = useCallback(
-    function closeFileTab(tabId: string, options?: { allScopes?: boolean }) {
+    (tabId: string, options?: { allScopes?: boolean }) => {
       const folderTabs = useFolderTabsStore.getState()
       if (
         folderTabs.enabled &&
@@ -3323,14 +3295,6 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
           return
         }
       }
-      if (
-        guardEgoWorkspaceClose(
-          [tabId],
-          () => closeFileTab(tabId, options),
-          (error) => toast.error(egoError(error))
-        )
-      )
-        return
       // Folder-tabs selection is per scope and lives in the store, which the
       // updater below must not write: it is derived from the scope's
       // references until the committed close drops them (`pendingForgetRef`).
@@ -3412,19 +3376,13 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     [setActiveFileTabId, activateConversationPane, activateFilePane, t]
   )
 
-  useEffect(
-    () =>
-      subscribeEgoClosedViews((id) => closeFileTab(id, { allScopes: true })),
-    [closeFileTab]
-  )
-
   // Folder-tabs "close others" / "close all": ONE operation over the active
   // scope's references, decided before any state changes. A buffer another
   // folder still references only leaves this scope (nothing is lost, so it
   // asks nothing); the rest close behind a single confirmation when any of
   // them has unsaved edits — cancelling closes nothing, as in normal mode.
   const closeScopeFileTabs = useCallback(
-    function closeScopeFileTabs(keepId: string | null, confirmed = false) {
+    (keepId: string | null) => {
       const folderTabs = useFolderTabsStore.getState()
       const scope = folderTabs.scope
       const ids = (folderTabs.fileRefs[scope] ?? []).filter(
@@ -3437,7 +3395,6 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
         )
       const closing = new Set(ids.filter((id) => !elsewhere(id)))
       if (
-        !confirmed &&
         fileTabsRef.current.some(
           (tab) => closing.has(tab.id) && isDirtyFileTab(tab)
         ) &&
@@ -3451,14 +3408,6 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       ) {
         return
       }
-      if (
-        guardEgoWorkspaceClose(
-          [...closing],
-          () => closeScopeFileTabs(keepId, true),
-          (error) => toast.error(egoError(error))
-        )
-      )
-        return
       for (const id of ids) {
         if (!closing.has(id)) folderTabs.removeFile(id, scope)
       }
@@ -3498,7 +3447,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   )
 
   const closeOtherFileTabs = useCallback(
-    function closeOtherFileTabs(tabId: string, confirmed = false) {
+    (tabId: string) => {
       if (useFolderTabsStore.getState().enabled) {
         closeScopeFileTabs(tabId)
         return
@@ -3508,18 +3457,10 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
         if (remaining.length === 0) return prev
 
         const closingTabs = prev.filter((tab) => tab.id !== tabId)
-        if (!confirmed && closingTabs.some(isDirtyFileTab)) {
+        if (closingTabs.some(isDirtyFileTab)) {
           const confirmed = window.confirm(t("confirmCloseOtherDirtyTabs"))
           if (!confirmed) return prev
         }
-        if (
-          guardEgoWorkspaceClose(
-            closingTabs.map((tab) => tab.id),
-            () => closeOtherFileTabs(tabId, true),
-            (error) => toast.error(egoError(error))
-          )
-        )
-          return prev
 
         // `pushClosedTab` is idempotent per tab id, which is what makes this
         // safe inside an updater React may invoke more than once.
@@ -3543,45 +3484,34 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     [setActiveFileTabId, activateFilePane, closeScopeFileTabs, t]
   )
 
-  const closeAllFileTabs = useCallback(
-    function closeAllFileTabs(confirmed = false) {
-      if (useFolderTabsStore.getState().enabled) {
-        closeScopeFileTabs(null)
-        return
+  const closeAllFileTabs = useCallback(() => {
+    if (useFolderTabsStore.getState().enabled) {
+      closeScopeFileTabs(null)
+      return
+    }
+    setFileTabs((prev) => {
+      if (prev.some(isDirtyFileTab)) {
+        const confirmed = window.confirm(t("confirmCloseAllDirtyTabs"))
+        if (!confirmed) return prev
       }
-      setFileTabs((prev) => {
-        if (!confirmed && prev.some(isDirtyFileTab)) {
-          const confirmed = window.confirm(t("confirmCloseAllDirtyTabs"))
-          if (!confirmed) return prev
-        }
-        if (
-          guardEgoWorkspaceClose(
-            prev.map((tab) => tab.id),
-            () => closeAllFileTabs(true),
-            (error) => toast.error(egoError(error))
-          )
-        )
-          return prev
 
-        for (const [tab, slot] of batchCloseSlots(prev)) {
-          const closed = snapshotFileTab(tab, slot)
-          if (closed) pushClosedTab(closed)
-          if (tab.kind === "browser") {
-            pushClosedTab(closedBrowserTab(tab, slot))
-            releaseBrowserTab(tab.id)
-          }
+      for (const [tab, slot] of batchCloseSlots(prev)) {
+        const closed = snapshotFileTab(tab, slot)
+        if (closed) pushClosedTab(closed)
+        if (tab.kind === "browser") {
+          pushClosedTab(closedBrowserTab(tab, slot))
+          releaseBrowserTab(tab.id)
         }
+      }
 
-        for (const tab of prev) pendingForgetRef.current.add(tab.id)
-        inFlightLoadsRef.current.clear()
-        setActiveFileTabId(null)
-        setPreviewFileTabIds(new Set())
-        activateConversationPane()
-        return []
-      })
-    },
-    [setActiveFileTabId, activateConversationPane, closeScopeFileTabs, t]
-  )
+      for (const tab of prev) pendingForgetRef.current.add(tab.id)
+      inFlightLoadsRef.current.clear()
+      setActiveFileTabId(null)
+      setPreviewFileTabIds(new Set())
+      activateConversationPane()
+      return []
+    })
+  }, [setActiveFileTabId, activateConversationPane, closeScopeFileTabs, t])
 
   const reorderFileTabs = useCallback((tabs: FileWorkspaceTab[]) => {
     const folderTabs = useFolderTabsStore.getState()

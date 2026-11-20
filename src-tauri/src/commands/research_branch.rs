@@ -132,7 +132,7 @@ pub async fn conversation_fork(
         &db,
         &manager,
         &crate::paths::resolve_effective_data_dir(&directory),
-        &crate::web::event_bridge::EventEmitter::Tauri(app),
+        &crate::web::event_bridge::EventEmitter::from_app(&app),
         crate::research_branch::CreateRequest {
             connection_id,
             source_conversation_id,

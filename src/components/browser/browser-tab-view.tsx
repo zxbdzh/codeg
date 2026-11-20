@@ -44,7 +44,6 @@ import {
 } from "./browser-status-layer"
 import { BrowserSurfaceHost } from "./browser-surface-host"
 import { BrowserToolbar } from "./browser-toolbar"
-import { EgoBrowserGateway } from "./ego-browser-view"
 
 /**
  * The file-pane content of a browser tab. On the desktop: toolbar, notices,
@@ -53,14 +52,6 @@ import { EgoBrowserGateway } from "./ego-browser-view"
  * dev server on the codeg host through the port bridge instead.
  */
 export function BrowserTabView({ tab }: { tab: BrowserWorkspaceTab }) {
-  return (
-    <EgoBrowserGateway tab={tab}>
-      <LegacyBrowserTabView tab={tab} />
-    </EgoBrowserGateway>
-  )
-}
-
-function LegacyBrowserTabView({ tab }: { tab: BrowserWorkspaceTab }) {
   if (!isDesktop()) return <BrowserBridgeView tab={tab} />
   // An address of the remote codeg host: loaded through that host, or not
   // at all — never from this computer. A record in a connection's profile is

@@ -20,7 +20,6 @@ import type {
 } from "./types"
 import { buildFileTabId } from "@/lib/file-tab-id"
 import { isDesktop } from "@/lib/transport"
-import { isEgoWorkspaceTab } from "./ego-workspace"
 import { randomUUID } from "@/lib/utils"
 
 type Listener = () => void
@@ -393,7 +392,6 @@ export function releaseBrowserTab(
   workspaceTabId: string,
   { suspending = false }: { suspending?: boolean } = {}
 ): void {
-  if (isEgoWorkspaceTab(workspaceTabId)) return
   removeBrowserTabState(workspaceTabId)
   const backendId = workspaceTabId.startsWith("browser:")
     ? decodeURIComponent(workspaceTabId.slice("browser:".length))

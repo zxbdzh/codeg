@@ -95,13 +95,6 @@ export interface RichComposerHandle {
   insertTextAtCursor: (text: string) => void
   /** Insert an inline reference badge at the current selection. */
   insertReference: (attrs: ReferenceAttrs) => void
-  /**
-   * Fill the empty document with the host's predicted follow-up prompt — the
-   * same text a bare Tab inserts. Returns false when the document is not empty
-   * (or no suggestion is offered), so a touch host can use it as a tap target
-   * without ever overwriting typed content.
-   */
-  fillPromptSuggestion: () => boolean
   /** Escape hatch to the underlying editor (null until initialized). */
   getEditor: () => Editor | null
 }
@@ -388,22 +381,6 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       []
     )
 
-    /**
-     * 把预测的后续提示词填入空输入框，不发送。
-     * 键盘 Tab 和手机上的点击入口共用这一段，保证两条路径行为完全一致：
-     * 只在文档为空时生效，避免覆盖用户已输入的内容。
-     */
-    const fillPromptSuggestion = useCallback((): boolean => {
-      const suggestion = promptSuggestionRef.current?.trim()
-      const ed = editorInstanceRef.current
-      if (!suggestion || !ed?.isEmpty) return false
-      ed.chain()
-        .setContent(textToSeededDoc(suggestion, known()))
-        .focus("end")
-        .run()
-      return true
-    }, [known])
-
     const editor = useEditor({
       // Static export / SSR safety: never render on the server.
       immediatelyRender: false,
@@ -411,9 +388,8 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       // it stays inert until `referenceSearch` is set (checked at runtime in the
       // controller). `mentionController` (stable, from useMemo) captures refs
       // but only dereferences them inside event-time callbacks, never during
-      // render — the React Compiler lint can't prove that. Mirrors Tiptap's own
-      // React suggestion pattern (render() → component.ref.onKeyDown).
-      // eslint-disable-next-line react-hooks/refs
+      // render. Mirrors Tiptap's own React suggestion pattern
+      // (render() → component.ref.onKeyDown).
       extensions: buildComposerExtensions({
         placeholder: getPlaceholder,
         mentionController,
@@ -462,7 +438,15 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
             !event.ctrlKey &&
             !event.metaKey
           ) {
-            if (fillPromptSuggestion()) return true
+            const suggestion = promptSuggestionRef.current?.trim()
+            const ed = editorInstanceRef.current
+            if (suggestion && ed?.isEmpty) {
+              ed.chain()
+                .setContent(textToSeededDoc(suggestion, known()))
+                .focus("end")
+                .run()
+              return true
+            }
           }
           // Prompt history (chat composer only): a bare Up/Down at the
           // document's first/last position steps through sent prompts; anywhere
@@ -664,13 +648,12 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
             .insertContent(textToSeededInlineContent(text, known()))
             .run()
         },
-        fillPromptSuggestion,
         insertReference: (attrs) => {
           editor?.chain().focus().insertReference(attrs).run()
         },
         getEditor: () => editor ?? null,
       }),
-      [editor, known, fillPromptSuggestion]
+      [editor, known]
     )
 
     const closeMention = useCallback(() => {

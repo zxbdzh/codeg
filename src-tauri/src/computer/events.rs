@@ -55,7 +55,7 @@ impl ComputerEvents {
             Self::Desktop(app) => {
                 // 与共享实例配套广播；否则另一端只能看到过期授权，无法确认停止。
                 crate::web::event_bridge::emit_event(
-                    &crate::web::event_bridge::EventEmitter::Tauri(app.clone()),
+                    &crate::web::event_bridge::EventEmitter::from_app(app),
                     channel,
                     payload,
                 );

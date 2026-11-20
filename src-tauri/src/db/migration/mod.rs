@@ -63,6 +63,7 @@ mod m20261104_000001_prompt_stash_scope;
 mod m20261106_000001_work_task_source_key;
 mod m20261110_000001_research_branch;
 mod m20261112_000001_work_task_writeback_drafts;
+mod m20261116_000001_srn_web;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -132,6 +133,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261106_000001_work_task_source_key::Migration),
             Box::new(m20261110_000001_research_branch::Migration),
             Box::new(m20261112_000001_work_task_writeback_drafts::Migration),
+            Box::new(m20261116_000001_srn_web::Migration),
         ]
     }
 }

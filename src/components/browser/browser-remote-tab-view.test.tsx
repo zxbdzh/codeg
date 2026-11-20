@@ -11,10 +11,6 @@ type SurfaceHostProps = {
   pendingLabel?: string
 }
 
-vi.mock("./ego-browser-view", () => ({
-  EgoBrowserGateway: ({ children }: { children: React.ReactNode }) => children,
-}))
-
 const mocks = vi.hoisted(() => ({
   baseUrl: "https://dev.example.com",
   connectionId: 7 as number | null,

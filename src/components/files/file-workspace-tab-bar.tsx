@@ -22,7 +22,6 @@ import {
 import { AGENT_MARK } from "@/components/browser/browser-agent-access"
 import { browserListServices } from "@/lib/browser/browser-api"
 import { useBrowserTabState } from "@/lib/browser/browser-tab-store"
-import { useEgoWorkspacePage } from "@/lib/browser/ego-workspace"
 import {
   BLANK_PAGE_URL,
   displayHostPort,
@@ -432,13 +431,12 @@ const FileWorkspaceTabItem = memo(function FileWorkspaceTabItem({
   // A browser tab's title follows the page (document.title); the record only
   // knows the host it was opened with.
   const browserState = useBrowserTabState(isBrowser ? tab.id : null)
-  const egoPage = useEgoWorkspacePage(tab.id)
   // No live state = no page behind the tab yet: restored from a previous run
   // or unloaded in the background; it loads when switched to. Drawn faded,
   // the way browsers draw a discarded tab.
-  const unloaded = isBrowser && !browserState && !egoPage
+  const unloaded = isBrowser && !browserState
   const browserUrl = isBrowser
-    ? egoPage?.url || browserState?.url || tab.browser.initialUrl
+    ? browserState?.url || tab.browser.initialUrl
     : null
   // An empty tab names itself ("New tab") and has no address worth showing:
   // `about:blank` is the absence of a page, not one the user navigated to.
@@ -468,8 +466,7 @@ const FileWorkspaceTabItem = memo(function FileWorkspaceTabItem({
     [previewing, tab.content, tab.kind, tab.path]
   )
   const displayTitle = isBrowser
-    ? egoPage?.title ||
-      browserState?.title ||
+    ? browserState?.title ||
       (blankPage
         ? tBrowserTab("untitled")
         : (recordTitle ?? browserHost ?? tab.title))

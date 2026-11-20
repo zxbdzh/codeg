@@ -3341,6 +3341,7 @@ export interface RuntimeActions {
    * client is a pure viewer of it (never touches an owner's in-memory reply).
    */
   syncViewerDetail: (conversationId: number) => void
+  refreshSettledTurns: (conversationId: number) => void
   syncTurnMetadata: (
     dbConversationId: number,
     runtimeConversationId?: number
@@ -4849,10 +4850,10 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
   // down to that reply (`holdsUnseenTurnReply`); gives up, keeping the head as
   // before, when the transcript never gets there. Never sets `detailLoading`:
   // the head of the reply stays on screen while this reads.
-  const resyncUnseenTurnEnd = (conversationId: number): void => {
+  const refreshSettledTurns = (conversationId: number): void => {
     cancelUnseenTurnResync(conversationId)
     const session = get().byConversationId.get(conversationId)
-    if (!session) return
+    if (!session?.localTurns.length) return
 
     // Everything the promotion left in `localTurns` — this reply's head and the
     // earlier rounds of the batch — is on disk once the read holds them all, and
@@ -5181,6 +5182,7 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
     loadOlderTurnsThrough,
     markOutOfTurnContent,
     syncViewerDetail,
+    refreshSettledTurns,
     syncTurnMetadata,
     completeTurn: (conversationId, liveMessage) => {
       // Deliberately NO refetchDetail here (tried and reverted — see git
@@ -5212,7 +5214,7 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
       // what the race above needs (see `unseenTurnEnds`).
       const unseen = unseenTurnEnds.delete(conversationId)
       dispatch({ type: "COMPLETE_TURN", conversationId, liveMessage })
-      if (unseen) resyncUnseenTurnEnd(conversationId)
+      if (unseen) refreshSettledTurns(conversationId)
     },
     markTurnEndUnseen: (externalId) => {
       for (const [conversationId, session] of get().byConversationId) {

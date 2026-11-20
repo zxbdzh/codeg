@@ -83,7 +83,7 @@ pub async fn generate_tag_suggestion_batch(
     force: Option<bool>,
 ) -> Result<TagStatus, AppCommandError> {
     generate_tag_suggestion_batch_core(
-        &EventEmitter::Tauri(app),
+        &EventEmitter::from_app(&app),
         &db,
         &manager,
         conversation_id,
@@ -173,7 +173,7 @@ pub async fn confirm_tag_suggestion_batch(
     choices: Vec<TagChoice>,
 ) -> Result<crate::models::DbConversationSummary, AppCommandError> {
     confirm_tag_suggestion_batch_core(
-        &EventEmitter::Tauri(app),
+        &EventEmitter::from_app(&app),
         &db,
         conversation_id,
         &batch_id,
@@ -191,7 +191,7 @@ pub async fn skip_tag_suggestion_batch(
     batch_id: String,
 ) -> Result<(), AppCommandError> {
     tag_store::skip_batch(&db.conn, conversation_id, &batch_id).await?;
-    emit_changed(&EventEmitter::Tauri(app), conversation_id);
+    emit_changed(&EventEmitter::from_app(&app), conversation_id);
     Ok(())
 }
 
@@ -206,7 +206,7 @@ pub async fn ignore_tag_suggestion(
     tag_id: Option<i32>,
 ) -> Result<(), AppCommandError> {
     tag_store::ignore_candidate(&db.conn, conversation_id, &batch_id, index, tag_id).await?;
-    emit_changed(&EventEmitter::Tauri(app), conversation_id);
+    emit_changed(&EventEmitter::from_app(&app), conversation_id);
     Ok(())
 }
 
@@ -219,7 +219,7 @@ pub async fn restore_ignored_tag(
     key: String,
 ) -> Result<(), AppCommandError> {
     tag_store::restore_ignored(&db.conn, conversation_id, &key).await?;
-    emit_changed(&EventEmitter::Tauri(app), conversation_id);
+    emit_changed(&EventEmitter::from_app(&app), conversation_id);
     Ok(())
 }
 

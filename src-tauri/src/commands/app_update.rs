@@ -26,7 +26,7 @@ use tauri_plugin_updater::UpdaterExt;
 
 use crate::app_error::AppCommandError;
 use crate::update::state::{self as update_state, AppUpdateState, AppUpdateStateHandle};
-use crate::web::event_bridge::EventEmitter;
+use crate::web::event_bridge::{retained_app_handle, EventEmitter, RetainedAppHandle};
 
 /// Current update snapshot, for the renderer to re-sync on mount.
 #[tauri::command]
@@ -36,10 +36,12 @@ pub fn app_update_state(state: tauri::State<'_, AppUpdateStateHandle>) -> AppUpd
 
 #[tauri::command]
 pub fn wait_for_idle_update(app: tauri::AppHandle) -> Result<AppUpdateState, AppCommandError> {
-    wait_for_idle_update_core(app)
+    wait_for_idle_update_core(retained_app_handle(&app).clone())
 }
 
-pub fn wait_for_idle_update_core(app: tauri::AppHandle) -> Result<AppUpdateState, AppCommandError> {
+pub(crate) fn wait_for_idle_update_core(
+    app: RetainedAppHandle,
+) -> Result<AppUpdateState, AppCommandError> {
     if !cfg!(windows) {
         return Err(AppCommandError::invalid_input(
             "Idle update is only available on Windows desktop",
@@ -51,7 +53,7 @@ pub fn wait_for_idle_update_core(app: tauri::AppHandle) -> Result<AppUpdateState
         ));
     }
     let handle = app.state::<AppUpdateStateHandle>().inner().clone();
-    let emitter = EventEmitter::Tauri(app.clone());
+    let emitter = EventEmitter::from_app(&app);
     if update_state::snapshot(&handle).status == update_state::AppUpdateLifecycle::WaitingForIdle {
         return Ok(update_state::snapshot(&handle));
     }
@@ -85,7 +87,7 @@ pub fn cancel_idle_update(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppUpdateStateHandle>,
 ) -> Result<AppUpdateState, AppCommandError> {
-    cancel_idle_update_core(state.inner(), &EventEmitter::Tauri(app))
+    cancel_idle_update_core(state.inner(), &EventEmitter::from_app(&app))
 }
 
 pub fn cancel_idle_update_core(
@@ -110,7 +112,7 @@ pub async fn perform_app_update(
 ) -> Result<AppUpdateState, AppCommandError> {
     crate::update::version::ensure_official_install_allowed()?;
     let handle = state.inner().clone();
-    let emitter = EventEmitter::Tauri(app.clone());
+    let emitter = EventEmitter::from_app(&app);
 
     let (started, snap) = update_state::try_begin(&handle, &emitter);
     if !started {
@@ -179,7 +181,7 @@ fn updater(
     app: &tauri::AppHandle,
     quit: Arc<AtomicBool>,
 ) -> tauri_plugin_updater::Result<tauri_plugin_updater::Updater> {
-    let quitting = app.clone();
+    let quitting = retained_app_handle(app).clone();
     app.updater_builder()
         .on_before_exit(move || {
             quit.store(true, Ordering::SeqCst);
@@ -269,7 +271,7 @@ pub async fn restart_app(
     .await
     .map_err(AppCommandError::invalid_input)?;
     let handle = state.inner().clone();
-    let emitter = EventEmitter::Tauri(app.clone());
+    let emitter = EventEmitter::from_app(&app);
     // Atomically claim the relaunch (flips to `Restarting`) only if an update is
     // genuinely staged — same authority check as the server `restart_impl`.
     // Guards a stale window / direct IPC call from relaunching during
@@ -280,7 +282,13 @@ pub async fn restart_app(
         ));
     }
     if INSTALL_AT_RESTART {
-        return install_and_quit(app, handle, emitter, restart_admission).await;
+        return install_and_quit(
+            retained_app_handle(&app).clone(),
+            handle,
+            emitter,
+            restart_admission,
+        )
+        .await;
     }
     // Off the main thread on purpose: from here `restart()` goes through
     // `RunEvent::ExitRequested` and `RunEvent::Exit`. At `Exit` the
@@ -316,7 +324,7 @@ pub async fn restart_app(
 /// the app and, once it has installed the new version, starts it (the plugin
 /// passes it `/R`). Returns only if that failed, with the state at `Error`.
 async fn install_and_quit(
-    app: tauri::AppHandle,
+    app: RetainedAppHandle,
     handle: AppUpdateStateHandle,
     emitter: EventEmitter,
     restart_admission: crate::update::admission::Frozen,

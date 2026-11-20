@@ -451,7 +451,7 @@ pub async fn apply_suggested_tags(
     new_tags: Vec<NewTagRequest>,
 ) -> Result<DbConversationSummary, AppCommandError> {
     apply_suggested_tags_core(
-        &EventEmitter::Tauri(app),
+        &EventEmitter::from_app(&app),
         &db,
         conversation_id,
         existing_tag_ids,
@@ -469,7 +469,7 @@ pub async fn generate_conversation_title(
     force: Option<bool>,
 ) -> Result<Option<String>, AppCommandError> {
     generate_conversation_title_core(
-        &EventEmitter::Tauri(app),
+        &EventEmitter::from_app(&app),
         &db,
         conversation_id,
         force.unwrap_or(false),

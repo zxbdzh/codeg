@@ -4,6 +4,8 @@ import { NextIntlClientProvider } from "next-intl"
 import { afterEach, expect, it, vi } from "vitest"
 
 import messages from "@/i18n/messages/en.json"
+import { getFolderConversation } from "@/lib/api"
+import type { DbConversationDetail } from "@/lib/types"
 import {
   resetConversationRuntimeStore,
   useConversationRuntimeStore,
@@ -11,14 +13,21 @@ import {
 } from "@/stores/conversation-runtime-store"
 import { MessageListView } from "./message-list-view"
 
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api")>()),
+  getFolderConversation: vi.fn(),
+}))
+vi.mock("./reply-artifacts", () => ({ ReplyArtifacts: () => null }))
+
 afterEach(() => {
   cleanup()
   resetConversationRuntimeStore()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  vi.mocked(getFolderConversation).mockReset()
 })
 
-it("lets a running conversation open Undo for a saved user message", async () => {
+function renderUndoPrompt(kind: "saved" | "stamped" | "local") {
   vi.stubGlobal("fetch", async () => Response.json(null))
   vi.spyOn(HTMLElement.prototype, "offsetParent", "get").mockReturnValue(
     document.body
@@ -43,6 +52,13 @@ it("lets a running conversation open Undo for a saved user message", async () =>
       disconnect() {}
     }
   )
+  const prompt = {
+    id: kind === "saved" ? "saved-user" : "optimistic-user",
+    role: "user" as const,
+    timestamp: "2026-11-17T01:00:00Z",
+    blocks: [{ type: "text" as const, text: "Retract this instruction" }],
+  }
+  const onUndoFromPrompt = vi.fn()
   const session: ConversationRuntimeSession = {
     conversationId: 41,
     externalId: "saved-session",
@@ -65,20 +81,19 @@ it("lets a running conversation open Undo for a saved user message", async () =>
         updated_at: "2026-11-17T01:00:00Z",
         pinned_at: null,
       },
-      turns: [
-        {
-          id: "saved-user",
-          role: "user",
-          timestamp: "2026-11-17T01:00:00Z",
-          blocks: [{ type: "text", text: "Retract this instruction" }],
-        },
-      ],
+      turns: kind === "local" ? [] : [prompt],
+      ...(kind === "stamped"
+        ? {
+            in_flight_user_turn_id: prompt.id,
+            in_flight_user_source_turn_id: "saved-user",
+          }
+        : {}),
       session_stats: null,
     },
     detailLoading: false,
     detailError: null,
     acpLoadError: null,
-    localTurns: [],
+    localTurns: kind === "local" ? [prompt] : [],
     backgroundTurns: [],
     pendingBackgroundSettlements: [],
     pendingCancelledTurnReports: null,
@@ -101,7 +116,19 @@ it("lets a running conversation open Undo for a saved user message", async () =>
   useConversationRuntimeStore.setState({
     byConversationId: new Map([[41, session]]),
   })
-  let selected = ""
+  const savedDetail: DbConversationDetail = {
+    ...session.detail!,
+    turns: [
+      { ...prompt, id: "saved-user" },
+      {
+        id: "saved-response",
+        role: "assistant",
+        timestamp: "2026-11-17T01:00:01Z",
+        blocks: [{ type: "text", text: "Saved response" }],
+      },
+    ],
+  }
+  vi.mocked(getFolderConversation).mockResolvedValue(savedDetail)
   render(
     <NextIntlClientProvider locale="en" messages={messages}>
       <MessageListView
@@ -109,17 +136,43 @@ it("lets a running conversation open Undo for a saved user message", async () =>
         imageRoot={null}
         agentType="claude_code"
         availableCommands={[]}
-        connStatus="prompting"
-        onUndoFromPrompt={(turnId) => {
-          selected = turnId
-        }}
+        connStatus={kind === "local" ? "connected" : "prompting"}
+        onUndoFromPrompt={onUndoFromPrompt}
       />
     </NextIntlClientProvider>
   )
-  const action = await screen.findByRole("button", {
+  return onUndoFromPrompt
+}
+
+it.each(["saved", "stamped"] as const)(
+  "opens Undo for a %s prompt using the transcript's id",
+  async (kind) => {
+    const onUndoFromPrompt = renderUndoPrompt(kind)
+    const action = await screen.findByRole("button", {
+      name: messages.ConversationUndo.action,
+    })
+    expect(action).toBeEnabled()
+    await userEvent.click(action)
+    expect(onUndoFromPrompt.mock.calls[0]?.[0]).toBe("saved-user")
+  }
+)
+
+it("offers to refresh a locally completed prompt before requesting Undo", async () => {
+  const onUndoFromPrompt = renderUndoPrompt("local")
+  await screen.findByText("Retract this instruction")
+  expect(
+    screen.queryByRole("button", { name: messages.ConversationUndo.action })
+  ).not.toBeInTheDocument()
+  await userEvent.click(
+    screen.getByRole("button", {
+      name: messages.Folder.chat.messageList.errorActionReload,
+    })
+  )
+  expect(onUndoFromPrompt).not.toHaveBeenCalled()
+  expect(getFolderConversation).toHaveBeenCalledWith(41, expect.anything())
+  const undo = await screen.findByRole("button", {
     name: messages.ConversationUndo.action,
   })
-  expect(action).toBeEnabled()
-  await userEvent.click(action)
-  expect(selected).toBe("saved-user")
+  await userEvent.click(undo)
+  expect(onUndoFromPrompt.mock.calls[0]?.[0]).toBe("saved-user")
 })

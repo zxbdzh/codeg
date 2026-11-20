@@ -160,6 +160,9 @@ pub struct DbConversationDetail {
     /// mid-stream, which would otherwise double-render against the live reply.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_flight_user_turn_id: Option<String>,
+    /// 保留原生日志 ID，撤回不能使用用于界面去重的广播 ID。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub in_flight_user_source_turn_id: Option<String>,
     /// Turn-window metadata, present only when the request asked for a window
     /// (`tailTurns` / `fromIndex`). All four fields are set together; their
     /// absence tells the frontend this is a legacy full response and windowed

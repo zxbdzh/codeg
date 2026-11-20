@@ -149,7 +149,8 @@ pub async fn set_question_settings(
 ) -> Result<QuestionSettings, AppCommandError> {
     #[cfg(feature = "tauri-runtime")]
     {
-        set_question_settings_core(&db.conn, &config, &EventEmitter::Tauri(app), settings).await
+        let emitter = EventEmitter::from_app(&app);
+        set_question_settings_core(&db.conn, &config, &emitter, settings).await
     }
     #[cfg(not(feature = "tauri-runtime"))]
     {

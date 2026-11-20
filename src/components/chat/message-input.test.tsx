@@ -3448,6 +3448,60 @@ describe("MessageInput predicted follow-up prompt", () => {
     expect(sendButton).not.toBeDisabled()
   })
 
+  it("offers a button beside Send that fills it in, gone once the composer holds text", async () => {
+    const onSend = vi.fn()
+    const historyHandle = { current: null as ComposerHistoryHandle | null }
+    const { container } = await mounted({
+      promptSuggestion: "Run the tests",
+      onSend,
+      historyHandleRef: historyHandle,
+    })
+    const useLabel = enMessages.Folder.chat.messageInput.usePromptSuggestion
+    const useButton = () =>
+      container.querySelector<HTMLButtonElement>(
+        `button[aria-label="${useLabel}"]`
+      )
+    expect(useButton()).not.toBeNull()
+
+    act(() => historyHandle.current!.setLocked(true))
+    expect(useButton()).toBeDisabled()
+    act(() => historyHandle.current!.setLocked(false))
+
+    fireEvent.click(useButton()!)
+    expect(composerHandle.current!.getText()).toBe("Run the tests")
+    // Filled, not sent.
+    expect(onSend).not.toHaveBeenCalled()
+    await waitFor(() => expect(useButton()).toBeNull())
+
+    // Clearing the composer brings it back.
+    act(() => composerHandle.current!.clear())
+    await waitFor(() => expect(useButton()).not.toBeNull())
+
+    // Text the user typed hides it too.
+    act(() => composerHandle.current!.setText("my own words"))
+    await waitFor(() => expect(useButton()).toBeNull())
+  })
+
+  it("shows no fill button without a suggestion or while one is not offered", async () => {
+    const useLabel = enMessages.Folder.chat.messageInput.usePromptSuggestion
+    for (const props of [
+      { promptSuggestion: null },
+      {
+        promptSuggestion: "Run the tests",
+        isPrompting: true,
+        onCancel: vi.fn(),
+      },
+      { promptSuggestion: "Run the tests", disabled: true },
+      { promptSuggestion: "Run the tests", isEditingQueueItem: true },
+    ]) {
+      const { container, unmount } = await mounted(props)
+      expect(
+        container.querySelector(`button[aria-label="${useLabel}"]`)
+      ).toBeNull()
+      unmount()
+    }
+  })
+
   it("does not offer it while a turn runs, while disabled, or while editing a queued message", async () => {
     for (const props of [
       { isPrompting: true },
@@ -3478,45 +3532,6 @@ describe("MessageInput predicted follow-up prompt", () => {
     }
   })
 
-  it("offers a tappable Tab control on touch devices, which have no Tab key", async () => {
-    // 手机断点由 matchMedia 决定；这里只把手机媒体查询改成匹配，
-    // 其余查询沿用 setup 的桌面答案，避免影响别的断言。
-    const desktop = window.matchMedia
-    vi.spyOn(window, "matchMedia").mockImplementation((query) =>
-      query.includes("max-width")
-        ? ({
-            media: query,
-            matches: true,
-            addEventListener: () => {},
-            removeEventListener: () => {},
-          } as unknown as MediaQueryList)
-        : desktop(query)
-    )
-    try {
-      const { container } = await mounted({ promptSuggestion: "Run the tests" })
-      // 手机与桌面显示同一句建议；「按 Tab 填入」只对桌面有意义，这里不出现。
-      expect(
-        container.querySelector(
-          `[data-placeholder="${offered("Run the tests")}"]`
-        )
-      ).toBeNull()
-      expect(
-        container.querySelector('[data-placeholder="Run the tests"]')
-      ).not.toBeNull()
-      // 占位符里只有建议本身，不再带「(Tab to use)」后缀。
-      const tabButton = container.querySelector<HTMLButtonElement>(
-        `button[aria-label="${enMessages.Folder.chat.messageInput.useSuggestion}"]`
-      )
-      expect(tabButton).not.toBeNull()
-      expect(tabButton).toHaveTextContent("Tab")
-      await act(async () => {
-        tabButton!.click()
-      })
-      expect(composerHandle.current!.getText()).toBe("Run the tests")
-    } finally {
-      vi.mocked(window.matchMedia).mockRestore()
-    }
-  })
 })
 
 // The tab store closes a draft tab only when it holds nothing. What a saved

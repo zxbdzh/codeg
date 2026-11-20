@@ -1277,20 +1277,31 @@ const UserMessageForkButton = memo(function UserMessageForkButton({
 const UserMessageUndoButton = memo(function UserMessageUndoButton({
   disabled,
   onUndo,
+  refreshFirst,
 }: {
   disabled: boolean
   onUndo: () => void
+  refreshFirst: boolean
 }) {
   const t = useTranslations("ConversationUndo")
+  const tList = useTranslations("Folder.chat.messageList")
   return (
     <MessageAction
-      tooltip={t(disabled ? "busy" : "action")}
+      tooltip={
+        refreshFirst
+          ? tList("errorActionReload")
+          : t(disabled ? "busy" : "action")
+      }
       className="opacity-0 group-hover/user-msg:opacity-100 group-focus-within/user-msg:opacity-100 transition-opacity self-end [@media(hover:none)]:opacity-100"
       disabled={disabled}
       onClick={onUndo}
       size="icon-xs"
     >
-      <Undo2 size={12} aria-hidden="true" />
+      {refreshFirst ? (
+        <RefreshCw size={12} aria-hidden="true" />
+      ) : (
+        <Undo2 size={12} aria-hidden="true" />
+      )}
     </MessageAction>
   )
 })
@@ -1396,6 +1407,8 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   onForkFromTurn,
   onForkFromPrompt,
   onUndoFromPrompt,
+  undoSourceTurnId,
+  onRefreshUndoPrompt,
   promptFromStart = false,
   forkDisabled = false,
   undoDisabled = false,
@@ -1419,6 +1432,8 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
     sourcePrompt?: ForkPromptSnapshot
   ) => void
   onUndoFromPrompt?: MessageListViewProps["onUndoFromPrompt"]
+  undoSourceTurnId?: string | null
+  onRefreshUndoPrompt?: () => void
   promptFromStart?: boolean
   forkDisabled?: boolean
   undoDisabled?: boolean
@@ -1482,19 +1497,23 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
         ) : null}
         {group.role === "user" ? (
           <div className="group/user-msg flex w-fit ml-auto max-w-full items-start gap-1">
-            {onUndoFromPrompt &&
+            {(undoSourceTurnId != null || onRefreshUndoPrompt) &&
+            onUndoFromPrompt &&
             promptTurn &&
             canUndoPrompt &&
             isResponseComplete ? (
               <UserMessageUndoButton
                 disabled={undoDisabled}
+                refreshFirst={undoSourceTurnId == null}
                 onUndo={() =>
-                  onUndoFromPrompt(
-                    promptTurn.source_turn_id ?? promptTurn.id,
-                    promptText,
-                    promptFromStart,
-                    snapshotForkPrompt(promptTurn)
-                  )
+                  undoSourceTurnId == null
+                    ? onRefreshUndoPrompt?.()
+                    : onUndoFromPrompt(
+                        undoSourceTurnId,
+                        promptText,
+                        promptFromStart,
+                        snapshotForkPrompt(promptTurn)
+                      )
                 }
               />
             ) : null}
@@ -1755,8 +1774,27 @@ export function MessageListView({
   )
   const hasOlderTurns = isWindowedDetail(detail) && detail.turns_offset > 0
   const loadingOlderTurns = session?.loadingOlderTurns ?? false
-  const { loadOlderTurns, loadOlderTurnsThrough, refetchDetail } =
-    useConversationRuntimeActions()
+  const {
+    loadOlderTurns,
+    loadOlderTurnsThrough,
+    refetchDetail,
+    refreshSettledTurns,
+  } = useConversationRuntimeActions()
+  const handleRefreshUndoPrompt = useCallback(() => {
+    refreshSettledTurns(conversationId)
+  }, [conversationId, refreshSettledTurns])
+  const detailTurns = detail?.turns
+  const backgroundTurns = session?.backgroundTurns
+  const localTurns = session?.localTurns
+  const savedTurns = useMemo(
+    () =>
+      new Set([
+        ...(detailTurns ?? []),
+        ...(backgroundTurns ?? []).map((entry) => entry.turn),
+      ]),
+    [detailTurns, backgroundTurns]
+  )
+  const settledLocalTurns = useMemo(() => new Set(localTurns), [localTurns])
   const handleLoadOlder = useCallback(() => {
     loadOlderTurns(conversationId)
   }, [loadOlderTurns, conversationId])
@@ -2049,6 +2087,13 @@ export function MessageListView({
           const promptTurnId = promptTurn
             ? (promptTurn.source_turn_id ?? promptTurn.id)
             : null
+          // 仅原生日志中的消息可作为撤回起点，直播去重 ID 只用于渲染。
+          const undoSourceTurnId =
+            promptTurn && savedTurns.has(promptTurn)
+              ? promptTurn.id === detail?.in_flight_user_turn_id
+                ? detail.in_flight_user_source_turn_id
+                : promptTurnId
+              : null
           return (
             <div style={pt > 0 ? { paddingTop: pt } : undefined}>
               {phaseLabel ? (
@@ -2075,6 +2120,12 @@ export function MessageListView({
                 onUndoFromPrompt={
                   item.phase === "persisted" && item.isResponseComplete
                     ? onUndoFromPrompt
+                    : undefined
+                }
+                undoSourceTurnId={undoSourceTurnId}
+                onRefreshUndoPrompt={
+                  promptTurn && settledLocalTurns.has(promptTurn)
+                    ? handleRefreshUndoPrompt
                     : undefined
                 }
                 onForkFromPrompt={
@@ -2134,6 +2185,9 @@ export function MessageListView({
       onForkFromTurn,
       onForkFromPrompt,
       onUndoFromPrompt,
+      savedTurns,
+      settledLocalTurns,
+      handleRefreshUndoPrompt,
       agentType,
       forkAnchorTurns,
       detail,
