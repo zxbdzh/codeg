@@ -173,6 +173,9 @@ export function BrowserEventsBridge() {
       if (!isDesktop()) void bridgeStatus()
       const capabilities = await browserCapabilities()
       if (cancelled || !capabilities.available) return
+      // Web mode renders the bridge iframe itself. The remaining browser
+      // commands manage native Tauri surfaces and have no web endpoint.
+      if (!isDesktop()) return
       // Tab records are session-only, so any surface the backend still holds
       // for this window when the bridge first mounts is an orphan of a
       // previous document (a dev reload, a crashed frontend). Close them,

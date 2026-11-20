@@ -365,17 +365,23 @@ describe("Quick actions, in the status bar's account menu", () => {
     expect(screen.queryByRole("menu")).toBeNull()
   })
 
-  it("drops the browser row when there is no built-in browser", async () => {
+  it("hides the browser action on desktop when the native capability is unavailable", async () => {
     browserAvailable = false
     await mountAndOpen()
 
     expect(
       screen.queryByRole("menuitem", { name: "Open browser tab" })
     ).toBeNull()
-    // The pet row survives, so this is the gate and not the extras failing
-    // to render.
+    expect(screen.getByRole("menuitem", { name: "Open project" })).toBeVisible()
+  })
+
+  it("keeps the browser action in web mode while capability detection is unavailable", async () => {
+    desktop = false
+    browserAvailable = false
+    await mountAndOpen()
+
     expect(
-      await screen.findByRole("menuitem", { name: "Show pet" })
+      screen.getByRole("menuitem", { name: "Open browser tab" })
     ).toBeVisible()
   })
 
@@ -404,13 +410,10 @@ describe("Quick actions, in the status bar's account menu", () => {
     ).toBeNull()
   })
 
-  it("drops the desktop-only rows in web mode: the launch group is Open project alone", async () => {
+  it("opens a browser tab in web mode while hiding the desktop-only rows", async () => {
     desktop = false
     await mountAndOpen()
 
-    // The routes are platform-neutral route switches and must survive off
-    // the desktop; the remote workspaces and the extras are the desktop's, so
-    // they go whole.
     expect(layout()).toEqual([
       "head",
       "—",
@@ -421,6 +424,7 @@ describe("Quick actions, in the status bar's account menu", () => {
       "Harness Engineering",
       "—",
       "Open project",
+      "Open browser tab",
       "—",
       "Sign in to SRN",
     ])
@@ -433,10 +437,12 @@ describe("Quick actions, in the status bar's account menu", () => {
     expect(screen.queryByText(/remote workspace/i)).toBeNull()
     expect(screen.queryByText("Open local workspace")).toBeNull()
     expect(screen.queryByRole("menuitem", { name: "Show pet" })).toBeNull()
-    expect(
-      screen.queryByRole("menuitem", { name: "Open browser tab" })
-    ).toBeNull()
     expect(mocks.listRemoteWorkspaceConnections).not.toHaveBeenCalled()
+
+    await userEvent.keyboard("{ArrowLeft}")
+    await clickItem("Open browser tab")
+    expect(mocks.openConversations).toHaveBeenCalledOnce()
+    expect(mocks.openBrowserTab).toHaveBeenCalledWith("about:blank")
   })
 
   it("offers the local workspace from a remote workspace window, as a row of its own beside the remote one", async () => {

@@ -1,15 +1,13 @@
-// Thin transport wrappers over the `browser_*` commands. Desktop only: the
-// commands exist in the Tauri runtime alone, and `browserCapabilities()`
-// answers `{ available: false }` everywhere else so callers can branch on one
-// value instead of on the runtime.
+// Thin transport wrappers over the `browser_*` commands. Native browser
+// commands are desktop-only, while web mode exposes the server-side port
+// bridge as a browser capability.
 //
 // Always this app's own shell, never `getTransport()`: in a window bound to a
-// remote codeg-server that one talks to the remote host, which has no browser
-// at all — the built-in browser is a webview of THIS computer, whichever
-// server the window's workspace lives on.
+// remote codeg-server that one talks to the remote host.
 
 import { getShellTransport, isDesktop } from "@/lib/transport"
 
+import { bridgeStatus } from "./browser-bridge"
 import type { HostRule } from "./host-rules"
 import type {
   ActionOutcome,
@@ -49,15 +47,45 @@ const UNAVAILABLE: BrowserCapabilities = {
   remoteEgress: false,
 }
 
+const WEB_BRIDGE_CAPABILITIES: BrowserCapabilities = {
+  available: true,
+  surface: null,
+  platform: "web",
+  channel: "degraded",
+  reasons: [],
+  isolatedStorage: false,
+  proxy: { url: null, applies: "unsupported", reason: null },
+  downloadsDir: "",
+  policy: { enabled: false, managedRules: [], managedSource: null },
+  docGuest: false,
+  profiles: false,
+  signInUserAgent: false,
+  ownedWindowControls: false,
+  remoteEgress: false,
+}
+
 let capabilitiesPromise: Promise<BrowserCapabilities> | null = null
 let resolvedCapabilities: BrowserCapabilities | null = null
 
+function webBrowserCapabilities(): Promise<BrowserCapabilities> {
+  if (!capabilitiesPromise) {
+    capabilitiesPromise = bridgeStatus().then((status) => {
+      const capabilities = status.enabled
+        ? WEB_BRIDGE_CAPABILITIES
+        : {
+            ...UNAVAILABLE,
+            reasons: ["web browser bridge is disabled"],
+          }
+      resolvedCapabilities = capabilities
+      return capabilities
+    })
+  }
+  return capabilitiesPromise
+}
+
 /** Cached for the session: the answer cannot change while the app runs. */
 export function browserCapabilities(): Promise<BrowserCapabilities> {
-  if (!isDesktop()) {
-    resolvedCapabilities = UNAVAILABLE
-    return Promise.resolve(UNAVAILABLE)
-  }
+  if (!isDesktop()) return webBrowserCapabilities()
   if (!capabilitiesPromise) {
     capabilitiesPromise = getShellTransport()
       .call<BrowserCapabilities>("browser_capabilities", {})
@@ -91,7 +119,7 @@ export function browserCapabilitiesSnapshot(): BrowserCapabilities | null {
  * the user edits the app's proxy setting, and the settings section shows it.
  */
 export function browserCapabilitiesNow(): Promise<BrowserCapabilities> {
-  if (!isDesktop()) return Promise.resolve(UNAVAILABLE)
+  if (!isDesktop()) return webBrowserCapabilities()
   return getShellTransport().call<BrowserCapabilities>(
     "browser_capabilities",
     {}

@@ -10032,6 +10032,9 @@
     "bridge": {
       "frameTitle": "开发服务器预览",
       "opening": "正在通过服务器连接…",
+      "address": "预览地址",
+      "addressPlaceholder": "输入网址或 localhost:端口",
+      "blankHint": "输入网站地址或本机服务地址后按回车",
       "reload": "重新加载",
       "openExternal": "在新标签页打开",
       "copyAddress": "复制地址",

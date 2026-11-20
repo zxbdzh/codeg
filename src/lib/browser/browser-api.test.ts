@@ -5,6 +5,8 @@ type Call = (command: string, args?: unknown) => Promise<unknown>
 const mocks = vi.hoisted(() => ({
   shell: vi.fn<Call>(() => Promise.resolve({ available: true })),
   remote: vi.fn<Call>(() => Promise.reject(new Error("501"))),
+  bridgeStatus: vi.fn(() => Promise.resolve({ enabled: true })),
+  desktop: true,
 }))
 
 // A window bound to a remote codeg-server: `getTransport()` talks to that
@@ -12,7 +14,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/transport", () => ({
   getShellTransport: () => ({ call: mocks.shell }),
   getTransport: () => ({ call: mocks.remote }),
-  isDesktop: () => true,
+  isDesktop: () => mocks.desktop,
+}))
+vi.mock("./browser-bridge", () => ({
+  bridgeStatus: mocks.bridgeStatus,
 }))
 
 import {
@@ -27,6 +32,8 @@ describe("browser commands in a remote workspace window", () => {
     resetBrowserCapabilitiesCacheForTests()
     mocks.shell.mockClear()
     mocks.remote.mockClear()
+    mocks.bridgeStatus.mockClear()
+    mocks.desktop = true
   })
   afterEach(() => resetBrowserCapabilitiesCacheForTests())
 
@@ -48,5 +55,17 @@ describe("browser commands in a remote workspace window", () => {
       "browser_open_tab",
     ])
     expect(mocks.remote).not.toHaveBeenCalled()
+  })
+
+  it("exposes the server bridge as the web browser capability", async () => {
+    mocks.desktop = false
+
+    await expect(browserCapabilities()).resolves.toMatchObject({
+      available: true,
+      platform: "web",
+      surface: null,
+    })
+    expect(mocks.bridgeStatus).toHaveBeenCalledTimes(1)
+    expect(mocks.shell).not.toHaveBeenCalled()
   })
 })

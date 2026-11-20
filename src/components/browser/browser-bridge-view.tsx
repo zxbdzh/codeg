@@ -12,9 +12,12 @@ import {
   bridgeOpen,
   bridgeOrigin,
   fragmentOf,
+  isBridgeableUrl,
   probeBridge,
   type BridgeGrant,
 } from "@/lib/browser/browser-bridge"
+import { isBlankPageUrl } from "@/lib/browser/browser-url"
+import { getBrowserTabState } from "@/lib/browser/browser-tab-store"
 import { browserTabBackendId } from "@/lib/file-tab-id"
 import { openExternalTab } from "@/lib/link-open"
 import { copyTextToClipboard, randomUUID } from "@/lib/utils"
@@ -25,6 +28,7 @@ import { BrowserDeviceStage } from "./browser-device-stage"
 // The desktop toolbar's own button shape: this row stands in the same place,
 // under the same tab strip.
 import { ICON_BTN } from "./browser-toolbar-buttons"
+import { BrowserWebSurface } from "./browser-web-surface"
 
 /** The frame keeps its origin (this target's own, shared with nothing) and
  *  never navigates the workbench. */
@@ -33,6 +37,8 @@ export const BRIDGE_FRAME_SANDBOX =
 
 type Phase =
   | { kind: "opening" }
+  | { kind: "blank" }
+  | { kind: "online" }
   | { kind: "ready"; grant: BridgeGrant; src: string }
   | { kind: "unreachable"; grant: BridgeGrant; origin: string; src: string }
   | { kind: "error"; message: string }
@@ -43,6 +49,27 @@ function messageOf(error: unknown): string {
     if (typeof message === "string" && message) return message
   }
   return String(error)
+}
+
+function normalizeBridgeAddress(raw: string): string | null {
+  const text = raw.trim()
+  if (!text) return null
+  if (/^(javascript|data|file|vbscript):/i.test(text)) return null
+  const candidate = /^https?:\/\//i.test(text)
+    ? text
+    : /^(localhost|127\.|\[::1\]|0\.0\.0\.0)/i.test(text)
+      ? `http://${text}`
+      : `https://${text}`
+  try {
+    const parsed = new URL(candidate)
+    return ["http:", "https:"].includes(parsed.protocol) &&
+      !parsed.username &&
+      !parsed.password
+      ? parsed.toString()
+      : null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -58,7 +85,10 @@ function messageOf(error: unknown): string {
  */
 export function BrowserBridgeView({ tab }: { tab: BrowserWorkspaceTab }) {
   const t = useTranslations("Browser.bridge")
-  const url = tab.browser.initialUrl
+  const [url, setUrl] = useState(
+    () => getBrowserTabState(tab.id)?.url || tab.browser.initialUrl
+  )
+  const [draft, setDraft] = useState(isBlankPageUrl(url) ? "" : url)
   const tabId = browserTabBackendId(tab.id) ?? tab.id
   const setCustomSize = useBrowserTabCustomSize(tab.id)
   const [attempt, setAttempt] = useState(0)
@@ -70,15 +100,28 @@ export function BrowserBridgeView({ tab }: { tab: BrowserWorkspaceTab }) {
     url: string
     phase: Phase
   } | null>(null)
-  const phase: Phase =
-    outcome && outcome.attempt === attempt && outcome.url === url
-      ? outcome.phase
-      : { kind: "opening" }
+  const phase: Phase = isBlankPageUrl(url)
+    ? { kind: "blank" }
+    : !isBridgeableUrl(url)
+      ? { kind: "online" }
+      : outcome && outcome.attempt === attempt && outcome.url === url
+        ? outcome.phase
+        : { kind: "opening" }
 
   useEffect(() => {
     let cancelled = false
     const settle = (phase: Phase) => {
       if (!cancelled) setOutcome({ attempt, url, phase })
+    }
+    // 空白标签不需要向服务器申请桥接授权，地址栏提交后才开始连接。
+    if (isBlankPageUrl(url)) {
+      settle({ kind: "blank" })
+      return
+    }
+    // 公网网站由真实浏览器加载，保留原始站点的安全边界和登录态。
+    if (!isBridgeableUrl(url)) {
+      settle({ kind: "online" })
+      return
     }
     // `randomUUID` from utils: `crypto.randomUUID` is missing in a
     // non-secure context, which is where web mode over a LAN address runs.
@@ -122,6 +165,14 @@ export function BrowserBridgeView({ tab }: { tab: BrowserWorkspaceTab }) {
     if (ok) toast.success(t("copied"))
   }
 
+  const submitAddress = () => {
+    const next = normalizeBridgeAddress(draft)
+    if (!next) return
+    setDraft(next)
+    setUrl(next)
+    if (next === url) setAttempt((n) => n + 1)
+  }
+
   return (
     // Marked for the device menu, as the desktop view is.
     <div data-browser-tab-view="" className="flex h-full min-h-0 flex-col">
@@ -129,12 +180,22 @@ export function BrowserBridgeView({ tab }: { tab: BrowserWorkspaceTab }) {
           a browser tab has no title header above it, so this is the file
           column's top row (see `file-workspace-header.tsx`). */}
       <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border/50 px-2 text-xs">
-        <span
-          className="min-w-0 flex-1 truncate px-1 text-muted-foreground"
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault()
+              submitAddress()
+            }
+          }}
+          onFocus={(event) => event.currentTarget.select()}
+          placeholder={t("addressPlaceholder")}
+          aria-label={t("address")}
           title={url}
-        >
-          {url}
-        </span>
+          autoFocus={isBlankPageUrl(url)}
+          className="min-w-0 flex-1 rounded-sm border border-transparent bg-transparent px-1 text-xs text-foreground outline-none focus:border-border focus:bg-background"
+        />
         <BrowserDeviceMenu tab={tab} />
         <button
           type="button"
@@ -148,9 +209,9 @@ export function BrowserBridgeView({ tab }: { tab: BrowserWorkspaceTab }) {
         <button
           type="button"
           className={ICON_BTN}
-          disabled={src === null}
+          disabled={src === null && phase.kind !== "online"}
           onClick={() => {
-            if (src) openExternalTab(src)
+            if (src || phase.kind === "online") openExternalTab(src ?? url)
           }}
           title={t("openExternal")}
           aria-label={t("openExternal")}
@@ -175,6 +236,22 @@ export function BrowserBridgeView({ tab }: { tab: BrowserWorkspaceTab }) {
           >
             <Loader2 className="h-4 w-4 animate-spin" />
             {t("opening")}
+          </div>
+        ) : null}
+        {phase.kind === "online" ? (
+          <BrowserWebSurface
+            tab={tab}
+            url={url}
+            reloadKey={attempt}
+            onNavigate={(next) => {
+              setDraft(next)
+              setUrl(next)
+            }}
+          />
+        ) : null}
+        {phase.kind === "blank" ? (
+          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+            {t("blankHint")}
           </div>
         ) : null}
         {phase.kind === "ready" ? (

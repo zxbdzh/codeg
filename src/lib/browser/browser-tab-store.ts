@@ -20,6 +20,7 @@ import type {
 } from "./types"
 import { buildFileTabId } from "@/lib/file-tab-id"
 import { isDesktop } from "@/lib/transport"
+import { closeWebBrowserTab } from "./web-browser"
 import { randomUUID } from "@/lib/utils"
 
 type Listener = () => void
@@ -408,6 +409,8 @@ export function releaseBrowserTab(
       // The call never landed, so no event is coming under this id.
       if (requestId) suspendCloseRequests.delete(requestId)
     })
+  } else if (!suspending) {
+    closeWebBrowserTab(workspaceTabId)
   }
 }
 

@@ -10032,6 +10032,9 @@
     "bridge": {
       "frameTitle": "Dev server preview",
       "opening": "Connecting through the server…",
+      "address": "Preview address",
+      "addressPlaceholder": "Enter a website or localhost:port",
+      "blankHint": "Enter a website or local service address and press Enter",
       "reload": "Reload",
       "openExternal": "Open in a new tab",
       "copyAddress": "Copy address",

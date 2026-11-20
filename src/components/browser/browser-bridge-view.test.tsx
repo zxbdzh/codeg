@@ -37,6 +37,11 @@ vi.mock("@/lib/transport", async (importOriginal) => ({
 vi.mock("./browser-surface-host", () => ({
   BrowserSurfaceHost: () => <div data-testid="native-surface" />,
 }))
+vi.mock("./browser-web-surface", () => ({
+  BrowserWebSurface: ({ url }: { url: string }) => (
+    <div data-testid="online-browser">{url}</div>
+  ),
+}))
 
 import enMessages from "@/i18n/messages/en.json"
 import { bridgeEntryUrl } from "@/lib/browser/browser-bridge"
@@ -255,12 +260,12 @@ describe("BrowserBridgeView", () => {
 
   it("shows the server's refusal", async () => {
     api.bridgeOpen.mockRejectedValue(
-      new Error("192.168.1.9 is not the server's loopback")
+      new Error("loopback bridge is unavailable")
     )
-    renderView(<BrowserBridgeView tab={tab("http://192.168.1.9:3000/")} />)
+    renderView(<BrowserBridgeView tab={tab("http://localhost:3000/")} />)
     await screen.findByText("This page can't be shown here")
     expect(screen.getByRole("status")).toHaveTextContent(
-      "192.168.1.9 is not the server's loopback"
+      "loopback bridge is unavailable"
     )
     expect(
       screen.getByRole("button", { name: "Open in a new tab" })
@@ -422,6 +427,24 @@ describe("BrowserBridgeView", () => {
 })
 
 describe("BrowserTabView in a browser", () => {
+  it("opens a bare website name using HTTPS from the address bar", async () => {
+    renderView(<BrowserBridgeView tab={tab("about:blank")} />)
+    const address = screen.getByRole("textbox", { name: "Preview address" })
+    fireEvent.change(address, { target: { value: "example.com/docs" } })
+    fireEvent.keyDown(address, { key: "Enter" })
+    expect(await screen.findByTestId("online-browser")).toHaveTextContent(
+      "https://example.com/docs"
+    )
+    expect(api.bridgeOpen).not.toHaveBeenCalled()
+  })
+  it("uses the real browser for HTTPS websites without a localhost grant", async () => {
+    renderView(<BrowserTabView tab={tab("https://example.com/")} />)
+    expect(await screen.findByTestId("online-browser")).toHaveTextContent(
+      "https://example.com/"
+    )
+    expect(api.bridgeOpen).not.toHaveBeenCalled()
+    expect(screen.queryByTitle("Dev server preview")).toBeNull()
+  })
   it("renders the bridge view, never the native surface", async () => {
     api.bridgeOpen.mockResolvedValue(grant)
     renderView(<BrowserTabView tab={tab()} />)
