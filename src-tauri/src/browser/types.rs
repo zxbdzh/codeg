@@ -36,10 +36,8 @@ pub enum ChannelKind {
     Legacy,
 }
 
-/// Placement of the surface inside the owner window, in logical pixels — the
-/// same unit `getBoundingClientRect()` reports (the workspace content area is
-/// the whole window and the app's zoom changes the root font size, not the
-/// webview scale).
+/// 原生窗口内的逻辑像素坐标；前端须将 CSS 像素乘 devicePixelRatio，再除以窗口
+/// DPI 缩放，避免 Windows 文字缩放或 WebView 页面缩放导致网页越出占位区域。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Bounds {
