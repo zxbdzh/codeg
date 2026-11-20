@@ -5,7 +5,10 @@ import { existsSync } from "node:fs"
 import path from "node:path"
 import test from "node:test"
 import { build } from "esbuild"
-const { CdpConnection, startBrowserService } = await import(process.env.CODEG_TEST_BROWSER_MODULE || new URL("./web-browser-service.mjs", import.meta.url).href)
+const { CdpConnection, startBrowserService } = await import(
+  process.env.CODEG_TEST_BROWSER_MODULE ||
+    new URL("./web-browser-service.mjs", import.meta.url).href
+)
 
 test(
   "real Web UI plays audio, embeds DevTools and changes agent permissions",
@@ -299,9 +302,15 @@ test(
         'document.body && (document.querySelector(".root-view") || document.querySelector("devtools-root") || document.querySelector("devtools-app"))',
         inspectorWorld.executionContextId
       )
-    await evaluate('(()=>{const visit=root=>{for(const node of root.querySelectorAll("*")){if(node.getAttribute("aria-label")==="更多工具"||node.getAttribute("title")==="更多工具"){node.click();return true}if(node.shadowRoot&&visit(node.shadowRoot))return true}return false};return visit(document)})()',inspectorWorld.executionContextId)
-    const inspectorItems=await evaluate('(()=>{const labels=[];const visit=root=>{for(const node of root.querySelectorAll("*")){if(["menuitem","option","tab"].includes(node.getAttribute("role")))labels.push({id:node.id,label:node.getAttribute("aria-label")||node.textContent?.slice(0,60)});if(node.shadowRoot)visit(node.shadowRoot)}};visit(document);return labels.slice(0,50)})()',inspectorWorld.executionContextId)
-    console.log("DEVTOOLS_MENU",JSON.stringify(inspectorItems))
+      await evaluate(
+        '(()=>{const visit=root=>{for(const node of root.querySelectorAll("*")){if(node.getAttribute("aria-label")==="更多工具"||node.getAttribute("title")==="更多工具"){node.click();return true}if(node.shadowRoot&&visit(node.shadowRoot))return true}return false};return visit(document)})()',
+        inspectorWorld.executionContextId
+      )
+      const inspectorItems = await evaluate(
+        '(()=>{const labels=[];const visit=root=>{for(const node of root.querySelectorAll("*")){if(["menuitem","option","tab"].includes(node.getAttribute("role")))labels.push({id:node.id,label:node.getAttribute("aria-label")||node.textContent?.slice(0,60)});if(node.shadowRoot)visit(node.shadowRoot)}};visit(document);return labels.slice(0,50)})()',
+        inspectorWorld.executionContextId
+      )
+      console.log("DEVTOOLS_MENU", JSON.stringify(inspectorItems))
       await mkdir("F:/tmp/ego/shots", { recursive: true })
       const screenshot = await browser.call(
         "Page.captureScreenshot",

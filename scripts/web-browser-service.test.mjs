@@ -6,11 +6,10 @@ import path from "node:path"
 import test from "node:test"
 import { spawnSync } from "node:child_process"
 
-const {
-  CdpConnection,
-  startBrowserService,
-  websiteUrl,
-} = await import(process.env.CODEG_TEST_BROWSER_MODULE || new URL("./web-browser-service.mjs", import.meta.url).href)
+const { CdpConnection, startBrowserService, websiteUrl } = await import(
+  process.env.CODEG_TEST_BROWSER_MODULE ||
+    new URL("./web-browser-service.mjs", import.meta.url).href
+)
 
 test("website addresses retain HTTPS and reject executable URLs", () => {
   assert.equal(
