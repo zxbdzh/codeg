@@ -150,8 +150,7 @@ export async function startBrowserService(options = {}) {
   })
 
   async function browser() {
-    if (shuttingDown && !browserPromise)
-      throw new Error("浏览器服务已关闭")
+    if (shuttingDown && !browserPromise) throw new Error("浏览器服务已关闭")
     if (!browserPromise)
       browserPromise = (async () => {
         if (existingProfile) {
@@ -268,9 +267,24 @@ export async function startBrowserService(options = {}) {
   function send(session, message) {
     if (
       session.socket?.readyState === 1 &&
-      session.socket.bufferedAmount < 4 * 1024 * 1024
+      (session.socket.bufferedAmount < 4 * 1024 * 1024 ||
+        // 回执已限制只有一帧在途，不能再丢帧后等待永远不会到达的回执。
+        (session.flowControl && message.type === "frame"))
     )
       session.socket.send(JSON.stringify(message))
+  }
+
+  function sendFrame(session, frame) {
+    if (session.socket?.readyState !== 1) return
+    if (session.flowControl) {
+      // 公网链路只允许一帧在途；等待显示时，用最新画面覆盖待发帧。
+      if (session.frameInFlight) {
+        session.pendingFrame = frame
+        return
+      }
+      session.frameInFlight = ++session.frameSequence
+      send(session, { ...frame, id: session.frameInFlight })
+    } else send(session, frame)
   }
 
   async function pageCall(session, method, params = {}) {
@@ -319,6 +333,9 @@ export async function startBrowserService(options = {}) {
       grant: null,
       console: [],
       contexts: new Map(),
+      frameSequence: 0,
+      frameInFlight: 0,
+      pendingFrame: null,
     }
     sessions.set(key, session)
     const listener = (message) => {
@@ -327,7 +344,7 @@ export async function startBrowserService(options = {}) {
         void pageCall(session, "Page.screencastFrameAck", {
           sessionId: message.params.sessionId,
         }).catch(() => {})
-        send(session, {
+        sendFrame(session, {
           type: "frame",
           data: message.params.data,
           width: message.params.metadata.deviceWidth,
@@ -643,6 +660,20 @@ export async function startBrowserService(options = {}) {
           )
           return
         }
+        if (immediate.type === "frame-ack" && session?.socket === socket) {
+          // 帧回执不能排在导航、音频初始化等耗时命令后面。
+          if (
+            session.flowControl &&
+            session.frameInFlight &&
+            immediate.id === session.frameInFlight
+          ) {
+            session.frameInFlight = 0
+            const pending = session.pendingFrame
+            session.pendingFrame = null
+            if (pending) sendFrame(session, pending)
+          }
+          return
+        }
       } catch {}
       queue = queue
         .then(async () => {
@@ -666,6 +697,9 @@ export async function startBrowserService(options = {}) {
             if (session.socket && session.socket !== socket)
               session.socket.close(4001, "Control moved")
             session.socket = socket
+            session.flowControl = message.flowControl === true
+            session.frameInFlight = 0
+            session.pendingFrame = null
             await (
               await browser()
             ).call("Target.activateTarget", { targetId: session.targetId })
@@ -673,16 +707,16 @@ export async function startBrowserService(options = {}) {
               await pageCall(session, "Page.navigate", { url })
             await pageCall(session, "Page.startScreencast", {
               format: "jpeg",
-              quality: 92,
+              quality: 75,
               maxWidth: 1920,
               maxHeight: 1440,
               everyNthFrame: 1,
             })
             const capture = await pageCall(session, "Page.captureScreenshot", {
               format: "jpeg",
-              quality: 92,
+              quality: 75,
             })
-            send(session, {
+            sendFrame(session, {
               type: "frame",
               data: capture.data,
               width: session.width,
@@ -847,6 +881,8 @@ export async function startBrowserService(options = {}) {
         session.pendingEval?.resolve(false)
         if (session.audio) void audio.stop(session).catch(() => {})
         session.socket = null
+        session.frameInFlight = 0
+        session.pendingFrame = null
         session.touched = Date.now()
         void pageCall(session, "Page.stopScreencast").catch(() => {})
       }

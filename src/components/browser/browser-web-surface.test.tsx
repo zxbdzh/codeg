@@ -79,6 +79,50 @@ function sent() {
 }
 
 describe("Web browser page input", () => {
+  it("acknowledges a frame only after decoding and drawing it", async () => {
+    let finishDecode!: (bitmap: ImageBitmap) => void
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn(
+        () =>
+          new Promise<ImageBitmap>((resolve) => {
+            finishDecode = resolve
+          })
+      )
+    )
+    const drawImage = vi.fn()
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage,
+    } as unknown as CanvasRenderingContext2D)
+    render(
+      <BrowserWebSurface
+        tab={tab}
+        url="https://example.com/"
+        reloadKey={0}
+        onNavigate={vi.fn()}
+      />
+    )
+    act(() => mocks.socket.onopen?.())
+    expect(sent()[0]).toMatchObject({ type: "open", flowControl: true })
+    let drawing: Promise<void> | undefined
+    act(() => {
+      drawing = mocks.socket.onmessage?.({
+        data: JSON.stringify({ type: "frame", id: 7, data: "YWJj" }),
+      }) as unknown as Promise<void>
+    })
+    expect(sent().some((message) => message.type === "frame-ack")).toBe(false)
+    await act(async () => {
+      finishDecode({
+        width: 1280,
+        height: 800,
+        close: vi.fn(),
+      } as unknown as ImageBitmap)
+      await drawing
+    })
+    expect(drawImage).toHaveBeenCalledOnce()
+    expect(sent().at(-1)).toEqual({ type: "frame-ack", id: 7 })
+  })
+
   it("stops audio and clears permissions on disconnect, ignoring the old socket", async () => {
     render(
       <BrowserWebSurface

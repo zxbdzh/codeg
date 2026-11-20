@@ -11,6 +11,113 @@ const { CdpConnection, startBrowserService, websiteUrl } = await import(
     new URL("./web-browser-service.mjs", import.meta.url).href
 )
 
+test(
+  "a slow viewer receives only its next latest frame without blocking controls",
+  { timeout: 30000 },
+  async () => {
+    const fixture = createServer((request, response) => {
+      if (request.url === "/api/health") {
+        response
+          .writeHead(
+            request.headers.authorization === "Bearer frame-test" ? 200 : 401
+          )
+          .end()
+        return
+      }
+      response.end(
+        "<title>Frame flow test</title><script>let step=0;setInterval(()=>document.body.style.background=`hsl(${step++*17} 80% 50%)`,30)</script>"
+      )
+    })
+    await new Promise((resolve) => fixture.listen(0, "127.0.0.1", resolve))
+    const origin = `http://127.0.0.1:${fixture.address().port}`
+    const service = await startBrowserService({
+      port: 0,
+      authUrl: `${origin}/api/health`,
+      origin,
+      dataDir: await mkdtemp(path.join(tmpdir(), "codeg-frame-flow-")),
+    })
+    const { createRequire } = await import("node:module")
+    const { WebSocket } = createRequire(import.meta.url)(
+      "next/dist/compiled/ws"
+    )
+    const bufferedAmount = Object.getOwnPropertyDescriptor(
+      WebSocket.prototype,
+      "bufferedAmount"
+    )
+    let fullQueueReads = 0
+    Object.defineProperty(WebSocket.prototype, "bufferedAmount", {
+      ...bufferedAmount,
+      get() {
+        if (this._isServer && frames.length === 0) {
+          fullQueueReads++
+          return 4 * 1024 * 1024
+        }
+        return bufferedAmount.get.call(this)
+      },
+    })
+    const viewerPort = service.server.address().port
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${viewerPort}/socket`,
+      [
+        "codeg-browser",
+        `codeg-token.${Buffer.from("frame-test").toString("base64url")}`,
+      ],
+      { origin }
+    )
+    const frames = []
+    const states = []
+    socket.on("message", (raw) => {
+      const message = JSON.parse(String(raw))
+      if (message.type === "frame") frames.push(message)
+      if (message.type === "state") states.push(message)
+    })
+    const send = (message) => socket.send(JSON.stringify(message))
+    const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+    const until = async (check) => {
+      const deadline = Date.now() + 15000
+      while (!check() && Date.now() < deadline) await pause(20)
+      assert.ok(check(), "Frame flow condition timed out")
+    }
+    try {
+      await new Promise((resolve, reject) => {
+        socket.once("open", resolve)
+        socket.once("error", reject)
+      })
+      assert.equal(
+        (await fetch(`http://127.0.0.1:${viewerPort}/health`)).status,
+        400
+      )
+      send({ type: "open", tabId: "flow", url: origin, flowControl: true })
+      await until(() => frames.length > 0)
+      if (!process.env.CODEG_TEST_BROWSER_MODULE)
+        assert.ok(
+          fullQueueReads > 0,
+          "The real sender must encounter backpressure"
+        )
+      await pause(250)
+      assert.equal(frames.length, 1, "Unacknowledged frames must not queue")
+      send({ type: "share", level: "read" })
+      await until(() => states.some((state) => state.grant === "read"))
+      send({ type: "frame-ack", id: frames[0].id + 99 })
+      await pause(100)
+      assert.equal(frames.length, 1, "Stale acknowledgments must be ignored")
+      send({ type: "frame-ack", id: frames[0].id })
+      await until(() => frames.length === 2)
+      assert.ok(frames[1].id > frames[0].id)
+      assert.notEqual(frames[1].data, frames[0].data)
+    } finally {
+      Object.defineProperty(
+        WebSocket.prototype,
+        "bufferedAmount",
+        bufferedAmount
+      )
+      socket.close()
+      await service.stop()
+      await new Promise((resolve) => fixture.close(resolve))
+    }
+  }
+)
+
 test("website addresses retain HTTPS and reject executable URLs", () => {
   assert.equal(
     websiteUrl("https://example.com/a?q=1#anchor"),

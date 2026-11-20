@@ -134,6 +134,7 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
             tabId: tab.id,
             url: currentUrl.current,
             navigate: true,
+            flowControl: true,
           })
         )
       }
@@ -143,30 +144,46 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
         const message = JSON.parse(String(data))
         if (message.type === "frame") {
           const frameNumber = ++sequence
-          const binary = atob(message.data)
-          const bytes = Uint8Array.from(binary, (character) =>
-            character.charCodeAt(0)
-          )
-          const image = await createImageBitmap(
-            new Blob([bytes], { type: "image/jpeg" })
-          )
-          if (
-            cancelled ||
-            socket.current !== connection ||
-            frameNumber < drawn
-          ) {
-            image.close()
-            return
-          }
-          drawn = frameNumber
-          activeImage?.close()
-          activeImage = image
-          const page = canvas.current
-          if (page) {
-            page.width = image.width
-            page.height = image.height
-            page.getContext("2d")?.drawImage(image, 0, 0)
-            setPainted(true)
+          try {
+            const binary = atob(message.data)
+            const bytes = Uint8Array.from(binary, (character) =>
+              character.charCodeAt(0)
+            )
+            const image = await createImageBitmap(
+              new Blob([bytes], { type: "image/jpeg" })
+            )
+            if (
+              cancelled ||
+              socket.current !== connection ||
+              frameNumber < drawn
+            ) {
+              image.close()
+              return
+            }
+            drawn = frameNumber
+            activeImage?.close()
+            activeImage = image
+            const page = canvas.current
+            if (page) {
+              if (page.width !== image.width) page.width = image.width
+              if (page.height !== image.height) page.height = image.height
+              page.getContext("2d")?.drawImage(image, 0, 0)
+              setPainted(true)
+            }
+          } catch {
+            if (!cancelled && socket.current === connection)
+              setError("网站画面解码失败，请刷新网站重试")
+          } finally {
+            // 显示完成才允许发送下一帧，避免隧道和解码队列积压旧画面。
+            if (
+              !cancelled &&
+              socket.current === connection &&
+              connection.readyState === WebSocket.OPEN &&
+              typeof message.id === "number"
+            )
+              connection.send(
+                JSON.stringify({ type: "frame-ack", id: message.id })
+              )
           }
         } else if (message.type === "state") {
           if (message.url !== currentUrl.current || message.grant !== "control")
