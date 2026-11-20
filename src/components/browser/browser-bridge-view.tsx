@@ -43,6 +43,12 @@ type Phase =
   | { kind: "unreachable"; grant: BridgeGrant; origin: string; src: string }
   | { kind: "error"; message: string }
 
+function usesOnlineBrowser(url: string): boolean {
+  return (
+    Boolean(process.env.NEXT_PUBLIC_CODEG_BROWSER_URL) || !isBridgeableUrl(url)
+  )
+}
+
 function messageOf(error: unknown): string {
   if (error && typeof error === "object" && "message" in error) {
     const message = (error as { message?: unknown }).message
@@ -102,7 +108,7 @@ export function BrowserBridgeView({ tab }: { tab: BrowserWorkspaceTab }) {
   } | null>(null)
   const phase: Phase = isBlankPageUrl(url)
     ? { kind: "blank" }
-    : !isBridgeableUrl(url)
+    : usesOnlineBrowser(url)
       ? { kind: "online" }
       : outcome && outcome.attempt === attempt && outcome.url === url
         ? outcome.phase
@@ -119,7 +125,7 @@ export function BrowserBridgeView({ tab }: { tab: BrowserWorkspaceTab }) {
       return
     }
     // 公网网站由真实浏览器加载，保留原始站点的安全边界和登录态。
-    if (!isBridgeableUrl(url)) {
+    if (usesOnlineBrowser(url)) {
       settle({ kind: "online" })
       return
     }

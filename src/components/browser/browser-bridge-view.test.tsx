@@ -1,7 +1,7 @@
 import { StrictMode } from "react"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { NextIntlClientProvider } from "next-intl"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { BrowserWorkspaceTab } from "@/contexts/workspace-context"
 import type { BridgeGrant } from "@/lib/browser/browser-bridge"
@@ -92,6 +92,7 @@ beforeEach(() => {
   api.copyTextToClipboard.mockClear()
   api.isDesktop.mockReturnValue(false)
 })
+afterEach(() => vi.unstubAllEnvs())
 
 describe("BrowserBridgeView", () => {
   it("mints a grant for the tab and shows the page in a sandboxed frame", async () => {
@@ -427,6 +428,14 @@ describe("BrowserBridgeView", () => {
 })
 
 describe("BrowserTabView in a browser", () => {
+  it("uses the full browser for localhost too when the browser service is deployed", async () => {
+    vi.stubEnv("NEXT_PUBLIC_CODEG_BROWSER_URL", "https://codeg-ego.odn.cc")
+    renderView(<BrowserBridgeView tab={tab("http://localhost:3000/")} />)
+    expect(await screen.findByTestId("online-browser")).toHaveTextContent(
+      "http://localhost:3000/"
+    )
+    expect(api.bridgeOpen).not.toHaveBeenCalled()
+  })
   it("opens a bare website name using HTTPS from the address bar", async () => {
     renderView(<BrowserBridgeView tab={tab("about:blank")} />)
     const address = screen.getByRole("textbox", { name: "Preview address" })

@@ -18,6 +18,29 @@ const mocks = vi.hoisted(() => ({
   setState: vi.fn(),
   upload: vi.fn(() => Promise.resolve()),
   download: vi.fn(() => Promise.resolve()),
+  devtools: vi.fn(() =>
+    Promise.resolve("https://codeg-ego.odn.cc/devtools/enter/test")
+  ),
+  audioStart: vi.fn(),
+  audioAppend: vi.fn(),
+  audioStop: vi.fn(),
+  audioFailure: null as null | ((failure: unknown) => void),
+}))
+vi.mock("@/contexts/workspace-context", () => ({
+  useOptionalWorkspaceActions: () => null,
+}))
+vi.mock("@/lib/browser/web-browser-audio", () => ({
+  WebBrowserAudio: class {
+    constructor(
+      _element: HTMLAudioElement,
+      onError: (failure: unknown) => void
+    ) {
+      mocks.audioFailure = onError
+    }
+    start = mocks.audioStart
+    append = mocks.audioAppend
+    stop = mocks.audioStop
+  },
 }))
 
 vi.mock("@/lib/browser/web-browser", () => ({
@@ -25,6 +48,7 @@ vi.mock("@/lib/browser/web-browser", () => ({
   rememberWebBrowserTab: mocks.remember,
   uploadBrowserFiles: mocks.upload,
   downloadBrowserFile: mocks.download,
+  webBrowserDevtools: mocks.devtools,
 }))
 vi.mock("@/lib/browser/browser-tab-store", () => ({
   setBrowserTabState: mocks.setState,
@@ -55,6 +79,141 @@ function sent() {
 }
 
 describe("Web browser page input", () => {
+  it("stops audio and clears permissions on disconnect, ignoring the old socket", async () => {
+    render(
+      <BrowserWebSurface
+        tab={tab}
+        url="https://example.com/"
+        reloadKey={0}
+        onNavigate={vi.fn()}
+      />
+    )
+    act(() => mocks.socket.onopen?.())
+    await receive({ type: "audio-start", mime: "audio/webm;codecs=opus" })
+    await receive({
+      type: "state",
+      url: "https://example.com/",
+      grant: "control",
+    })
+    await receive({
+      type: "eval-request",
+      requestId: "disconnected",
+      expression: "document.title",
+    })
+    const oldMessage = mocks.socket.onmessage
+    act(() => {
+      const onclose = mocks.socket.onclose as unknown as (event: {
+        code: number
+      }) => void
+      onclose({ code: 4001 })
+    })
+    expect(mocks.audioStop).toHaveBeenCalled()
+    expect(screen.getByLabelText("网站声音播放器")).toHaveAttribute("hidden")
+    expect(screen.queryByRole("dialog", { name: "Agent 脚本授权" })).toBeNull()
+    expect(
+      screen.getByRole("combobox", { name: "Agent 访问权限" })
+    ).toBeDisabled()
+    await act(async () => {
+      await oldMessage?.({
+        data: JSON.stringify({
+          type: "audio-start",
+          mime: "audio/webm;codecs=opus",
+        }),
+      })
+    })
+    expect(mocks.audioStart).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    { url: "https://other.example/", grant: "control" },
+    { url: "https://example.com/", grant: "none" },
+  ])(
+    "clears an obsolete script approval on state $url $grant",
+    async (state) => {
+      render(
+        <BrowserWebSurface
+          tab={tab}
+          url="https://example.com/"
+          reloadKey={0}
+          onNavigate={vi.fn()}
+        />
+      )
+      act(() => mocks.socket.onopen?.())
+      await receive({
+        type: "state",
+        url: "https://example.com/",
+        grant: "control",
+      })
+      await receive({
+        type: "eval-request",
+        requestId: "old-page",
+        expression: "document.title",
+      })
+      await receive({ type: "state", ...state })
+      expect(
+        screen.queryByRole("dialog", { name: "Agent 脚本授权" })
+      ).toBeNull()
+    }
+  )
+
+  it("reports asynchronous playback errors and immediately disables audio", async () => {
+    render(
+      <BrowserWebSurface
+        tab={tab}
+        url="https://example.com/"
+        reloadKey={0}
+        onNavigate={vi.fn()}
+      />
+    )
+    act(() => mocks.socket.onopen?.())
+    await receive({ type: "audio-start", mime: "audio/webm;codecs=opus" })
+    act(() => mocks.audioFailure?.(new Error("decode failed")))
+    expect(sent().slice(-1)[0]).toEqual({ type: "audio", enabled: false })
+    expect(screen.getByRole("alert")).toHaveTextContent("decode failed")
+    expect(screen.getByLabelText("网站声音播放器")).toHaveAttribute("hidden")
+  })
+
+  it("plays received audio, opens the real inspector, and grants access only on user selection", async () => {
+    render(
+      <BrowserWebSurface
+        tab={tab}
+        url="https://example.com/"
+        reloadKey={0}
+        onNavigate={vi.fn()}
+      />
+    )
+    act(() => mocks.socket.onopen?.())
+    fireEvent.click(screen.getByRole("button", { name: "播放网站声音" }))
+    expect(sent().slice(-1)[0]).toEqual({ type: "audio", enabled: true })
+    await receive({ type: "audio-start", mime: "audio/webm;codecs=opus" })
+    await receive({ type: "audio", data: "YWJj" })
+    expect(mocks.audioStart).toHaveBeenCalledWith("audio/webm;codecs=opus")
+    expect(mocks.audioAppend).toHaveBeenCalledWith("YWJj")
+    expect(screen.getByLabelText("网站声音播放器")).not.toHaveAttribute(
+      "hidden"
+    )
+    fireEvent.click(screen.getByRole("button", { name: "开发者工具" }))
+    await screen.findByTitle("网站开发者工具")
+    expect(mocks.devtools).toHaveBeenCalledWith(tab.id)
+    fireEvent.change(screen.getByRole("combobox", { name: "Agent 访问权限" }), {
+      target: { value: "control" },
+    })
+    expect(sent().slice(-1)[0]).toEqual({ type: "share", level: "control" })
+    await receive({
+      type: "eval-request",
+      requestId: "exact-snippet",
+      expression: "document.title",
+    })
+    expect(
+      screen.getByRole("dialog", { name: "Agent 脚本授权" })
+    ).toHaveTextContent("document.title")
+    fireEvent.click(screen.getByRole("button", { name: "拒绝" }))
+    expect(sent().slice(-1)[0]).toEqual({
+      type: "eval-answer",
+      requestId: "exact-snippet",
+      approved: false,
+    })
+  })
   it("updates the address and persistence from page navigation without reopening the socket", async () => {
     const onNavigate = vi.fn()
     const view = render(
@@ -92,7 +251,7 @@ describe("Web browser page input", () => {
       sent().filter((message) => message.type === "navigate")
     ).toHaveLength(0)
     fireEvent.click(screen.getByRole("button", { name: "后退" }))
-    expect(sent().at(-1)).toEqual({ type: "history", direction: "back" })
+    expect(sent().slice(-1)[0]).toEqual({ type: "history", direction: "back" })
     view.rerender(
       <BrowserWebSurface
         tab={tab}
@@ -139,7 +298,7 @@ describe("Web browser page input", () => {
       buttons: 1,
       pointerId: 1,
     })
-    expect(sent().at(-1)).toEqual(
+    expect(sent().slice(-1)[0]).toEqual(
       expect.objectContaining({
         type: "pointer",
         x: 640,
@@ -154,7 +313,7 @@ describe("Web browser page input", () => {
       { type: "text", text: "中文输入" },
     ])
     fireEvent.keyDown(text, { key: "Enter", code: "Enter", keyCode: 13 })
-    expect(sent().at(-1)).toEqual(
+    expect(sent().slice(-1)[0]).toEqual(
       expect.objectContaining({ type: "key", key: "Enter", keyCode: 13 })
     )
   })
@@ -178,7 +337,7 @@ describe("Web browser page input", () => {
       target: { value: "answer" },
     })
     fireEvent.click(screen.getByRole("button", { name: "确定" }))
-    expect(sent().at(-1)).toEqual({
+    expect(sent().slice(-1)[0]).toEqual({
       type: "dialog",
       accept: true,
       text: "answer",

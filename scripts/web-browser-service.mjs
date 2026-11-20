@@ -2,10 +2,14 @@ import { createServer } from "node:http"
 import { createRequire } from "node:module"
 import { spawn } from "node:child_process"
 import { createHash, randomBytes } from "node:crypto"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, writeFile, readFile } from "node:fs/promises"
 import { createReadStream } from "node:fs"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
+import { browserAgentSource } from "./web-browser-assets.mjs"
+import { createBrowserAgent } from "./web-browser-agent.mjs"
+import { createTabAudio } from "./web-browser-audio.mjs"
+import { createDevtools } from "./web-browser-devtools.mjs"
 
 const require = createRequire(import.meta.url)
 const { WebSocketServer } = require("next/dist/compiled/ws")
@@ -23,6 +27,7 @@ export function websiteUrl(value) {
 
 export class CdpConnection {
   constructor(url) {
+    this.endpoint = url
     this.pending = new Map()
     this.sequence = 0
     this.listeners = new Set()
@@ -114,6 +119,12 @@ export async function startBrowserService(options = {}) {
     options.executable ??
     process.env.CODEG_BROWSER_EXECUTABLE ??
     "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+  const existingProfile =
+    options.existingProfile ?? process.env.CODEG_BROWSER_EXISTING_PROFILE
+  const publicOrigin =
+    options.publicOrigin ??
+    process.env.CODEG_BROWSER_PUBLIC_ORIGIN ??
+    "https://codeg-ego.odn.cc"
   const sessions = new Map()
   const opening = new Map()
   const downloads = new Map()
@@ -121,10 +132,44 @@ export async function startBrowserService(options = {}) {
   let browserProcess
   let shuttingDown = false
   await mkdir(dataDir, { recursive: true })
+  const audio = createTabAudio({ browser, pageCall, send, dataDir })
+  const devtools = createDevtools({
+    browser,
+    publicOrigin,
+    sessions,
+    allowedOrigin,
+  })
+  const agent = createBrowserAgent({
+    sessions,
+    pageCall,
+    send,
+    createSession,
+    closeSession,
+    source: browserAgentSource,
+    websiteUrl,
+  })
 
   async function browser() {
+    if (shuttingDown && !browserPromise)
+      throw new Error("浏览器服务已关闭")
     if (!browserPromise)
       browserPromise = (async () => {
+        if (existingProfile) {
+          const active = (
+            await readFile(
+              path.join(existingProfile, "DevToolsActivePort"),
+              "utf8"
+            )
+          )
+            .trim()
+            .split(/\r?\n/)
+          const connection = new CdpConnection(
+            `ws://127.0.0.1:${active[0]}${active[1]}`
+          )
+          await connection.ready
+          installDownloadEvents(connection)
+          return connection
+        }
         const profile = path.join(dataDir, "profile")
         await mkdir(profile, { recursive: true })
         browserProcess = spawn(
@@ -173,30 +218,7 @@ export async function startBrowserService(options = {}) {
           downloadPath: path.join(dataDir, "downloads"),
           eventsEnabled: true,
         })
-        connection.listeners.add((message) => {
-          if (message.method === "Browser.downloadWillBegin") {
-            const session = [...sessions.values()].find(
-              (item) => item.frameId === message.params.frameId
-            )
-            if (session)
-              downloads.set(message.params.guid, {
-                session,
-                name: path.basename(message.params.suggestedFilename),
-                complete: false,
-              })
-          }
-          if (message.method === "Browser.downloadProgress") {
-            const download = downloads.get(message.params.guid)
-            if (download && message.params.state === "completed") {
-              download.complete = true
-              send(download.session, {
-                type: "download",
-                id: message.params.guid,
-                name: download.name,
-              })
-            }
-          }
-        })
+        installDownloadEvents(connection)
         browserProcess.once("exit", () => {
           browserPromise = null
           for (const session of sessions.values()) {
@@ -216,6 +238,33 @@ export async function startBrowserService(options = {}) {
     return browserPromise
   }
 
+  function installDownloadEvents(connection) {
+    connection.listeners.add((message) => {
+      if (message.method === "Browser.downloadWillBegin") {
+        const session = [...sessions.values()].find(
+          (item) => item.frameId === message.params.frameId
+        )
+        if (session)
+          downloads.set(message.params.guid, {
+            session,
+            name: path.basename(message.params.suggestedFilename),
+            complete: false,
+          })
+      }
+      if (message.method === "Browser.downloadProgress") {
+        const download = downloads.get(message.params.guid)
+        if (download && message.params.state === "completed") {
+          download.complete = true
+          send(download.session, {
+            type: "download",
+            id: message.params.guid,
+            name: download.name,
+          })
+        }
+      }
+    })
+  }
+
   function send(session, message) {
     if (
       session.socket?.readyState === 1 &&
@@ -231,19 +280,23 @@ export async function startBrowserService(options = {}) {
   async function state(session) {
     const history = await pageCall(session, "Page.getNavigationHistory")
     const current = history.entries[history.currentIndex]
+    session.title = current?.title || ""
     send(session, {
       type: "state",
       url: current?.url || session.url,
       title: current?.title || "",
       back: history.currentIndex > 0,
       forward: history.currentIndex < history.entries.length - 1,
+      grant: session.grant?.level || "none",
     })
   }
 
   async function createSession(key, url) {
+    if (shuttingDown) throw new Error("浏览器服务正在关闭")
     if (sessions.size >= 16)
       throw new Error("浏览器标签已达 16 个，请先关闭不用的标签")
     const connection = await browser()
+    // 可复用资料里的登录态，但不能按网址认领、关闭用户原有的标签。
     const { targetId } = await connection.call("Target.createTarget", {
       url: "about:blank",
       background: true,
@@ -254,6 +307,7 @@ export async function startBrowserService(options = {}) {
     )
     const session = {
       key,
+      tabId: key.slice(65),
       targetId,
       cdpId,
       url,
@@ -261,6 +315,10 @@ export async function startBrowserService(options = {}) {
       touched: Date.now(),
       width: 1280,
       height: 800,
+      epoch: 0,
+      grant: null,
+      console: [],
+      contexts: new Map(),
     }
     sessions.set(key, session)
     const listener = (message) => {
@@ -282,6 +340,17 @@ export async function startBrowserService(options = {}) {
       ) {
         session.frameId = message.params.frame.id
         session.url = message.params.frame.url
+        session.epoch++
+        session.console = []
+        session.snapshot = null
+        session.pendingEval?.resolve(false)
+        if (
+          session.grant &&
+          session.grant.origin !== new URL(session.url).origin
+        ) {
+          session.grant = null
+          session.pendingEval?.resolve(false)
+        }
         void pageCall(session, "Page.setInterceptFileChooserDialog", {
           enabled: true,
         }).catch(() => {})
@@ -290,8 +359,42 @@ export async function startBrowserService(options = {}) {
       if (
         message.method === "Page.loadEventFired" ||
         message.method === "Page.navigatedWithinDocument"
-      )
+      ) {
+        if (message.method === "Page.navigatedWithinDocument") {
+          session.epoch++
+          session.console = []
+          session.snapshot = null
+          session.pendingEval?.resolve(false)
+        }
         void state(session).catch(() => {})
+      }
+      if (message.method === "Runtime.executionContextCreated") {
+        const context = message.params.context
+        session.contexts.set(context.id, context)
+      }
+      if (message.method === "Runtime.executionContextDestroyed")
+        session.contexts.delete(message.params.executionContextId)
+      if (message.method === "Runtime.executionContextsCleared")
+        session.contexts.clear()
+      if (message.method === "Runtime.consoleAPICalled") {
+        const context = session.contexts.get(message.params.executionContextId)
+        // 共享只涵盖当前主页面；授权前和其他来源的日志不进入可读取缓存。
+        if (
+          !session.grant ||
+          context?.origin !== session.grant.origin ||
+          context?.auxData?.frameId !== session.frameId
+        )
+          return
+        session.console.push({
+          level: message.params.type,
+          text: message.params.args
+            .map((item) => item.value ?? item.description ?? "")
+            .join(" ")
+            .slice(0, 8000),
+          timestamp: message.params.timestamp,
+        })
+        if (session.console.length > 200) session.console.shift()
+      }
       if (message.method === "Page.javascriptDialogOpening")
         send(session, {
           ...message.params,
@@ -313,6 +416,11 @@ export async function startBrowserService(options = {}) {
     await pageCall(session, "Page.enable", {
       enableFileChooserOpenedEvent: true,
     })
+    await pageCall(session, "Runtime.enable")
+    await pageCall(session, "Page.addScriptToEvaluateOnNewDocument", {
+      source: browserAgentSource,
+      worldName: "codeg-web-agent",
+    })
     await pageCall(session, "Page.setInterceptFileChooserDialog", {
       enabled: true,
     })
@@ -324,6 +432,20 @@ export async function startBrowserService(options = {}) {
     })
     await pageCall(session, "Page.navigate", { url })
     return session
+  }
+
+  async function closeSession(session) {
+    session.grant = null
+    session.epoch++
+    session.console = []
+    session.snapshot = null
+    session.pendingEval?.resolve(false)
+    if (session.audio) await audio.stop(session)
+    const connection = await browser()
+    await connection.call("Target.closeTarget", { targetId: session.targetId })
+    connection.listeners.delete(session.listener)
+    sessions.delete(session.key)
+    session.socket?.close(1000)
   }
 
   async function authenticate(request) {
@@ -365,6 +487,12 @@ export async function startBrowserService(options = {}) {
   const server = createServer(async (request, response) => {
     response.setHeader("Cache-Control", "no-store")
     response.setHeader("X-Content-Type-Options", "nosniff")
+    try {
+      if (await devtools.handle(request, response)) return
+    } catch {
+      response.writeHead(502).end("Inspector connection failed")
+      return
+    }
     if (request.headers.origin && request.headers.origin !== allowedOrigin) {
       response.writeHead(403).end()
       return
@@ -389,19 +517,29 @@ export async function startBrowserService(options = {}) {
         response.writeHead(200).end('{"available":true}')
         return
       }
+      if (location.pathname === "/mcp" && request.method === "POST") {
+        const result = await agent(owner, await bodyOf(request))
+        response
+          .writeHead(result ? 200 : 202, { "Content-Type": "application/json" })
+          .end(result ? JSON.stringify(result) : "")
+        return
+      }
       if (!session) {
         response.writeHead(404).end()
         return
       }
       if (location.pathname === "/close" && request.method === "POST") {
-        const connection = await browser()
-        await connection.call("Target.closeTarget", {
-          targetId: session.targetId,
-        })
-        connection.listeners.delete(session.listener)
-        sessions.delete(session.key)
-        session.socket?.close(1000)
+        await closeSession(session)
         response.writeHead(200).end('{"ok":true}')
+        return
+      }
+      if (
+        location.pathname === "/devtools-entry" &&
+        request.method === "POST"
+      ) {
+        response
+          .writeHead(200, { "Content-Type": "application/json" })
+          .end(JSON.stringify(devtools.mint(session)))
         return
       }
       if (location.pathname === "/upload" && request.method === "POST") {
@@ -474,6 +612,7 @@ export async function startBrowserService(options = {}) {
   })
   server.on("upgrade", async (request, socket, head) => {
     try {
+      if (await devtools.upgrade(request, socket, head)) return
       if (
         request.headers.origin !== allowedOrigin ||
         new URL(request.url, "http://localhost").pathname !== "/socket"
@@ -507,6 +646,7 @@ export async function startBrowserService(options = {}) {
       } catch {}
       queue = queue
         .then(async () => {
+          if (shuttingDown) throw new Error("浏览器服务正在关闭")
           const message = JSON.parse(String(raw))
           if (message.type === "open") {
             if (!/^[\w:-]{1,160}$/.test(message.tabId))
@@ -574,7 +714,26 @@ export async function startBrowserService(options = {}) {
             await pageCall(session, "Page.reload")
           else if (message.type === "stop")
             await pageCall(session, "Page.stopLoading")
-          else if (message.type === "resize") {
+          else if (message.type === "share") {
+            if (!["none", "read", "control"].includes(message.level))
+              throw new Error("无效的共享权限")
+            const frame = (await pageCall(session, "Page.getFrameTree"))
+              .frameTree.frame
+            session.grant =
+              message.level === "none"
+                ? null
+                : { level: message.level, origin: new URL(frame.url).origin }
+            session.console = []
+            session.snapshot = null
+            session.pendingEval?.resolve(false)
+            await state(session)
+          } else if (message.type === "eval-answer") {
+            if (session.pendingEval?.requestId === message.requestId)
+              session.pendingEval.resolve(message.approved === true)
+          } else if (message.type === "audio") {
+            if (message.enabled) await audio.start(session)
+            else await audio.stop(session)
+          } else if (message.type === "resize") {
             const width = Math.min(
               1920,
               Math.max(320, Math.round(Number(message.width)))
@@ -673,12 +832,7 @@ export async function startBrowserService(options = {}) {
               promptText: String(message.text || "").slice(0, 10000),
             })
           else if (message.type === "close") {
-            await (
-              await browser()
-            ).call("Target.closeTarget", { targetId: session.targetId })
-            ;(await browser()).listeners.delete(session.listener)
-            sessions.delete(session.key)
-            socket.close()
+            await closeSession(session)
           }
         })
         .catch((error) => {
@@ -690,6 +844,8 @@ export async function startBrowserService(options = {}) {
     })
     socket.on("close", () => {
       if (session?.socket === socket) {
+        session.pendingEval?.resolve(false)
+        if (session.audio) void audio.stop(session).catch(() => {})
         session.socket = null
         session.touched = Date.now()
         void pageCall(session, "Page.stopScreencast").catch(() => {})
@@ -701,15 +857,7 @@ export async function startBrowserService(options = {}) {
   const cleanup = setInterval(() => {
     for (const session of sessions.values())
       if (!session.socket && Date.now() - session.touched > 60 * 60 * 1000) {
-        sessions.delete(session.key)
-        void browser()
-          .then((connection) => {
-            connection.listeners.delete(session.listener)
-            return connection.call("Target.closeTarget", {
-              targetId: session.targetId,
-            })
-          })
-          .catch(() => {})
+        void closeSession(session).catch(() => {})
       }
   }, 60000)
   cleanup.unref()
@@ -721,12 +869,18 @@ export async function startBrowserService(options = {}) {
     if (shuttingDown) return
     shuttingDown = true
     clearInterval(cleanup)
+    devtools.stop()
     for (const client of wss.clients) client.close(1001)
     wss.close()
     server.close()
     if (browserPromise)
       try {
-        await (await browserPromise).call("Browser.close")
+        const connection = await browserPromise
+        if (existingProfile) {
+          for (const session of [...sessions.values()])
+            await closeSession(session)
+        } else await connection.call("Browser.close")
+        connection.socket.close()
       } catch {}
   }
   return { server, stop, dataDir }

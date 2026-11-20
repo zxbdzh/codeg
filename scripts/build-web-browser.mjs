@@ -1,5 +1,6 @@
 import { build } from "esbuild"
 import path from "node:path"
+import { readFile } from "node:fs/promises"
 
 const outfile = process.argv[2]
 if (!outfile)
@@ -24,7 +25,7 @@ await build({
           path: path.resolve("node_modules/next/dist/compiled/ws/index.js"),
         }))
         builder.onLoad(
-          { filter: /web-browser-service\.mjs$/ },
+          { filter: /web-browser-(service|devtools)\.mjs$/ },
           async ({ path: filename }) => {
             const { readFile } = await import("node:fs/promises")
             return {
@@ -33,11 +34,38 @@ await build({
                 .replace(
                   'const { WebSocketServer } = require("next/dist/compiled/ws")',
                   'import { WebSocketServer } from "next/dist/compiled/ws"'
+                )
+                .replace(
+                  'const { WebSocket, WebSocketServer } = createRequire(import.meta.url)("next/dist/compiled/ws")',
+                  'import { WebSocket, WebSocketServer } from "next/dist/compiled/ws"'
                 ),
               loader: "js",
             }
           }
         )
+        builder.onLoad({ filter: /web-browser-assets\.mjs$/ }, async () => {
+          const files = Object.fromEntries(
+            await Promise.all(
+              [
+                "manifest.json",
+                "worker.js",
+                "offscreen.html",
+                "offscreen.js",
+              ].map(async (name) => [
+                name,
+                await readFile(`scripts/web-browser-audio/${name}`, "utf8"),
+              ])
+            )
+          )
+          const source = await readFile(
+            "src-tauri/src/browser/js/agent.bundle.js",
+            "utf8"
+          )
+          return {
+            contents: `export const audioExtensionFiles=${JSON.stringify(files)}; export const browserAgentSource=${JSON.stringify(source)};`,
+            loader: "js",
+          }
+        })
       },
     },
   ],

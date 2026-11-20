@@ -32,6 +32,15 @@ export function webBrowserSocket(): WebSocket {
   ])
 }
 
+export async function webBrowserDevtools(tab: string): Promise<string> {
+  const response = await fetch(
+    `${webBrowserOrigin()}/devtools-entry?tab=${encodeURIComponent(tab)}`,
+    { method: "POST", headers: codegAuthHeaders(getCodegToken()) }
+  )
+  if (!response.ok) throw new Error("开发者工具连接失败")
+  return (await response.json()).url
+}
+
 export async function uploadBrowserFiles(tab: string, files: File[]) {
   const total = files.reduce((size, file) => size + file.size, 0)
   if (total > 16 * 1024 * 1024) throw new Error("单次上传不能超过 16 MB")

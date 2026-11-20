@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Codeg Web Tab Audio",
+  "version": "1.0.0",
+  "permissions": ["tabCapture", "offscreen", "tabs"],
+  "background": { "service_worker": "worker.js" },
+  "action": { "default_title": "Play this tab in Codeg" },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

@@ -9,9 +9,15 @@ import {
   RotateCw,
   Upload,
   X,
+  Volume2,
+  VolumeX,
+  Code2,
 } from "lucide-react"
 
-import type { BrowserWorkspaceTab } from "@/contexts/workspace-context"
+import {
+  useOptionalWorkspaceActions,
+  type BrowserWorkspaceTab,
+} from "@/contexts/workspace-context"
 import { emulatedViewport } from "@/lib/browser/browser-device"
 import { setBrowserTabState } from "@/lib/browser/browser-tab-store"
 import { browserTabBackendId } from "@/lib/file-tab-id"
@@ -20,7 +26,9 @@ import {
   uploadBrowserFiles,
   webBrowserSocket,
   rememberWebBrowserTab,
+  webBrowserDevtools,
 } from "@/lib/browser/web-browser"
+import { WebBrowserAudio } from "@/lib/browser/web-browser-audio"
 
 import { ICON_BTN } from "./browser-toolbar-buttons"
 
@@ -50,6 +58,10 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
   const input = useRef<HTMLTextAreaElement>(null)
   const container = useRef<HTMLDivElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const audioElement = useRef<HTMLAudioElement>(null)
+  const audioPlayer = useRef<WebBrowserAudio | null>(null)
+  const actions = useOptionalWorkspaceActions()
+  const actionsRef = useRef(actions)
   const socket = useRef<WebSocket | null>(null)
   const currentUrl = useRef(url)
   const reload = useRef(reloadKey)
@@ -69,10 +81,19 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
   const [dialogText, setDialogText] = useState("")
   const [upload, setUpload] = useState<{ multiple: boolean } | null>(null)
   const [downloads, setDownloads] = useState<{ id: string; name: string }[]>([])
+  const [audioOn, setAudioOn] = useState(false)
+  const [inspector, setInspector] = useState<string | null>(null)
+  const [grant, setGrant] = useState("none")
+  const [activity, setActivity] = useState<string | null>(null)
+  const [evalRequest, setEvalRequest] = useState<{
+    requestId: string
+    expression: string
+  } | null>(null)
 
   useEffect(() => {
     navigate.current = onNavigate
-  }, [onNavigate])
+    actionsRef.current = actions
+  }, [onNavigate, actions])
 
   const send = (message: Record<string, unknown>) => {
     if (socket.current?.readyState === WebSocket.OPEN)
@@ -85,6 +106,16 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
     let activeImage: ImageBitmap | null = null
     let sequence = 0
     let drawn = 0
+    const stopAudio = () => {
+      audioPlayer.current?.stop()
+      audioPlayer.current = null
+      setAudioOn(false)
+    }
+    const audioFailed = (failure: unknown) => {
+      stopAudio()
+      setError(failure instanceof Error ? failure.message : String(failure))
+      send({ type: "audio", enabled: false })
+    }
     const connect = () => {
       if (cancelled) return
       const connection = webBrowserSocket()
@@ -107,6 +138,8 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
         )
       }
       connection.onmessage = async ({ data }) => {
+        // 重连和卸载后，旧连接已排队的消息不能恢复声音或授权界面。
+        if (cancelled || socket.current !== connection) return
         const message = JSON.parse(String(data))
         if (message.type === "frame") {
           const frameNumber = ++sequence
@@ -117,7 +150,11 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
           const image = await createImageBitmap(
             new Blob([bytes], { type: "image/jpeg" })
           )
-          if (cancelled || frameNumber < drawn) {
+          if (
+            cancelled ||
+            socket.current !== connection ||
+            frameNumber < drawn
+          ) {
             image.close()
             return
           }
@@ -132,10 +169,13 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
             setPainted(true)
           }
         } else if (message.type === "state") {
+          if (message.url !== currentUrl.current || message.grant !== "control")
+            setEvalRequest(null)
           if (message.url === "about:blank") return
           currentUrl.current = message.url
           navigate.current(message.url)
           setHistory({ back: message.back, forward: message.forward })
+          setGrant(message.grant || "none")
           setBrowserTabState({
             tabId: browserTabBackendId(tab.id) ?? tab.id,
             ownerWindow: "main",
@@ -156,9 +196,52 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
             remoteHost: null,
             openerTabId: null,
             profile: "default",
-            agentGrant: null,
+            agentGrant:
+              message.grant && message.grant !== "none"
+                ? {
+                    level: message.grant,
+                    origin: new URL(message.url).origin,
+                    grantedAt: Date.now(),
+                  }
+                : null,
           })
-        } else if (message.type === "error") setError(message.message)
+        } else if (message.type === "audio-start") {
+          if (audioElement.current) {
+            audioPlayer.current ??= new WebBrowserAudio(
+              audioElement.current,
+              audioFailed
+            )
+            try {
+              audioPlayer.current.start(message.mime)
+              setAudioOn(true)
+            } catch (failure) {
+              audioFailed(failure)
+            }
+          }
+        } else if (message.type === "audio") {
+          try {
+            audioPlayer.current?.append(message.data)
+          } catch (failure) {
+            audioFailed(failure)
+          }
+        } else if (message.type === "audio-stop") {
+          stopAudio()
+        } else if (message.type === "eval-request")
+          setEvalRequest({
+            requestId: message.requestId,
+            expression: message.expression,
+          })
+        else if (message.type === "agent-activity") setActivity(message.action)
+        else if (message.type === "agent-close")
+          actionsRef.current?.closeFileTab(tab.id)
+        else if (message.type === "agent-open")
+          actionsRef.current?.adoptBrowserTab({
+            backendTabId: browserTabBackendId(message.tabId) ?? message.tabId,
+            url: message.url,
+            openerBackendTabId: browserTabBackendId(tab.id) ?? tab.id,
+            profile: "default",
+          })
+        else if (message.type === "error") setError(message.message)
         else if (message.type === "popup") setPopup(message.url)
         else if (message.type === "dialog") {
           setDialog(message)
@@ -173,8 +256,13 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
       }
       connection.onerror = () => setError("浏览器连接失败，正在重试")
       connection.onclose = ({ code }) => {
-        if (cancelled) return
+        if (cancelled || socket.current !== connection) return
+        socket.current = null
+        stopAudio()
         setConnected(false)
+        setGrant("none")
+        setActivity(null)
+        setEvalRequest(null)
         if (code === 4001)
           setError("此标签已在另一设备操作；点击重新连接可接管")
         else {
@@ -188,7 +276,13 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
       cancelled = true
       clearTimeout(reconnect)
       socket.current?.close()
+      socket.current = null
       activeImage?.close()
+      stopAudio()
+      setConnected(false)
+      setGrant("none")
+      setActivity(null)
+      setEvalRequest(null)
     }
   }, [tab.id, retry])
 
@@ -196,6 +290,7 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
     if (url === currentUrl.current) return
     currentUrl.current = url
     setError(null)
+    setEvalRequest(null)
     send({ type: "navigate", url })
   }, [url])
 
@@ -280,7 +375,93 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
         <span className="text-muted-foreground">
           {connected ? "在线浏览器" : "连接中"}
         </span>
+        <button
+          type="button"
+          className={ICON_BTN}
+          aria-label={audioOn ? "关闭声音" : "播放网站声音"}
+          disabled={!connected}
+          onClick={() => send({ type: "audio", enabled: !audioOn })}
+        >
+          {audioOn ? (
+            <Volume2 className="size-3.5" />
+          ) : (
+            <VolumeX className="size-3.5" />
+          )}
+        </button>
+        <button
+          type="button"
+          className={ICON_BTN}
+          aria-label="开发者工具"
+          disabled={!connected}
+          onClick={() => {
+            if (inspector) setInspector(null)
+            else
+              void webBrowserDevtools(tab.id)
+                .then(setInspector)
+                .catch((failure) => setError(failure.message))
+          }}
+        >
+          <Code2 className="size-3.5" />
+        </button>
+        <select
+          aria-label="Agent 访问权限"
+          className="min-w-0 rounded border bg-background px-1 py-0.5 text-xs"
+          value={grant}
+          disabled={!connected}
+          onChange={(event) => {
+            if (event.target.value !== "control") setEvalRequest(null)
+            send({ type: "share", level: event.target.value })
+          }}
+        >
+          <option value="none">未共享</option>
+          <option value="read">共享读取</option>
+          <option value="control">允许操作</option>
+        </select>
       </div>
+      <audio
+        ref={audioElement}
+        controls
+        autoPlay
+        hidden={!audioOn}
+        className="h-8 w-full shrink-0"
+        aria-label="网站声音播放器"
+      />
+      {activity && grant !== "none" && (
+        <div className="border-b px-3 py-1 text-xs text-muted-foreground">
+          Agent：{activity}
+        </div>
+      )}
+      {evalRequest && (
+        <div
+          role="dialog"
+          aria-label="Agent 脚本授权"
+          className="max-h-52 shrink-0 overflow-auto border-b p-3 text-xs"
+        >
+          <p>Agent 请求在当前网站执行以下代码：</p>
+          <pre className="my-2 whitespace-pre-wrap break-all">
+            {evalRequest.expression}
+          </pre>
+          <div className="flex gap-4">
+            {[true, false].map((approved) => (
+              <button
+                type="button"
+                key={String(approved)}
+                className="underline"
+                onClick={() => {
+                  send({
+                    type: "eval-answer",
+                    requestId: evalRequest.requestId,
+                    approved,
+                  })
+                  setEvalRequest(null)
+                }}
+              >
+                {approved ? "允许这次执行" : "拒绝"}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {error && (
         <div
           role="alert"
@@ -550,6 +731,24 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
           }}
         />
       </div>
+      {inspector && (
+        <div className="relative h-1/2 min-h-48 shrink-0 border-t">
+          <button
+            type="button"
+            aria-label="关闭开发者工具"
+            className="absolute top-1 right-1 z-10 rounded bg-background p-1"
+            onClick={() => setInspector(null)}
+          >
+            <X className="size-4" />
+          </button>
+          <iframe
+            title="网站开发者工具"
+            src={inspector}
+            className="h-full w-full border-0"
+            referrerPolicy="no-referrer"
+          />
+        </div>
+      )}
     </div>
   )
 }
