@@ -5,10 +5,10 @@ import { readFile } from "node:fs/promises"
 const outfile = process.argv[2]
 if (!outfile)
   throw new Error(
-    "Usage: node scripts/build-web-browser.mjs <absolute-output.mjs>"
+    "Usage: node scripts/build-web-browser.mjs <absolute-output.mjs> [entry-point]"
   )
 await build({
-  entryPoints: ["scripts/web-browser-service.mjs"],
+  entryPoints: [process.argv[3] || "scripts/web-browser-service.mjs"],
   outfile,
   bundle: true,
   platform: "node",

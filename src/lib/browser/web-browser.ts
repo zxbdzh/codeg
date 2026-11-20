@@ -26,10 +26,12 @@ export function webBrowserOrigin(): string {
 export function webBrowserSocket(): WebSocket {
   const url = new URL(`${webBrowserOrigin()}/socket`)
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
-  return new WebSocket(url, [
+  const socket = new WebSocket(url, [
     "codeg-browser",
     ...buildCodegWebSocketProtocols(getCodegToken()).slice(1),
   ])
+  socket.binaryType = "arraybuffer"
+  return socket
 }
 
 export async function webBrowserDevtools(tab: string): Promise<string> {

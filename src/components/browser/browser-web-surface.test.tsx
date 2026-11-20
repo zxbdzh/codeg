@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
     send: vi.fn(),
     close: vi.fn(),
     onopen: null as null | (() => void),
-    onmessage: null as null | ((event: { data: string }) => void),
+    onmessage: null as null | ((event: { data: string | ArrayBuffer }) => void),
     onerror: null,
     onclose: null,
   },
@@ -79,6 +79,72 @@ function sent() {
 }
 
 describe("Web browser page input", () => {
+  it("draws binary JPEG frames and ignores an older frame that decodes later", async () => {
+    const decoding: ((bitmap: ImageBitmap) => void)[] = []
+    const decode = vi.fn(
+      (blob: Blob) =>
+        new Promise<ImageBitmap>((resolve) => {
+          expect(blob.type).toBe("image/jpeg")
+          decoding.push(resolve)
+        })
+    )
+    vi.stubGlobal("createImageBitmap", decode)
+    const drawImage = vi.fn()
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage,
+    } as unknown as CanvasRenderingContext2D)
+    render(
+      <BrowserWebSurface
+        tab={tab}
+        url="https://example.com/"
+        reloadKey={0}
+        onNavigate={vi.fn()}
+      />
+    )
+    act(() => mocks.socket.onopen?.())
+    expect(sent()[0]).toMatchObject({ frameProtocol: "jpeg-v2" })
+    const frames: Promise<void>[] = []
+    act(() => {
+      for (const id of [11, 12]) {
+        const packet = new ArrayBuffer(7)
+        new DataView(packet).setUint32(0, id)
+        new Uint8Array(packet, 4).set([255, 216, 255])
+        frames.push(
+          mocks.socket.onmessage?.({
+            data: packet,
+          }) as unknown as Promise<void>
+        )
+      }
+    })
+    expect(decode.mock.calls[0][0]).toMatchObject({
+      size: 3,
+      type: "image/jpeg",
+    })
+    const newer = {
+      width: 1280,
+      height: 800,
+      close: vi.fn(),
+    } as unknown as ImageBitmap
+    const older = {
+      width: 1280,
+      height: 800,
+      close: vi.fn(),
+    } as unknown as ImageBitmap
+    await act(async () => {
+      decoding[1](newer)
+      await frames[1]
+      decoding[0](older)
+      await frames[0]
+    })
+    expect(drawImage).toHaveBeenCalledOnce()
+    expect(drawImage).toHaveBeenCalledWith(newer, 0, 0)
+    expect(older.close).toHaveBeenCalledOnce()
+    expect(sent().filter((message) => message.type === "frame-ack")).toEqual([
+      { type: "frame-ack", id: 12 },
+      { type: "frame-ack", id: 11 },
+    ])
+  })
+
   it("acknowledges a frame only after decoding and drawing it", async () => {
     let finishDecode!: (bitmap: ImageBitmap) => void
     vi.stubGlobal(

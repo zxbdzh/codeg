@@ -135,20 +135,30 @@ export function BrowserWebSurface({ tab, url, reloadKey, onNavigate }: Props) {
             url: currentUrl.current,
             navigate: true,
             flowControl: true,
+            frameProtocol: "jpeg-v2",
           })
         )
       }
       connection.onmessage = async ({ data }) => {
         // 重连和卸载后，旧连接已排队的消息不能恢复声音或授权界面。
         if (cancelled || socket.current !== connection) return
-        const message = JSON.parse(String(data))
+        const binary = data instanceof ArrayBuffer
+        if (binary && data.byteLength < 6) {
+          setError("网站画面数据不完整，请重新连接")
+          return
+        }
+        const message = binary
+          ? { type: "frame", id: new DataView(data).getUint32(0) }
+          : JSON.parse(String(data))
         if (message.type === "frame") {
           const frameNumber = ++sequence
           try {
-            const binary = atob(message.data)
-            const bytes = Uint8Array.from(binary, (character) =>
-              character.charCodeAt(0)
-            )
+            // 新串流直接解码 JPEG，旧服务仍兼容 JSON/Base64 帧。
+            const bytes = binary
+              ? new Uint8Array(data, 4)
+              : Uint8Array.from(atob(message.data), (character) =>
+                  character.charCodeAt(0)
+                )
             const image = await createImageBitmap(
               new Blob([bytes], { type: "image/jpeg" })
             )
