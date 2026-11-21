@@ -7,9 +7,9 @@
  * top, its options as rows of the same card below it.
  *
  * Isolation guarantees (critical — see the v2 plan):
- *   1. Options come from a LIVE probe (`describeAgentOptions`), not from the
- *      chat-side `selectorsCache`. What the user sees here is what codeg-mcp
- *      will actually receive when it spawns a subagent.
+ *   1. The model row reuses the chat-side `selectorsCache` when available, so
+ *      this page offers the same model candidates as the conversation picker.
+ *      Other rows still come from a LIVE probe (`describeAgentOptions`).
  *   2. Saving a value here does NOT call `acpSetConfigOption` or write to
  *      `selector-prefs-storage.ts` localStorage. The chat input's own
  *      selectors are untouched. Persistence happens through the parent's
@@ -30,6 +30,7 @@ import {
 
 import { SettingCard, SettingRow } from "@/components/shared/setting-card"
 import { Button } from "@/components/ui/button"
+import { getCachedSelectors } from "@/contexts/acp-connections-context"
 import {
   type AgentDelegationDefaults,
   type AgentOptionsSnapshot,
@@ -37,6 +38,7 @@ import {
 } from "@/lib/types"
 import { describeAgentOptions } from "@/lib/api"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
+import { mergeModelConfigOptions } from "@/lib/model-config-groups"
 import { toErrorMessage } from "@/lib/app-error"
 import {
   AgentSelect,
@@ -202,10 +204,18 @@ export function DelegationAgentDefaultsPanel({
   // Rows of the selected agent's latest snapshot, in its producer's
   // vocabulary — whichever model that snapshot was probed for.
   const agentLoaded = loaded && loaded.agent === selectedAgent ? loaded : null
-  const rows = useOptionRows(
-    agentLoaded?.agent ?? null,
-    agentLoaded?.snapshot ?? null
-  )
+  const displaySnapshot = agentLoaded
+    ? {
+        ...agentLoaded.snapshot,
+        config_options: mergeModelConfigOptions(
+          agentLoaded.snapshot.config_options,
+          selectedAgent
+            ? getCachedSelectors(selectedAgent)?.configOptions
+            : null
+        ),
+      }
+    : null
+  const rows = useOptionRows(agentLoaded?.agent ?? null, displaySnapshot)
   const forSelection = <T extends { agent: AgentType; model: string | null }>(
     x: T | null
   ): x is T => x !== null && x.agent === selectedAgent && x.model === probeModel

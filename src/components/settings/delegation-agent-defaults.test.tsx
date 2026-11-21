@@ -21,8 +21,14 @@ import type {
 
 const describeAgentOptions = vi.hoisted(() => vi.fn())
 const agents = vi.hoisted(() => ({ list: [] as unknown[] }))
+const cachedSelectors = vi.hoisted(() => ({
+  configOptions: null as AgentOptionsSnapshot["config_options"] | null,
+}))
 
 vi.mock("@/lib/api", () => ({ describeAgentOptions }))
+vi.mock("@/contexts/acp-connections-context", () => ({
+  getCachedSelectors: () => cachedSelectors,
+}))
 vi.mock("@/hooks/use-acp-agents", () => ({
   useAcpAgents: () => ({ agents: agents.list, fresh: true, refresh: () => {} }),
 }))
@@ -60,6 +66,7 @@ const REGISTRY = [
 
 beforeEach(() => {
   agents.list = REGISTRY
+  cachedSelectors.configOptions = null
 })
 
 /** A probe answer whose effort default is named after `tag`, so the
@@ -380,6 +387,39 @@ describe("DelegationAgentDefaultsPanel probes", () => {
     expect(onChange).toHaveBeenLastCalledWith({
       claude_code: { config_values: { model: `${chanB}/glm-5` } },
     })
+  })
+
+  it("uses the chat model catalog when the probe has an older catalog", async () => {
+    vi.useRealTimers()
+    const probeModel = `old-${unique()}`
+    const chatModels = [
+      `auto/new-a-${unique()}`,
+      `relayrouter/new-b-${unique()}`,
+    ]
+    const chatSnapshot = modelAnswer(chatModels[0], chatModels)
+    cachedSelectors.configOptions = chatSnapshot.config_options
+    describeAgentOptions.mockResolvedValue(
+      modelAnswer(probeModel, [probeModel])
+    )
+
+    const user = userEvent.setup()
+    render(
+      panel({
+        claude_code: { config_values: { model: probeModel } },
+      })
+    )
+
+    const model = await screen.findByRole("combobox", { name: "Model" }, PROBED)
+    await user.click(model)
+    const list = await screen.findByRole("listbox")
+
+    expect(
+      within(list).getByText(chatModels[0].slice("auto/".length))
+    ).toBeInTheDocument()
+    expect(
+      within(list).getByText(chatModels[1].slice("relayrouter/".length))
+    ).toBeInTheDocument()
+    expect(within(list).queryByText(probeModel)).toBeNull()
   })
 
   /** Two providers can both name a row just `glm-5` under `provider/glm-5`

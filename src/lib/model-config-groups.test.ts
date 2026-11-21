@@ -5,6 +5,7 @@ import {
   filterModelGroups,
   flattenModelGroups,
   isModelConfigOption,
+  mergeModelConfigOptions,
   modelListGroups,
   type ModelOptionGroup,
 } from "./model-config-groups"
@@ -66,6 +67,39 @@ describe("isModelConfigOption", () => {
     expect(isModelConfigOption(modelOption([opt("a")], { id: "effort" }))).toBe(
       false
     )
+  })
+})
+
+describe("mergeModelConfigOptions", () => {
+  it("uses the chat model candidates and keeps the edited value", () => {
+    const probe = modelOption([opt("old-model", "Old model")])
+    const chat = modelOption([
+      opt("auto/gpt-6.2-sol", "GPT-6.2 Sol"),
+      opt("relayrouter/gpt-6.2-sol", "GPT-6.2 Sol · relayrouter"),
+    ])
+
+    const merged = mergeModelConfigOptions([probe], [chat])
+
+    expect(merged[0]).toMatchObject({
+      id: "model",
+      kind: {
+        type: "select",
+        current_value: "old-model",
+        options: chat.kind.options,
+      },
+    })
+  })
+
+  it("adds the chat model option when the probe omitted it", () => {
+    const effort = modelOption([opt("high")], {
+      id: "effort",
+      category: "thought_level",
+    })
+    const chat = modelOption([opt("auto/gpt-6.2-sol")])
+
+    const merged = mergeModelConfigOptions([effort], [chat])
+
+    expect(merged.map((option) => option.id)).toEqual(["model", "effort"])
   })
 })
 

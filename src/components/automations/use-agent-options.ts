@@ -1,14 +1,17 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { getCachedSelectors } from "@/contexts/acp-connections-context"
 import { describeAgentOptions } from "@/lib/api"
 import { toErrorMessage } from "@/lib/app-error"
+import { mergeModelConfigOptions } from "@/lib/model-config-groups"
 import type { AgentOptionsSnapshot, AgentType } from "@/lib/types"
 
-// Module-scope probe cache, isolated from the chat selectors (same approach as
-// delegation-agent-defaults). 30s TTL absorbs rapid re-opens without a stale
-// snapshot surviving a real config change. The inflight map dedups concurrent
-// callers so the editor + its config section share a single probe.
+// Module-scope probe cache stays separate from the chat connection state. The
+// model row is aligned with the chat selector cache when that cache is present.
+// 30s TTL absorbs rapid re-opens without a stale snapshot surviving a real
+// config change. The inflight map dedups concurrent callers so the editor + its
+// config section share a single probe.
 const CACHE_TTL_MS = 30_000
 
 interface CachedSnapshot {
@@ -25,6 +28,21 @@ interface CachedSnapshot {
 // separator).
 const snapshotCache = new Map<string, CachedSnapshot>()
 const inflight = new Map<string, Promise<AgentOptionsSnapshot>>()
+
+function withChatModelOptions(
+  agent: AgentType,
+  snapshot: AgentOptionsSnapshot
+): AgentOptionsSnapshot {
+  const chatOptions = getCachedSelectors(agent)?.configOptions
+  if (!chatOptions) return snapshot
+  return {
+    ...snapshot,
+    config_options: mergeModelConfigOptions(
+      snapshot.config_options,
+      chatOptions
+    ),
+  }
+}
 
 function cacheKey(
   agent: AgentType,
@@ -59,9 +77,10 @@ function fetchOptions(
   if (!promise) {
     promise = describeAgentOptions(agent, folderPath, model ? { model } : null)
       .then((snapshot) => {
-        snapshotCache.set(key, { snapshot, ts: Date.now() })
+        const aligned = withChatModelOptions(agent, snapshot)
+        snapshotCache.set(key, { snapshot: aligned, ts: Date.now() })
         inflight.delete(key)
-        return snapshot
+        return aligned
       })
       .catch((err) => {
         inflight.delete(key)
@@ -223,7 +242,11 @@ export function useAgentOptions(
   }, [agentType, folderPath, preferredModel])
 
   return {
-    snapshot: loaded?.snapshot ?? null,
+    // The shared chat cache can update after the probe. Align on render too so
+    // reopening an assistant editor immediately uses the same model candidates.
+    snapshot: loaded
+      ? withChatModelOptions(loaded.agent, loaded.snapshot)
+      : null,
     snapshotAgentType: loaded?.agent ?? null,
     snapshotModel: loaded?.model ?? null,
     current:

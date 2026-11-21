@@ -27,6 +27,38 @@ export function isModelConfigOption(option: SessionConfigOptionInfo): boolean {
   return option.id === MODEL_CONFIG_OPTION_ID || option.category === "model"
 }
 
+/**
+ * Use the chat session's model catalog while keeping the probe's current value.
+ * The current value belongs to the surface being edited, while the candidates
+ * must stay identical to the model picker the user just saw in chat.
+ */
+export function mergeModelConfigOptions(
+  configOptions: SessionConfigOptionInfo[],
+  sourceConfigOptions: readonly SessionConfigOptionInfo[] | null | undefined
+): SessionConfigOptionInfo[] {
+  const source = sourceConfigOptions?.find(isModelConfigOption)
+  if (!source || source.kind.type !== "select") return configOptions
+
+  const targetIndex = configOptions.findIndex(isModelConfigOption)
+  if (targetIndex < 0) return [source, ...configOptions]
+
+  const target = configOptions[targetIndex]
+  const merged =
+    target.kind.type === "select"
+      ? {
+          ...source,
+          kind: {
+            ...source.kind,
+            current_value: target.kind.current_value,
+          },
+        }
+      : source
+
+  return configOptions.map((option, index) =>
+    index === targetIndex ? merged : option
+  )
+}
+
 // The namespace before the FIRST "/", or `null` when there is no usable prefix
 // (no slash, a leading slash, or a trailing slash with an empty suffix). Values
 // like `openrouter/anthropic/claude` group under their first segment.
