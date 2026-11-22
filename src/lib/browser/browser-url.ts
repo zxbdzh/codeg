@@ -132,6 +132,38 @@ export function isLoopbackOrPrivateUrl(url: string): boolean {
   return hostname !== null && isLoopbackOrPrivateHost(hostname)
 }
 
+/**
+ * 将地址栏输入规范化为浏览器只允许加载的 HTTP(S) 地址。
+ * Web 端没有系统浏览器的搜索兜底，避免把普通文本误当成外部请求。
+ */
+export function normalizeTypedAddress(raw: string): string | null {
+  const text = raw.trim()
+  if (!text) return null
+  const hasScheme = /^https?:\/\//i.test(text)
+  if (!hasScheme) {
+    // `localhost:3000/path` 是主机和端口，不应被识别成自定义协议。
+    if (/^[a-z][a-z\d+\-.]*:(?!\d)/i.test(text) || /\s/.test(text)) return null
+    const hostPart = text.split(/[/?#]/)[0]
+    if (
+      !hostPart.includes(".") &&
+      !/^(localhost|\[?[\d:.]+\]?)(:\d+)?$/i.test(hostPart)
+    ) {
+      return null
+    }
+  }
+  try {
+    const url = new URL(hasScheme ? text : `https://${text}`)
+    if (url.username || url.password) return null
+    if (!hasScheme && isLoopbackOrPrivateHost(url.hostname)) {
+      // 先解析主机名，再补协议；重解析以保留显式填写的端口（包括 443）。
+      return new URL(`http://${text}`).href
+    }
+    return url.href
+  } catch {
+    return null
+  }
+}
+
 /** The URL's origin, or null when it is opaque (`about:blank`, `blob:` …). */
 export function originOf(url: string): string | null {
   try {

@@ -25,8 +25,6 @@ import { copyTextToClipboard, randomUUID } from "@/lib/utils"
 import { BrowserDeviceMenu } from "./browser-device-menu"
 import { useBrowserTabCustomSize } from "./browser-device-size"
 import { BrowserDeviceStage } from "./browser-device-stage"
-// The desktop toolbar's own button shape: this row stands in the same place,
-// under the same tab strip.
 import { ICON_BTN } from "./browser-toolbar-buttons"
 import { BrowserWebSurface } from "./browser-web-surface"
 
@@ -42,20 +40,6 @@ type Phase =
   | { kind: "ready"; grant: BridgeGrant; src: string }
   | { kind: "unreachable"; grant: BridgeGrant; origin: string; src: string }
   | { kind: "error"; message: string }
-
-function usesOnlineBrowser(url: string): boolean {
-  return (
-    Boolean(process.env.NEXT_PUBLIC_CODEG_BROWSER_URL) || !isBridgeableUrl(url)
-  )
-}
-
-function messageOf(error: unknown): string {
-  if (error && typeof error === "object" && "message" in error) {
-    const message = (error as { message?: unknown }).message
-    if (typeof message === "string" && message) return message
-  }
-  return String(error)
-}
 
 function normalizeBridgeAddress(raw: string): string | null {
   const text = raw.trim()
@@ -76,6 +60,20 @@ function normalizeBridgeAddress(raw: string): string | null {
   } catch {
     return null
   }
+}
+
+function usesOnlineBrowser(url: string): boolean {
+  return (
+    Boolean(process.env.NEXT_PUBLIC_CODEG_BROWSER_URL) || !isBridgeableUrl(url)
+  )
+}
+
+function messageOf(error: unknown): string {
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === "string" && message) return message
+  }
+  return String(error)
 }
 
 /**
@@ -176,64 +174,63 @@ export function BrowserBridgeView({ tab }: { tab: BrowserWorkspaceTab }) {
     if (!next) return
     setDraft(next)
     setUrl(next)
-    if (next === url) setAttempt((n) => n + 1)
+    if (next === url) setAttempt((value) => value + 1)
   }
 
   return (
     // Marked for the device menu, as the desktop view is.
     <div data-browser-tab-view="" className="flex h-full min-h-0 flex-col">
-      {/* Same shape as the desktop toolbar's row, and for the same reason:
-          a browser tab has no title header above it, so this is the file
-          column's top row (see `file-workspace-header.tsx`). */}
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border/50 px-2 text-xs">
-        <input
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault()
-              submitAddress()
-            }
-          }}
-          onFocus={(event) => event.currentTarget.select()}
-          placeholder={t("addressPlaceholder")}
-          aria-label={t("address")}
-          title={url}
-          autoFocus={isBlankPageUrl(url)}
-          className="min-w-0 flex-1 rounded-sm border border-transparent bg-transparent px-1 text-xs text-foreground outline-none focus:border-border focus:bg-background"
-        />
-        <BrowserDeviceMenu tab={tab} />
-        <button
-          type="button"
-          className={ICON_BTN}
-          onClick={() => setAttempt((n) => n + 1)}
-          title={t("reload")}
-          aria-label={t("reload")}
-        >
-          <RotateCw className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          className={ICON_BTN}
-          disabled={src === null && phase.kind !== "online"}
-          onClick={() => {
-            if (src || phase.kind === "online") openExternalTab(src ?? url)
-          }}
-          title={t("openExternal")}
-          aria-label={t("openExternal")}
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          className={ICON_BTN}
-          onClick={() => void copyAddress()}
-          title={t("copyAddress")}
-          aria-label={t("copyAddress")}
-        >
-          <Copy className="h-3.5 w-3.5" />
-        </button>
-      </div>
+      {phase.kind !== "online" && (
+        <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border/50 px-2 text-xs">
+          <input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault()
+                submitAddress()
+              }
+            }}
+            onFocus={(event) => event.currentTarget.select()}
+            placeholder={t("addressPlaceholder")}
+            aria-label={t("address")}
+            title={url}
+            autoFocus={isBlankPageUrl(url)}
+            className="min-w-0 flex-1 rounded-sm border border-transparent bg-transparent px-1 text-xs text-foreground outline-none focus:border-border focus:bg-background"
+          />
+          <BrowserDeviceMenu tab={tab} />
+          <button
+            type="button"
+            className={ICON_BTN}
+            onClick={() => setAttempt((value) => value + 1)}
+            title={t("reload")}
+            aria-label={t("reload")}
+          >
+            <RotateCw className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            className={ICON_BTN}
+            disabled={src === null}
+            onClick={() => {
+              if (src) openExternalTab(src)
+            }}
+            title={t("openExternal")}
+            aria-label={t("openExternal")}
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            className={ICON_BTN}
+            onClick={() => void copyAddress()}
+            title={t("copyAddress")}
+            aria-label={t("copyAddress")}
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       <div className="relative min-h-0 flex-1">
         {phase.kind === "opening" ? (
           <div
@@ -245,15 +242,7 @@ export function BrowserBridgeView({ tab }: { tab: BrowserWorkspaceTab }) {
           </div>
         ) : null}
         {phase.kind === "online" ? (
-          <BrowserWebSurface
-            tab={tab}
-            url={url}
-            reloadKey={attempt}
-            onNavigate={(next) => {
-              setDraft(next)
-              setUrl(next)
-            }}
-          />
+          <BrowserWebSurface tab={tab} url={url} onNavigate={setUrl} />
         ) : null}
         {phase.kind === "blank" ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">

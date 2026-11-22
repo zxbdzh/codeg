@@ -10,6 +10,8 @@ import { browserAgentSource } from "./web-browser-assets.mjs"
 import { createBrowserAgent } from "./web-browser-agent.mjs"
 import { createTabAudio } from "./web-browser-audio.mjs"
 import { createDevtools } from "./web-browser-devtools.mjs"
+import { CdpConnection } from "./web-browser-cdp.mjs"
+export { CdpConnection } from "./web-browser-cdp.mjs"
 
 const require = createRequire(import.meta.url)
 const { WebSocketServer } = require("next/dist/compiled/ws")
@@ -23,84 +25,6 @@ export function websiteUrl(value) {
   )
     throw new Error("仅支持不带账号密码的 HTTP / HTTPS 地址")
   return parsed.href
-}
-
-export class CdpConnection {
-  constructor(url) {
-    this.endpoint = url
-    this.pending = new Map()
-    this.sequence = 0
-    this.listeners = new Set()
-    this.socket = new WebSocket(url)
-    this.ready = new Promise((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("浏览器启动超时")),
-        10000
-      )
-      this.socket.addEventListener(
-        "open",
-        () => {
-          clearTimeout(timeout)
-          resolve()
-        },
-        { once: true }
-      )
-      this.socket.addEventListener(
-        "error",
-        () => {
-          clearTimeout(timeout)
-          reject(new Error("浏览器连接失败"))
-        },
-        { once: true }
-      )
-    })
-    this.socket.addEventListener("message", ({ data }) => {
-      const message = JSON.parse(data)
-      const pending = this.pending.get(message.id)
-      if (pending) {
-        this.pending.delete(message.id)
-        clearTimeout(pending.timeout)
-        if (message.error)
-          pending.reject(
-            new Error(`${pending.method}: ${message.error.message}`)
-          )
-        else pending.resolve(message.result)
-      } else for (const listener of this.listeners) listener(message)
-    })
-    this.socket.addEventListener("close", () => {
-      for (const pending of this.pending.values()) {
-        clearTimeout(pending.timeout)
-        pending.reject(new Error("浏览器连接已断开"))
-      }
-      this.pending.clear()
-    })
-  }
-
-  async call(method, params = {}, sessionId) {
-    await this.ready
-    return new Promise((resolve, reject) => {
-      const id = ++this.sequence
-      const timeout = setTimeout(() => {
-        this.pending.delete(id)
-        reject(new Error(`${method} 超时`))
-      }, 20000)
-      this.pending.set(id, { resolve, reject, timeout, method })
-      try {
-        this.socket.send(
-          JSON.stringify({
-            id,
-            method,
-            params,
-            ...(sessionId ? { sessionId } : {}),
-          })
-        )
-      } catch (error) {
-        clearTimeout(timeout)
-        this.pending.delete(id)
-        reject(error)
-      }
-    })
-  }
 }
 
 export async function startBrowserService(options = {}) {
@@ -705,6 +629,8 @@ export async function startBrowserService(options = {}) {
             ).call("Target.activateTarget", { targetId: session.targetId })
             if (message.navigate && session.url !== url)
               await pageCall(session, "Page.navigate", { url })
+            // 接管和重连可能复用仍在采集的标签，先停止旧采集再启动，避免永久空白。
+            await pageCall(session, "Page.stopScreencast")
             await pageCall(session, "Page.startScreencast", {
               format: "jpeg",
               quality: 75,
@@ -785,6 +711,10 @@ export async function startBrowserService(options = {}) {
               height,
               deviceScaleFactor: 1,
               mobile: Boolean(message.mobile),
+              // 有窗口的 Chromium 受最小窗口宽度限制，采集区域必须与页面视口同步。
+              screenWidth: width,
+              screenHeight: height,
+              viewport: { x: 0, y: 0, width, height, scale: 1 },
             })
           } else if (message.type === "pointer") {
             if (

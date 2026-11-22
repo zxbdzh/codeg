@@ -205,12 +205,14 @@ export function BrowserEgoImportDialog({
   tabId,
   url,
   targetProfileName,
+  targetReady,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   tabId: string
   url: string
   targetProfileName: string
+  targetReady: boolean
 }) {
   const t = useTranslations("Browser.toolbar")
   const [profiles, setProfiles] = useState<EgoImportProfile[]>([])
@@ -262,7 +264,7 @@ export function BrowserEgoImportDialog({
   const needsSourceChoice = !boundProfile
 
   const importSession = async () => {
-    if (!settings || !sourceProfile || !site || !tabId) return
+    if (!settings || !sourceProfile || !site || !tabId || !targetReady) return
     setImporting(true)
     setOperationFailed(false)
     try {
@@ -408,7 +410,8 @@ export function BrowserEgoImportDialog({
                 !settings ||
                 !sourceProfile ||
                 !site ||
-                !tabId
+                !tabId ||
+                !targetReady
               }
               onClick={() => void importSession()}
             >

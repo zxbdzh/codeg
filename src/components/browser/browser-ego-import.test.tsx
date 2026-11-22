@@ -136,10 +136,33 @@ function tabIn(): BrowserWorkspaceTab {
   } as BrowserWorkspaceTab
 }
 
-function renderToolbar() {
+const loadedTabState: BrowserTabState = {
+  tabId: "abc",
+  ownerWindow: "main",
+  kind: "page",
+  surface: "child",
+  channel: "native",
+  channelError: null,
+  url: "https://example.com/account",
+  requestedUrl: "https://example.com/account",
+  title: "Example",
+  favicon: null,
+  loading: false,
+  canGoBack: false,
+  canGoForward: false,
+  origin: "https://example.com",
+  zoom: 1,
+  error: null,
+  remoteHost: null,
+  openerTabId: null,
+  profile: "default",
+  agentGrant: null,
+}
+
+function renderToolbar(state = loadedTabState) {
   return render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
-      <BrowserToolbar tab={tabIn()} state={null as BrowserTabState | null} />
+      <BrowserToolbar tab={tabIn()} state={state} />
     </NextIntlClientProvider>
   )
 }
@@ -300,6 +323,17 @@ describe("Ego login import UI", () => {
     expect(
       screen.queryByRole("button", { name: /overwrite|replace/i })
     ).not.toBeInTheDocument()
+  })
+
+  it("disables import while the target tab is still loading", async () => {
+    renderToolbar({ ...loadedTabState, loading: true })
+    await openMenu(await screen.findByRole("button", { name: "More" }))
+
+    expect(
+      await screen.findByRole("menuitem", {
+        name: "Import login state from Ego",
+      })
+    ).toHaveAttribute("aria-disabled", "true")
   })
 
   it("hides settings and the import action outside Windows desktop", async () => {

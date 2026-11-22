@@ -83,9 +83,12 @@ function safeName(label: string, fallback: string): string {
 export function BrowserSendToChatControl({
   tab,
   state,
+  capture,
 }: {
   tab: BrowserWorkspaceTab
   state: BrowserTabState | null
+  /** 串流只提供当前画面，不能调用桌面 DOM / 控制台接口。 */
+  capture?: (() => Promise<PageHandoff>) | null
 }) {
   const t = useTranslations("Browser.handoff")
   const backendId = browserTabBackendId(tab.id)
@@ -98,7 +101,8 @@ export function BrowserSendToChatControl({
   // subscribed to anything) cannot leave the entry dead.
   const [errorCount, setErrorCount] = useState<number | null>(null)
   const hasConsoleErrors = errorCount === null ? marked : errorCount > 0
-  const ready = Boolean(backendId) && Boolean(state)
+  const streamed = capture !== undefined
+  const ready = Boolean(backendId) && Boolean(state) && capture !== null
 
   const countErrors = useCallback(
     (open: boolean) => {
@@ -106,12 +110,12 @@ export function BrowserSendToChatControl({
         setErrorCount(null)
         return
       }
-      if (!backendId) return
+      if (!backendId || streamed) return
       void browserPageConsole(backendId, true)
         .then((handoff) => setErrorCount(handoff.count))
         .catch(() => setErrorCount(null))
     },
-    [backendId]
+    [backendId, streamed]
   )
 
   const deliver = useCallback(
@@ -183,11 +187,11 @@ export function BrowserSendToChatControl({
   }, [backendId])
 
   const screenshot = useCallback(() => {
-    if (!backendId || !conversationTabId) return
-    void browserPageCapture(backendId)
+    if (!backendId || !conversationTabId || capture === null) return
+    void (capture ? capture() : browserPageCapture(backendId))
       .then((handoff) => deliver(handoff, t("chipScreenshot"), "screenshot"))
       .catch(failed)
-  }, [backendId, conversationTabId, deliver, failed, t])
+  }, [backendId, capture, conversationTabId, deliver, failed, t])
 
   // The picture is taken first and marked up after, so what the person draws
   // on is the page as it was when they asked for it — the dialog covers the
@@ -195,9 +199,9 @@ export function BrowserSendToChatControl({
   // meant. The dialog itself lives in the workspace, not in this toolbar (see
   // `BrowserScreenshotMarkupHost`).
   const markUp = useCallback(() => {
-    if (!backendId || !conversationTabId) return
+    if (!backendId || !conversationTabId || capture === null) return
     const target = conversationTabId
-    void browserPageCapture(backendId)
+    void (capture ? capture() : browserPageCapture(backendId))
       .then((handoff) => {
         // Nothing to draw on — send what there is, as the plain entry would.
         if (!handoff.image) {
@@ -212,7 +216,7 @@ export function BrowserSendToChatControl({
         })
       })
       .catch(failed)
-  }, [backendId, conversationTabId, deliver, failed, t])
+  }, [backendId, capture, conversationTabId, deliver, failed, t])
 
   const sendConsole = useCallback(() => {
     if (!backendId || !conversationTabId) return
@@ -266,7 +270,7 @@ export function BrowserSendToChatControl({
           {/* Something on this page threw. Shown without a number: within one
               document the answer only goes from no to yes, and the count is
               read from the tab when the menu opens. */}
-          {marked ? (
+          {!streamed && marked ? (
             <span
               aria-hidden
               // Inset by the same half step the button is round by: at `end-0`
@@ -281,10 +285,12 @@ export function BrowserSendToChatControl({
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
           {t("send")}
         </DropdownMenuLabel>
-        <DropdownMenuItem onSelect={pick}>
-          <SquareDashedMousePointer className="h-3.5 w-3.5" />
-          <span>{t("pickElement")}</span>
-        </DropdownMenuItem>
+        {!streamed && (
+          <DropdownMenuItem onSelect={pick}>
+            <SquareDashedMousePointer className="h-3.5 w-3.5" />
+            <span>{t("pickElement")}</span>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onSelect={screenshot}>
           <Camera className="h-3.5 w-3.5" />
           <span>{t("screenshot")}</span>
@@ -293,16 +299,18 @@ export function BrowserSendToChatControl({
           <PencilLine className="h-3.5 w-3.5" />
           <span>{t("markUp")}</span>
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={sendConsole} disabled={!hasConsoleErrors}>
-          <Bug className="h-3.5 w-3.5" />
-          <span>
-            {hasConsoleErrors
-              ? errorCount
-                ? t("consoleErrorsCount", { count: errorCount })
-                : t("consoleErrors")
-              : t("consoleClean")}
-          </span>
-        </DropdownMenuItem>
+        {!streamed && (
+          <DropdownMenuItem onSelect={sendConsole} disabled={!hasConsoleErrors}>
+            <Bug className="h-3.5 w-3.5" />
+            <span>
+              {hasConsoleErrors
+                ? errorCount
+                  ? t("consoleErrorsCount", { count: errorCount })
+                  : t("consoleErrors")
+                : t("consoleClean")}
+            </span>
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

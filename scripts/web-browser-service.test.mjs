@@ -250,6 +250,16 @@ test(
       assert.ok(initial.url.startsWith(fixtureOrigin))
       const frame = await wait((message) => message.type === "frame")
       assert.ok(Buffer.from(frame.data, "base64").length > 3000)
+      // 同一标签重连不能重复启动已有采集，否则手机切回标签后会一直空白。
+      messages.length = 0
+      send({
+        type: "open",
+        tabId: "browser:integration",
+        url: fixtureOrigin,
+        navigate: true,
+      })
+      await wait((message) => message.type === "frame")
+      await wait((message) => message.type === "state")
       const unshared = await mcp("browser_snapshot", {
         tabId: "browser:integration",
       })
@@ -415,6 +425,32 @@ test(
           inspectorMessages.find((item) => item.id === id)?.error,
           `Inspector must refuse browser-wide or unrelated-site command ${id}`
         )
+      send({ type: "resize", width: 391, height: 728, mobile: true })
+      inspectorSocket.send(
+        JSON.stringify({
+          id: 106,
+          method: "Runtime.evaluate",
+          params: {
+            expression:
+              "new Promise(resolve => { const timer = setInterval(() => { if (screen.width === 391) { clearInterval(timer); resolve(true) } }, 20); setTimeout(() => { clearInterval(timer); resolve(false) }, 3000) })",
+            returnByValue: true,
+            awaitPromise: true,
+          },
+        })
+      )
+      const mobileDeadline = Date.now() + 5000
+      while (
+        !inspectorMessages.some((item) => item.id === 106) &&
+        Date.now() < mobileDeadline
+      )
+        await new Promise((resolve) => setTimeout(resolve, 30))
+      const mobileScreenshot = await mcp("browser_screenshot", {
+        tabId: "browser:integration",
+      })
+      const mobilePng = Buffer.from(mobileScreenshot.content[0].data, "base64")
+      assert.equal(mobilePng.readUInt32BE(16), 391)
+      assert.equal(mobilePng.readUInt32BE(20), 728)
+      send({ type: "resize", width: 1280, height: 800, mobile: false })
       inspectorSocket.close()
       const cleared = await mcp("browser_type", {
         tabId: "browser:integration",

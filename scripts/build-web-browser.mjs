@@ -61,8 +61,21 @@ await build({
             "src-tauri/src/browser/js/agent.bundle.js",
             "utf8"
           )
+          const videoFiles = Object.fromEntries(
+            await Promise.all(
+              [
+                "manifest.json",
+                "worker.js",
+                "offscreen.html",
+                "offscreen.js",
+              ].map(async (name) => [
+                name,
+                await readFile(`scripts/web-browser-video/${name}`, "utf8"),
+              ])
+            )
+          )
           return {
-            contents: `export const audioExtensionFiles=${JSON.stringify(files)}; export const browserAgentSource=${JSON.stringify(source)};`,
+            contents: `export const audioExtensionFiles=${JSON.stringify(files)}; export const browserAgentSource=${JSON.stringify(source)}; export const videoExtensionFiles=${JSON.stringify(videoFiles)};`,
             loader: "js",
           }
         })

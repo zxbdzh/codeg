@@ -147,6 +147,97 @@ test("stream refuses a non-loopback upstream", async () => {
   )
 })
 
+test("an unavailable video capture keeps authenticated JPEG fallback working", async () => {
+  let requestInfo
+  const resizes = []
+  const server = createServer((request, response) => {
+    requestInfo = {
+      method: request.method,
+      path: request.url,
+      origin: request.headers.origin,
+      bearer: request.headers.authorization,
+    }
+    response.writeHead(403).end()
+  })
+  const backend = new WebSocketServer({ server })
+  const opened = new Promise((resolve) => {
+    backend.on("connection", (socket) => {
+      socket.on("message", (raw) => {
+        const message = JSON.parse(String(raw))
+        if (message.type === "resize") resizes.push(message)
+        if (message.type !== "open") return
+        resolve(message)
+        socket.send(JSON.stringify({ type: "state" }))
+        socket.send(
+          JSON.stringify({
+            type: "frame",
+            data: Buffer.from([255, 216, 255]).toString("base64"),
+            id: 7,
+          })
+        )
+      })
+    })
+  })
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const stream = await startBrowserStream({
+    port: 0,
+    upstream: `http://127.0.0.1:${server.address().port}`,
+    videoProfile: "unused",
+  })
+  const origin = "https://codeg.odn.cc"
+  const encoded = Buffer.from("unit-test").toString("base64url")
+  const client = new WebSocket(
+    `ws://127.0.0.1:${stream.server.address().port}/socket`,
+    ["codeg-browser", `codeg-token.${encoded}`],
+    { origin }
+  )
+  try {
+    await new Promise((resolve, reject) => {
+      client.once("open", resolve)
+      client.once("error", reject)
+    })
+    const jpeg = new Promise((resolve) =>
+      client.on("message", (raw, binary) => {
+        if (binary) resolve(raw.subarray(4))
+      })
+    )
+    client.send(
+      JSON.stringify({
+        type: "open",
+        tabId: "fallback-test",
+        flowControl: true,
+        frameProtocol: "jpeg-v2",
+        videoProtocol: "vp8-v1",
+      })
+    )
+    assert.equal((await opened).flowControl, true)
+    const viewport = { type: "resize", width: 391, height: 728, mobile: true }
+    client.send(JSON.stringify(viewport))
+    assert.deepEqual(await jpeg, Buffer.from([255, 216, 255]))
+    for (let attempt = 0; attempt < 30 && !requestInfo; attempt++)
+      await pause(10)
+    assert.deepEqual(requestInfo, {
+      method: "POST",
+      path: "/devtools-entry?tab=fallback-test",
+      origin,
+      bearer: "Bearer unit-test",
+    })
+    for (let attempt = 0; attempt < 30 && resizes.length < 2; attempt++)
+      await pause(10)
+    assert.deepEqual(
+      resizes,
+      [viewport, viewport],
+      "Capture completion must restore the page viewport after window sizing"
+    )
+  } finally {
+    client.terminate()
+    stream.stop()
+    for (const socket of backend.clients) socket.terminate()
+    backend.close()
+    await new Promise((resolve) => server.close(resolve))
+  }
+})
+
 test(
   "stopping the stream closes pending WebSocket upgrades",
   { timeout: 5000 },

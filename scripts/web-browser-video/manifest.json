@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Codeg Web Tab Video",
+  "version": "1.0.0",
+  "permissions": ["tabCapture", "offscreen", "tabs", "debugger"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": { "service_worker": "worker.js" },
+  "action": { "default_title": "Stream this Codeg tab" },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
