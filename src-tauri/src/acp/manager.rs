@@ -2992,6 +2992,69 @@ impl ConnectionManager {
         }
     }
 
+    /// Disconnect `conn_id` and wait until its child process is provably
+    /// reaped.
+    ///
+    /// The ACP↔native switch calls this before handing a session to its native
+    /// CLI: two processes resuming the same transcript would corrupt it. A turn
+    /// in flight (or an open goal / pending interaction) is refused instead of
+    /// interrupted. Release is observed through the connection's pid cell,
+    /// which `on_exit` zeroes only after a real reap — a timeout therefore
+    /// means the caller must NOT start the native CLI.
+    pub async fn disconnect_and_wait(
+        &self,
+        conn_id: &str,
+        timeout: Duration,
+    ) -> Result<(), AcpError> {
+        let (state, prompt_lock, child_pid) = {
+            let connections = self.connections.lock().await;
+            let connection = connections
+                .get(conn_id)
+                .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
+            (
+                connection.state.clone(),
+                connection.prompt_lock.clone(),
+                connection.child_pid.clone(),
+            )
+        };
+
+        {
+            // The same admission gate `send_prompt` uses, held across the
+            // check and the teardown, so no prompt can slip in between.
+            let _prompt = prompt_lock.lock_owned().await;
+            let s = state.read().await;
+            if s.turn_in_flight
+                || s.status == ConnectionStatus::Prompting
+                || s.goal_active
+                || s.pending_permission.is_some()
+                || s.pending_question.is_some()
+            {
+                return Err(AcpError::TurnInProgress);
+            }
+            drop(s);
+            self.disconnect(conn_id).await?;
+        }
+
+        if child_pid.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            return Ok(());
+        }
+        let released = tokio::task::spawn_blocking(move || wait_for_reap(&child_pid, timeout))
+            .await
+            .map_err(|e| {
+                AcpError::Protocol(format!(
+                    "acp connection {conn_id} release wait did not finish: {e}"
+                ))
+            })?;
+        if released {
+            Ok(())
+        } else {
+            Err(AcpError::Protocol(format!(
+                "acp connection {conn_id} did not release its child process within {}s",
+                timeout.as_secs_f64()
+            )))
+        }
+    }
+
     /// Remember a connection's child until it is provably finished. Call while
     /// holding the connections lock, immediately after removing the entry.
     async fn park_draining(&self, conn: &AgentConnection) {

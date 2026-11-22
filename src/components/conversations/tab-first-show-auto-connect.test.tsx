@@ -307,6 +307,9 @@ describe("TabViewGate mirrors ConversationTabView", () => {
       /const awaitingHistoricalSessionId =\s+hasPersistedConversation && selectedAgent !== "cline" && detailLoading/
     )
     expect(panel).toContain("!awaitingHistoricalSessionId &&")
-    expect(panel).toContain("isActive: isActive && canAutoConnect,")
+    // 原生终端期间不自动重连，否则会与终端争抢同一个会话。
+    expect(panel).toContain(
+      "isActive: isActive && canAutoConnect && nativeTerminal == null,"
+    )
   })
 })

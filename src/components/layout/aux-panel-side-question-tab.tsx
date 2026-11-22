@@ -9,672 +9,401 @@ import {
   useSyncExternalStore,
 } from "react"
 import {
-  Check,
-  Copy,
   Loader2,
   MessageCircleQuestionMark,
-  FileText,
-  RotateCcw,
-  Send,
-  Square,
+  Plus,
+  SquareTerminal,
   X,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
-import {
-  Message,
-  MessageContent,
-  MessageResponse,
-} from "@/components/ai-elements/message"
-import {
-  ComposerSurface,
-  ComposerToolbar,
-} from "@/components/chat/composer/composer-surface"
-import {
-  RichComposer,
-  type RichComposerHandle,
-} from "@/components/chat/composer/rich-composer"
-import { ComposerImageThumbnails } from "@/components/chat/composer/composer-image-thumbnails"
-import { composerEditableMinHeight } from "@/components/chat/composer/composer-sizing"
-import { useComposerChromeFocus } from "@/components/chat/composer/use-composer-chrome-focus"
+import { NativeAttachedTerminal } from "@/components/conversations/native-session-views"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import {
-  useOptionalConnectionStore,
-  type ConnectionState,
-} from "@/contexts/acp-connections-context"
+import { useOptionalConnectionStore } from "@/contexts/acp-connections-context"
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { useTabStore } from "@/contexts/tab-context"
-import { useNativeSideQuestion } from "@/hooks/use-native-side-question"
-import { filesFromClipboard } from "@/lib/clipboard-images"
+import { toErrorMessage } from "@/lib/app-error"
 import {
-  SIDE_ATTACHMENT_MAX_TEXT_CHARS,
-  readSideQuestionAttachment,
-  validateSideAttachmentBatch,
-  type SideAttachmentError,
-  type SideQuestionDraftAttachment,
-} from "@/lib/side-question-attachments"
-import { copyTextToClipboard } from "@/lib/utils"
-import {
-  SIDE_QUESTION_MAX_QUESTION_CHARS,
-  supportsNativeSideQuestion,
-  unicodeLength,
-} from "@/lib/side-question"
-import {
-  EMPTY_SIDE_QUESTION,
-  sideQuestionSourceKey,
-  useSideQuestionStore,
-} from "@/stores/side-question-store"
+  closeNativeSideQuestion,
+  createNativeSideQuestion,
+  listNativeSideQuestions,
+  openNativeSideQuestion,
+  supportsNativeTerminal,
+  type NativeSessionSource,
+  type NativeSideQuestion,
+} from "@/lib/native-session"
+import { getTransport } from "@/lib/transport"
+import { randomUUID } from "@/lib/utils"
 
-function canFollowConnection(
-  connection: ConnectionState | undefined,
-  agentType: string
-): connection is ConnectionState {
-  return Boolean(
-    supportsNativeSideQuestion(agentType) &&
-    connection?.agentType === agentType &&
-    connection.connectionId &&
-    (connection.status === "connected" || connection.status === "prompting") &&
-    connection.selectorsReady &&
-    !connection.configStale &&
-    connection.configOptions?.some(
-      (option) =>
-        (option.id === "model" || option.category === "model") &&
-        option.kind.type === "select" &&
-        option.kind.current_value.trim().length > 0
-    )
-  )
-}
-
-function AttachmentList({
-  attachments,
-  onRemove,
-  removeLabel,
-}: {
-  attachments: readonly SideQuestionDraftAttachment[]
-  onRemove?: (id: string) => void
-  removeLabel: string
-}) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      <ComposerImageThumbnails
-        attachments={attachments.flatMap((attachment) =>
-          attachment.type === "image" ? [{ ...attachment, uri: null }] : []
-        )}
-        onRemove={onRemove}
-      />
-      {attachments
-        .filter((attachment) => attachment.type === "text")
-        .map((attachment) => (
-          <div
-            key={attachment.id}
-            className="relative flex min-w-0 max-w-full items-center gap-2 rounded-md border border-border bg-muted/20 p-1.5"
-          >
-            <FileText
-              className="size-4 shrink-0 text-muted-foreground"
-              aria-hidden
-            />
-            <span
-              className="max-w-32 truncate text-[11px]"
-              title={attachment.name}
-            >
-              {attachment.name}
-            </span>
-            {onRemove && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="size-6 shrink-0 rounded"
-                aria-label={`${removeLabel}: ${attachment.name}`}
-                onClick={() => onRemove(attachment.id)}
-              >
-                <X className="size-3.5" aria-hidden />
-              </Button>
-            )}
-          </div>
-        ))}
-    </div>
-  )
-}
-
+/**
+ * 原生旁问：每个旁问由后端维护独立分支与 PTY，前端只负责列表、切换与挂载。
+ * 关闭只断开 PTY，历史项保留；重新打开会重新 attach 到该旁问自己的终端。
+ */
 export function SideQuestionTab() {
   const t = useTranslations("Folder.sideQuestion")
-  const [copiedAnswer, setCopiedAnswer] = useState<string | null>(null)
-  const [readingAttachments, setReadingAttachments] = useState(false)
-  const [draggingFiles, setDraggingFiles] = useState(false)
-  const intake = useRef<object | null>(null)
-  const editorRef = useRef<RichComposerHandle>(null)
-  const chromeFocus = useComposerChromeFocus(editorRef)
   const { isOpen, activeTab } = useAuxPanelContext()
   const active = isOpen && activeTab === "side_question"
   const tabs = useTabStore((state) => state.tabs)
   const activeTabId = useTabStore((state) => state.activeTabId)
-  const source = useMemo(
+  const sourceTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? null,
     [tabs, activeTabId]
   )
-  const native = useNativeSideQuestion(source)
-  const sourceTabId = source?.id ?? null
+
   const connectionStore = useOptionalConnectionStore()
   const subscribeConnection = useCallback(
     (listener: () => void) =>
-      sourceTabId && connectionStore
-        ? connectionStore.subscribeKey(sourceTabId, listener)
+      sourceTab && connectionStore
+        ? connectionStore.subscribeKey(sourceTab.id, listener)
         : () => {},
-    [connectionStore, sourceTabId]
+    [connectionStore, sourceTab]
   )
   const getConnection = useCallback(
     () =>
-      sourceTabId ? connectionStore?.getConnection(sourceTabId) : undefined,
-    [connectionStore, sourceTabId]
+      sourceTab ? connectionStore?.getConnection(sourceTab.id) : undefined,
+    [connectionStore, sourceTab]
   )
   const connection = useSyncExternalStore(
     subscribeConnection,
     getConnection,
     () => undefined
   )
+
+  const sourceConnectionId = connection?.connectionId ?? null
+  const sourceTabId = sourceTab?.id ?? null
+  const sourceTabAgentType = sourceTab?.agentType
+  const sourceTabConversationId = sourceTab?.conversationId ?? null
+  const source = useMemo<NativeSessionSource | null>(() => {
+    if (!sourceTabId || !sourceTabAgentType) return null
+    if (!supportsNativeTerminal(sourceTabAgentType)) return null
+    if (!sourceConnectionId && sourceTabConversationId == null) return null
+    return {
+      sourceConnectionId: sourceConnectionId ?? "",
+      sourceConversationId: sourceTabConversationId,
+      sourceAgentType: sourceTabAgentType,
+    }
+  }, [
+    sourceConnectionId,
+    sourceTabAgentType,
+    sourceTabConversationId,
+    sourceTabId,
+  ])
   const sourceKey = source
-    ? sideQuestionSourceKey({ ...source, sessionId: connection?.sessionId })
+    ? `${source.sourceConnectionId}:${source.sourceConversationId ?? "draft"}:${source.sourceAgentType}`
     : null
-  const connectionReady = Boolean(
-    native.supported &&
-    source &&
-    canFollowConnection(connection, source.agentType)
-  )
-  const modelOption = connectionReady
-    ? connection?.configOptions?.find(
-        (option) => option.id === "model" || option.category === "model"
-      )
-    : undefined
-  const modelKind = modelOption?.kind
-  const modelName =
-    modelKind?.type === "select"
-      ? ([
-          ...modelKind.options,
-          ...modelKind.groups.flatMap((group) => group.options),
-        ].find((option) => option.value === modelKind.current_value)?.name ??
-        modelKind.current_value)
-      : null
-  const unavailable = !source
-    ? null
-    : !supportsNativeSideQuestion(source.agentType)
+  const unavailable = !sourceTab
+    ? t("noActiveSession")
+    : !supportsNativeTerminal(sourceTab.agentType)
       ? t("unsupported")
-      : connection?.agentType !== source.agentType ||
-          !connection.connectionId ||
-          (connection.status !== "connected" &&
-            connection.status !== "prompting")
+      : !connection?.connectionId
         ? t("connectionRequired")
-        : !connectionReady
-          ? t("modelPending")
-          : null
-  const entry = useSideQuestionStore((state) =>
-    sourceKey
-      ? (state.bySource[sourceKey] ?? EMPTY_SIDE_QUESTION)
-      : EMPTY_SIDE_QUESTION
+        : null
+
+  return (
+    <SideQuestionSession
+      key={sourceKey ?? "unavailable"}
+      active={active}
+      source={source}
+      sourceKey={sourceKey}
+      unavailable={unavailable}
+      workingDir={sourceTab?.workingDir ?? ""}
+    />
   )
-  const loading = entry.status === "loading"
-  const syncEditor = useCallback(() => {
-    if (editorRef.current && editorRef.current.getText() !== entry.question)
-      editorRef.current.setText(entry.question)
-  }, [entry.question])
-  useEffect(syncEditor, [syncEditor, sourceKey])
-  const questionLength = unicodeLength(entry.question.trim())
-  const tooLong = questionLength > SIDE_QUESTION_MAX_QUESTION_CHARS
-  const canAsk =
-    active &&
-    connectionReady &&
-    sourceKey !== null &&
-    (questionLength > 0 || entry.attachments.length > 0) &&
-    !tooLong &&
-    !loading &&
-    !readingAttachments
+}
 
-  // 隐藏、切页和卸载只影响展示；请求由 Store 持有，显式停止、重置话题或切换后端才取消。
+function SideQuestionSession({
+  active,
+  source,
+  sourceKey,
+  unavailable,
+  workingDir,
+}: {
+  active: boolean
+  source: NativeSessionSource | null
+  sourceKey: string | null
+  unavailable: string | null
+  workingDir: string
+}) {
+  const t = useTranslations("Folder.sideQuestion")
 
+  const [items, setItems] = useState<NativeSideQuestion[]>([])
+  const [terminalIds, setTerminalIds] = useState<Record<string, string>>({})
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [restoring, setRestoring] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [openingId, setOpeningId] = useState<string | null>(null)
+  const pendingCreation = useRef<{ requestId: string; title: string } | null>(
+    null
+  )
+
+  // 面板打开或切回源会话时重新拉取：未关闭的旁问重新 attach 到原 PTY，
+  // 已关闭的只作为历史列出。
   useEffect(() => {
-    setCopiedAnswer(null)
-  }, [sourceKey, entry.result])
-
-  useEffect(() => {
-    setReadingAttachments(false)
-    setDraggingFiles(false)
+    if (!active || !source || !sourceKey) return
+    let cancelled = false
+    const transport = getTransport()
+    void (async () => {
+      // 放在异步回调里重置，避免 effect 同步 setState 引发的级联渲染。
+      setRestoring(true)
+      setItems([])
+      setTerminalIds({})
+      setSelectedId(null)
+      try {
+        const list = await listNativeSideQuestions(transport, source)
+        if (cancelled) return
+        setItems(list)
+        const opened = await Promise.all(
+          list
+            .filter((item) => item.isOpen)
+            .map(async (item) => {
+              try {
+                const handle = await openNativeSideQuestion(transport, item.id)
+                return [item.id, handle.terminalId] as const
+              } catch (error) {
+                console.error("[SideQuestionTab] restore terminal:", error)
+                return null
+              }
+            })
+        )
+        if (cancelled) return
+        const restored: Record<string, string> = {}
+        for (const pair of opened) {
+          if (pair) restored[pair[0]] = pair[1]
+        }
+        setTerminalIds(restored)
+        setSelectedId(Object.keys(restored)[0] ?? null)
+      } catch (error) {
+        console.error("[SideQuestionTab] list side questions:", error)
+        if (!cancelled)
+          toast.error(t("listFailed"), { description: toErrorMessage(error) })
+      } finally {
+        if (!cancelled) setRestoring(false)
+      }
+    })()
     return () => {
-      intake.current = null
+      cancelled = true
     }
-  }, [sourceKey, active])
+  }, [active, source, sourceKey, t])
 
-  const addFiles = async (files: File[]) => {
-    if (!active || !sourceKey || !files.length || loading || intake.current)
-      return
-    const targetKey = sourceKey
-    const current =
-      useSideQuestionStore.getState().bySource[targetKey]?.attachments ?? []
-    const limitError = validateSideAttachmentBatch(current, files)
-    if (limitError) {
-      toast.error(t(limitError))
-      return
+  const createSide = useCallback(async () => {
+    if (!source?.sourceConnectionId || creating) return
+    setCreating(true)
+    const request = pendingCreation.current ?? {
+      requestId: randomUUID(),
+      title: `${t("title")} ${items.length + 1}`,
     }
-    const job = {}
-    intake.current = job
-    setReadingAttachments(true)
+    pendingCreation.current = request
     try {
-      const attachments = await Promise.all(
-        files.map(readSideQuestionAttachment)
+      const { sideQuestion, terminalId } = await createNativeSideQuestion(
+        getTransport(),
+        source,
+        request
       )
-      // 读取文件时可能切会话或清空；旧读取不能重新填回已撤销的附件。
-      if (intake.current !== job) return
-      if (!native.images && attachments.some((item) => item.type === "image")) {
-        toast.error(t("imagesUnsupported"))
+      pendingCreation.current = null
+      setItems((prev) => [
+        sideQuestion,
+        ...prev.filter((item) => item.id !== sideQuestion.id),
+      ])
+      setTerminalIds((prev) => ({ ...prev, [sideQuestion.id]: terminalId }))
+      setSelectedId(sideQuestion.id)
+    } catch (error) {
+      console.error("[SideQuestionTab] create side question:", error)
+      toast.error(t("createFailed"), { description: toErrorMessage(error) })
+    } finally {
+      setCreating(false)
+    }
+  }, [creating, items.length, source, t])
+
+  const selectSide = useCallback(
+    async (item: NativeSideQuestion) => {
+      if (terminalIds[item.id]) {
+        setSelectedId(item.id)
         return
       }
-      const latest =
-        useSideQuestionStore.getState().bySource[targetKey]?.attachments ?? []
-      const conflict = validateSideAttachmentBatch(
-        latest,
-        attachments.map((item) => ({ size: item.bytes }))
-      )
-      const textChars = [...latest, ...attachments].reduce(
-        (sum, item) =>
-          sum + (item.type === "text" ? unicodeLength(item.text) : 0),
-        0
-      )
-      if (conflict || textChars > SIDE_ATTACHMENT_MAX_TEXT_CHARS)
-        throw new Error(conflict ?? "attachmentTooLarge")
-      useSideQuestionStore.getState().addAttachments(targetKey, attachments)
-    } catch (error) {
-      if (intake.current !== job) return
-      const key =
-        error instanceof Error &&
-        [
-          "unsupportedFile",
-          "attachmentTooLarge",
-          "tooManyAttachments",
-        ].includes(error.message)
-          ? (error.message as SideAttachmentError)
-          : "attachmentReadFailed"
-      toast.error(t(key))
-    } finally {
-      if (intake.current === job) {
-        intake.current = null
-        setReadingAttachments(false)
+      if (openingId) return
+      setOpeningId(item.id)
+      try {
+        const { terminalId } = await openNativeSideQuestion(
+          getTransport(),
+          item.id
+        )
+        setTerminalIds((prev) => ({ ...prev, [item.id]: terminalId }))
+        // 关闭过的历史再次打开后恢复为打开状态。
+        setItems((prev) =>
+          prev.map((entry) =>
+            entry.id === item.id ? { ...entry, isOpen: true } : entry
+          )
+        )
+        setSelectedId(item.id)
+      } catch (error) {
+        console.error("[SideQuestionTab] open side question:", error)
+        toast.error(t("openFailed"), { description: toErrorMessage(error) })
+      } finally {
+        setOpeningId(null)
       }
-    }
-  }
+    },
+    [openingId, terminalIds, t]
+  )
 
-  const ask = () => {
-    if (!canAsk || !sourceKey || !connectionStore || intake.current) return
-    const tabState = useTabStore.getState()
-    const currentSource = tabState.tabs.find(
-      (tab) => tab.id === tabState.activeTabId
-    )
-    // 点击与渲染之间可能换标签、代理或重连，不能沿用旧闭包里的连接身份。
-    if (!currentSource) return
-    const currentConnection = connectionStore.getConnection(currentSource.id)
-    if (
-      sideQuestionSourceKey({
-        ...currentSource,
-        sessionId: currentConnection?.sessionId,
-      }) !== sourceKey
-    )
-      return
-    if (!canFollowConnection(currentConnection, currentSource.agentType)) return
-    // 原生代理自行继承会话历史；前端不再截取正文来冒充主线上下文。
-    void useSideQuestionStore.getState().ask(sourceKey, [], {
-      sourceConnectionId: currentConnection.connectionId,
-      sourceConversationId: currentSource.conversationId,
-      sourceAgentType: currentSource.agentType,
-    })
-  }
+  const closeSide = useCallback(
+    async (id: string) => {
+      try {
+        await closeNativeSideQuestion(getTransport(), id)
+      } catch (error) {
+        console.error("[SideQuestionTab] close side question:", error)
+        toast.error(t("closeFailed"), { description: toErrorMessage(error) })
+        return
+      }
+      setSelectedId((prev) => (prev === id ? null : prev))
+      setTerminalIds((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      setItems((prev) =>
+        prev.map((entry) =>
+          entry.id === id ? { ...entry, isOpen: false } : entry
+        )
+      )
+    },
+    [t]
+  )
+
+  const selected = items.find((item) => item.id === selectedId) ?? null
+  const selectedTerminalId = selected ? terminalIds[selected.id] : undefined
+  const selectedWorkingDir = selected?.cwd ?? workingDir
 
   return (
     <section
-      className="flex h-full min-h-0 min-w-0 flex-col text-[13px] select-text"
+      className="flex h-full min-h-0 min-w-0 flex-col text-[13px]"
       aria-label={t("title")}
-      onDragOver={(event) => {
-        if (
-          !active ||
-          !source ||
-          !Array.from(event.dataTransfer.types).includes("Files")
-        )
-          return
-        event.preventDefault()
-        event.stopPropagation()
-        setDraggingFiles(true)
-      }}
-      onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
-          setDraggingFiles(false)
-      }}
-      onDrop={(event) => {
-        if (!Array.from(event.dataTransfer.types).includes("Files")) return
-        event.preventDefault()
-        event.stopPropagation()
-        setDraggingFiles(false)
-        void addFiles(Array.from(event.dataTransfer.files))
-      }}
     >
       <div className="shrink-0 border-b border-border">
         <div className="flex h-10 items-center justify-between gap-2 px-3">
-          <span className="flex items-center gap-2 font-medium">
+          <span className="flex min-w-0 items-center gap-2 font-medium">
             <MessageCircleQuestionMark
-              className="size-4 text-muted-foreground"
+              className="size-4 shrink-0 text-muted-foreground"
               strokeWidth={1.5}
               aria-hidden="true"
             />
-            {t("title")}
+            <span className="truncate">{t("title")}</span>
           </span>
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="size-7 rounded-md text-muted-foreground"
-            aria-label={t("clear")}
-            title={t("clear")}
-            disabled={
-              !sourceKey ||
-              (!entry.question &&
-                entry.turns.length === 0 &&
-                entry.attachments.length === 0 &&
-                !entry.selection &&
-                !entry.result &&
-                !entry.error &&
-                !readingAttachments &&
-                !loading)
-            }
-            onClick={() => {
-              intake.current = null
-              setReadingAttachments(false)
-              if (sourceKey) useSideQuestionStore.getState().clear(sourceKey)
-              setCopiedAnswer(null)
-            }}
+            className="size-7 shrink-0 rounded-md text-muted-foreground"
+            aria-label={t("newSideQuestion")}
+            title={t("newSideQuestion")}
+            disabled={!source?.sourceConnectionId || creating || restoring}
+            onClick={() => void createSide()}
           >
-            <RotateCcw
-              className="size-4"
-              strokeWidth={1.5}
-              aria-hidden="true"
-            />
+            {creating ? (
+              <Loader2
+                className="size-4 animate-spin motion-reduce:animate-none"
+                aria-hidden
+              />
+            ) : (
+              <Plus className="size-4" aria-hidden />
+            )}
           </Button>
         </div>
-        <div className="space-y-1.5 px-3 pb-3 text-[11px] text-muted-foreground">
-          <p className="truncate" title={modelName ?? undefined}>
-            {modelName
-              ? t("followingModel", { model: modelName })
-              : t("followCurrent")}
+        {unavailable && (
+          <p
+            role="status"
+            className="px-3 pb-3 text-[11px] leading-relaxed text-foreground/70"
+          >
+            {unavailable}
           </p>
-          {source && (
-            <p className="truncate" title={source.title}>
-              {t("source")}: {source.title}
-            </p>
-          )}
-          {unavailable && (
-            <p role="status" className="leading-relaxed text-foreground/70">
-              {unavailable}
-            </p>
-          )}
-        </div>
+        )}
       </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-4 p-3">
-          {!source ? (
-            <p className="text-muted-foreground">{t("noActiveSession")}</p>
-          ) : (
-            <>
-              {entry.selection && (
-                <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2">
-                  <div className="flex items-start gap-1">
-                    <details className="min-w-0 flex-1">
-                      <summary className="cursor-pointer text-[11px] text-muted-foreground">
-                        {t("selectionStats", {
-                          chars: unicodeLength(entry.selection),
-                        })}
-                      </summary>
-                      <p className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs">
-                        {entry.selection}
-                      </p>
-                    </details>
-                    <Button
+
+      <div className="max-h-44 shrink-0 overflow-hidden border-b border-border">
+        <ScrollArea className="h-full">
+          <ul className="space-y-1 p-2" aria-label={t("title")}>
+            {restoring && items.length === 0 ? (
+              <li
+                role="status"
+                className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-muted-foreground"
+              >
+                <Loader2
+                  className="size-3.5 animate-spin motion-reduce:animate-none"
+                  aria-hidden
+                />
+                {t("loadingSides")}
+              </li>
+            ) : items.length === 0 ? (
+              <li className="px-2 py-1.5 text-[11px] text-muted-foreground">
+                {t("noSides")}
+              </li>
+            ) : (
+              items.map((item) => (
+                <li key={item.id}>
+                  <div className="group flex min-w-0 items-center gap-1">
+                    <button
                       type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="-mt-1 size-6 shrink-0 rounded text-muted-foreground"
-                      aria-label={t("useRecent")}
-                      title={t("useRecent")}
-                      onClick={() => {
-                        if (sourceKey)
-                          useSideQuestionStore
-                            .getState()
-                            .useRecentContext(sourceKey)
-                      }}
+                      aria-label={item.title}
+                      aria-pressed={selectedId === item.id}
+                      title={item.title}
+                      onClick={() => void selectSide(item)}
+                      className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/60 aria-pressed:bg-muted"
                     >
-                      <X
-                        className="size-3.5"
-                        strokeWidth={1.5}
-                        aria-hidden="true"
-                      />
-                    </Button>
-                  </div>
-                </div>
-              )}
-              {entry.turns.map((turn) => (
-                <div key={turn.id} className="space-y-4">
-                  {turn.question && (
-                    <Message from="user">
-                      <MessageContent className="whitespace-pre-wrap break-words">
-                        {turn.question}
-                      </MessageContent>
-                    </Message>
-                  )}
-                  {turn.attachments.length > 0 && (
-                    <AttachmentList
-                      attachments={turn.attachments}
-                      removeLabel={t("removeAttachment")}
-                    />
-                  )}
-                  {turn.status === "loading" && (
-                    <div
-                      role="status"
-                      className="flex items-center gap-2 text-muted-foreground"
-                    >
-                      <Loader2
-                        className="size-4 animate-spin motion-reduce:animate-none"
-                        strokeWidth={1.5}
+                      <SquareTerminal
+                        className="size-3.5 shrink-0 text-muted-foreground"
                         aria-hidden
                       />
-                      {t("asking")}
-                    </div>
-                  )}
-                  {turn.status === "cancelled" && (
-                    <p role="status" className="text-muted-foreground">
-                      {t("cancelled")}
-                    </p>
-                  )}
-                  {turn.error && (
-                    <p
-                      role="alert"
-                      className="whitespace-pre-wrap break-words text-destructive"
-                    >
-                      {turn.error}
-                    </p>
-                  )}
-                  {turn.result && (
-                    <Message from="assistant" aria-label={t("answer")}>
-                      <MessageContent>
-                        <MessageResponse>{turn.result.answer}</MessageResponse>
-                      </MessageContent>
-                      <div className="flex min-w-0 items-center justify-between gap-2 border-t border-border/60 pt-2">
-                        <p className="text-[11px] tabular-nums text-muted-foreground">
-                          {turn.result.selectionChars > 0
-                            ? t("selectionStats", {
-                                chars: turn.result.selectionChars,
-                              })
-                            : (turn.result.modelName ?? t("followCurrent"))}
-                        </p>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="size-7 shrink-0 rounded-md text-muted-foreground"
-                          aria-label={
-                            copiedAnswer === turn.result.answer
-                              ? t("copied")
-                              : t("copyAnswer")
-                          }
-                          title={t("copyAnswer")}
-                          onClick={async () => {
-                            const answer = turn.result?.answer
-                            if (!answer) return
-                            try {
-                              if (!(await copyTextToClipboard(answer))) {
-                                toast.error(t("copyFailed"))
-                                return
-                              }
-                              setCopiedAnswer(answer)
-                            } catch {
-                              toast.error(t("copyFailed"))
-                            }
-                          }}
-                        >
-                          {copiedAnswer === turn.result.answer ? (
-                            <Check
-                              className="size-4"
-                              strokeWidth={1.5}
-                              aria-hidden="true"
-                            />
-                          ) : (
-                            <Copy
-                              className="size-4"
-                              strokeWidth={1.5}
-                              aria-hidden="true"
-                            />
-                          )}
-                        </Button>
-                      </div>
-                    </Message>
-                  )}
-                </div>
-              ))}
-              {entry.status === "idle" && (
-                <div className="space-y-2 py-3 leading-relaxed text-muted-foreground">
-                  <p className="font-medium text-foreground/85">{t("empty")}</p>
-                  <p className="text-[11px]">{t("scopeHint")}</p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </ScrollArea>
-      <form
-        className="shrink-0 p-3"
-        onSubmit={(event) => {
-          event.preventDefault()
-          ask()
-        }}
-      >
-        <ComposerSurface {...chromeFocus} dragActive={draggingFiles}>
-          {draggingFiles && (
-            <p role="status" className="text-[11px] text-muted-foreground">
-              {native.images ? t("dropFiles") : t("dropTextFiles")}
-            </p>
-          )}
-          {entry.attachments.length > 0 && (
-            <div className="px-3 pt-2">
-              <AttachmentList
-                attachments={entry.attachments}
-                removeLabel={t("removeAttachment")}
-                onRemove={
-                  loading
-                    ? undefined
-                    : (id) => {
-                        if (sourceKey)
-                          useSideQuestionStore
-                            .getState()
-                            .removeAttachment(sourceKey, id)
-                      }
-                }
-              />
-            </div>
-          )}
-          {readingAttachments && (
-            <p role="status" className="text-[11px] text-muted-foreground">
-              {t("readingAttachments")}
-            </p>
-          )}
-          <RichComposer
-            key={sourceKey ?? "empty"}
-            ref={editorRef}
-            defaultText={entry.question}
-            onReady={syncEditor}
-            ariaLabel={t("question")}
-            placeholder={t("placeholder")}
-            disabled={!source}
-            className={`grow max-h-52 ${composerEditableMinHeight(false, entry.attachments.length > 0)}`}
-            onChange={(text) => {
-              if (sourceKey)
-                useSideQuestionStore.getState().setQuestion(sourceKey, text)
-            }}
-            onSubmit={ask}
-            submitShortcut="mod+enter"
-            newlineShortcut="enter"
-            onPasteFiles={(event) => {
-              const files = filesFromClipboard(event.clipboardData)
-              if (!files.length) return false
-              event.preventDefault()
-              event.stopPropagation()
-              void addFiles(files)
-              return true
-            }}
-            onDropFiles={(event) => {
-              if (
-                !Array.from(event.dataTransfer?.types ?? []).includes("Files")
-              )
-                return false
-              event.preventDefault()
-              event.stopPropagation()
-              setDraggingFiles(false)
-              void addFiles(Array.from(event.dataTransfer?.files ?? []))
-              return true
-            }}
-          />
-          {tooLong && (
-            <p role="alert" className="text-xs text-destructive">
-              {t("questionTooLong")}
-            </p>
-          )}
-          <ComposerToolbar className="justify-end">
-            {loading ? (
-              <Button
-                type="button"
-                variant="destructive"
-                size="icon"
-                className="h-8 w-8"
-                aria-label={t("cancel")}
-                title={t("cancel")}
-                onClick={(event) => {
-                  // 取消后同一 DOM 会变为提交按钮，必须阻止本次点击的默认提交。
-                  event.preventDefault()
-                  if (sourceKey)
-                    useSideQuestionStore.getState().cancel(sourceKey)
-                }}
-              >
-                <Square className="size-4" aria-hidden />
-              </Button>
-            ) : (
-              <Button
-                type="submit"
-                size="icon"
-                className="h-8 w-8"
-                aria-label={t("send")}
-                title={t("shortcut")}
-                disabled={!canAsk}
-              >
-                <Send className="size-4" aria-hidden />
-              </Button>
+                      <span className="min-w-0 flex-1 truncate">
+                        {item.title}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                        {item.isOpen ? t("opened") : t("closed")}
+                      </span>
+                      {openingId === item.id && (
+                        <Loader2
+                          className="size-3 shrink-0 animate-spin motion-reduce:animate-none"
+                          aria-hidden
+                        />
+                      )}
+                    </button>
+                    {item.isOpen && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-6 shrink-0 rounded text-muted-foreground"
+                        aria-label={t("close")}
+                        title={t("close")}
+                        disabled={restoring || openingId === item.id}
+                        onClick={() => void closeSide(item.id)}
+                      >
+                        <X className="size-3.5" aria-hidden />
+                      </Button>
+                    )}
+                  </div>
+                </li>
+              ))
             )}
-          </ComposerToolbar>
-        </ComposerSurface>
-      </form>
+          </ul>
+        </ScrollArea>
+      </div>
+
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {selected && selectedTerminalId ? (
+          <NativeAttachedTerminal
+            terminalId={selectedTerminalId}
+            workingDir={selectedWorkingDir}
+            isActive={active}
+            isVisible={active}
+            className="min-h-0 flex-1"
+          />
+        ) : (
+          <div className="p-3 text-[11px] leading-relaxed text-muted-foreground">
+            {unavailable ? null : t("nativeTerminalHint")}
+          </div>
+        )}
+      </div>
     </section>
   )
 }

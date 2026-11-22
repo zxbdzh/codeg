@@ -3527,6 +3527,22 @@ export interface AcpActionsValue {
     conversationId?: number
   ): Promise<void>
   /**
+   * Attach to a connection the backend already established, by id, as a
+   * NON-owning viewer — never spawns and never `acpDisconnect`s it. Used when
+   * a surface already knows the exact connection to rejoin (e.g. the ACP
+   * connection restored after leaving a native terminal), where discovery is
+   * unnecessary and a stale local entry could otherwise win the fast path.
+   *
+   * Resolves `false` when the connection turned out to be gone, so the caller
+   * can fall back to a normal connect/spawn.
+   */
+  attachToConnection(
+    contextKey: string,
+    connectionId: string,
+    agentType: AgentType,
+    workingDir?: string | null
+  ): Promise<boolean>
+  /**
    * Release the connection for `contextKey`. The LOCAL entry always goes away
    * — a stranded one would make the next `connect()` take its "already
    * connected" fast path onto a session that may be dead.
@@ -8637,6 +8653,18 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   const actions = useMemo<AcpActionsValue>(
     () => ({
       connect,
+      attachToConnection: (
+        contextKey: string,
+        connectionId: string,
+        agentType: AgentType,
+        workingDir?: string | null
+      ) =>
+        connectAsViewer(
+          contextKey,
+          connectionId,
+          agentType,
+          workingDir ?? null
+        ),
       disconnect,
       disconnectIfIdle,
       disconnectAll,
@@ -8666,6 +8694,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     }),
     [
       connect,
+      connectAsViewer,
       disconnect,
       disconnectIfIdle,
       disconnectAll,

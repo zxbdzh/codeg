@@ -76,6 +76,7 @@ pub mod mcp;
 pub mod mcp_engine;
 pub mod mcp_service;
 pub mod model_provider;
+pub mod native_session;
 #[cfg(feature = "tauri-runtime")]
 pub mod notification;
 pub mod office_tools;

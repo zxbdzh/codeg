@@ -374,6 +374,29 @@ describe("AcpConnectionsProvider cross-client viewer lifecycle", () => {
     )
   })
 
+  it("attaches a restored connection by id without spawning", async () => {
+    await mountProvider()
+
+    let attached = false
+    await act(async () => {
+      attached = await h.actions!.attachToConnection(
+        TAB,
+        "restored-conn",
+        "claude_code",
+        "/tmp/x"
+      )
+    })
+
+    // 后端切换原生终端后已恢复连接；前端只按 id 被动挂回，不能再 spawn。
+    expect(attached).toBe(true)
+    expect(h.acpConnect).not.toHaveBeenCalled()
+    expect(h.attach).toHaveBeenCalledWith(
+      "restored-conn",
+      { sinceSeq: undefined },
+      expect.anything()
+    )
+  })
+
   it("a SECOND local surface joins the connection this client owns instead of spawning another agent", async () => {
     // The canvas expands a conversation that is already open in a workspace
     // tab. Two surfaces, two contextKeys, ONE agent process: the second must

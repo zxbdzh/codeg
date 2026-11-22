@@ -97,7 +97,7 @@ struct HistoryBoundary {
     fingerprints: Vec<String>,
 }
 
-fn history_fingerprints(turns: &[MessageTurn]) -> Result<Vec<String>, AppCommandError> {
+pub(crate) fn history_fingerprints(turns: &[MessageTurn]) -> Result<Vec<String>, AppCommandError> {
     turns
         .iter()
         .map(|turn| {
@@ -109,7 +109,10 @@ fn history_fingerprints(turns: &[MessageTurn]) -> Result<Vec<String>, AppCommand
         .collect()
 }
 
-fn validate_history(expected: &[String], actual: &[MessageTurn]) -> Result<(), AppCommandError> {
+pub(crate) fn validate_history(
+    expected: &[String],
+    actual: &[MessageTurn],
+) -> Result<(), AppCommandError> {
     if expected != history_fingerprints(actual)? {
         return Err(AppCommandError::task_execution_failed(
             "The forked history does not match the selected boundary; the source conversation is unchanged",
@@ -173,7 +176,7 @@ fn acp_error(error: AcpError) -> AppCommandError {
         .with_detail(serde_json::json!({"acpCode": code}).to_string())
 }
 
-fn validate_request_id(value: &str) -> Result<(), AppCommandError> {
+pub(crate) fn validate_request_id(value: &str) -> Result<(), AppCommandError> {
     if value.is_empty()
         || value.len() > 128
         || !value
@@ -187,7 +190,7 @@ fn validate_request_id(value: &str) -> Result<(), AppCommandError> {
     Ok(())
 }
 
-fn request_lock(key: String) -> Arc<AsyncMutex<()>> {
+pub(crate) fn request_lock(key: String) -> Arc<AsyncMutex<()>> {
     static LOCKS: OnceLock<Mutex<HashMap<String, Weak<AsyncMutex<()>>>>> = OnceLock::new();
     let mut locks = LOCKS
         .get_or_init(Default::default)
@@ -360,7 +363,7 @@ async fn append_recovery(
     file.sync_all().await.map_err(AppCommandError::io)
 }
 
-async fn read_turns(
+pub(crate) async fn read_turns(
     db: &AppDatabase,
     agent: crate::models::AgentType,
     session_id: String,

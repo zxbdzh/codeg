@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -415,6 +416,150 @@ pub struct SpawnOptions {
     pub temp_files: Vec<std::path::PathBuf>,
 }
 
+/// Resolve the CLI a native session must resume to an executable path.
+///
+/// Windows npm/pnpm shims are `.cmd`/`.bat`, which CreateProcess cannot start.
+/// Those are launched through `cmd.exe` instead, and only arguments cmd cannot
+/// reinterpret are accepted: a resume must not become shell injection, so an
+/// unsafe value is refused rather than escaped. `.ps1` shims are refused
+/// outright — PowerShell's startup script rewrites argv and would silently
+/// drop the resume arguments.
+pub(crate) fn resolve_argv(
+    program: &str,
+    args: &[String],
+) -> Result<(PathBuf, Vec<String>), TerminalError> {
+    let program = program.trim();
+    if program.is_empty() {
+        return Err(TerminalError::SpawnFailed(
+            "native CLI name is empty".to_string(),
+        ));
+    }
+    if args.iter().any(|arg| arg.contains('\0')) {
+        return Err(TerminalError::SpawnFailed(
+            "native CLI arguments may not contain NUL bytes".to_string(),
+        ));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let resolved = which::which(program).map_err(|_| {
+            TerminalError::SpawnFailed(format!("native CLI '{program}' was not found on PATH"))
+        })?;
+        let extension = resolved
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        match extension.as_str() {
+            "cmd" | "bat" => {
+                ensure_batch_path_safe(&resolved)?;
+                for arg in args {
+                    ensure_batch_safe_arg(arg)?;
+                }
+                // No `/s` here: with /s cmd strips the first and last quotes
+                // of the remainder, so a quoted batch path (one containing a
+                // space) would lose its closing quote. Every argv item stays
+                // its own token, so no argument is ever re-parsed as a line.
+                let mut batch_args = vec![
+                    "/e:ON".to_string(),
+                    "/v:OFF".to_string(),
+                    "/d".to_string(),
+                    "/c".to_string(),
+                    resolved.to_string_lossy().into_owned(),
+                ];
+                batch_args.extend(args.iter().cloned());
+                Ok((system_cmd_exe(), batch_args))
+            }
+            "ps1" => Err(TerminalError::SpawnFailed(format!(
+                "native CLI '{program}' resolves to a PowerShell script; \
+                 a .cmd or .exe launcher is required to pass resume arguments"
+            ))),
+            _ => Ok((resolved, args.to_vec())),
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Resolve before the ACP session is released: a missing CLI must fail
+        // while the session still exists, not after handing it to nothing.
+        let resolved = which::which(program).map_err(|_| {
+            TerminalError::SpawnFailed(format!("native CLI '{program}' was not found on PATH"))
+        })?;
+        Ok((resolved, args.to_vec()))
+    }
+}
+
+/// cmd.exe expands `%VAR%` even inside quotes and has no escaped quote it
+/// cannot see, so batch-launch arguments are restricted to characters it
+/// passes through literally. Whitespace is excluded on purpose: portable-pty
+/// would quote such an argument, and with a spaced batch path cmd cannot keep
+/// both pairs of quotes. Resume ids are UUIDs and flags are plain words — that
+/// is the whole surface this path needs.
+#[cfg(target_os = "windows")]
+fn ensure_batch_safe_arg(arg: &str) -> Result<(), TerminalError> {
+    let safe = !arg.is_empty()
+        && arg.chars().all(|ch| {
+            ch.is_alphanumeric()
+                || matches!(
+                    ch,
+                    '-' | '_' | '.' | ':' | '/' | '\\' | '+' | ',' | '=' | '~'
+                )
+        });
+    if safe {
+        Ok(())
+    } else {
+        Err(TerminalError::SpawnFailed(format!(
+            "native CLI argument {arg:?} contains characters cmd.exe would \
+             reinterpret; refusing to launch it through a batch shim"
+        )))
+    }
+}
+
+/// The batch file path itself is portable-pty-quoted only when it contains a
+/// space, so every cmd metacharacter (and every char that would stop cmd's
+/// two-quote special case from applying) must be refused up front.
+#[cfg(target_os = "windows")]
+fn ensure_batch_path_safe(path: &std::path::Path) -> Result<(), TerminalError> {
+    let text = path.to_string_lossy();
+    let unsafe_char = text.chars().find(|ch| {
+        !(ch.is_alphanumeric() || matches!(ch, '-' | '_' | '.' | ':' | '\\' | '/' | ' '))
+    });
+    match unsafe_char {
+        Some(ch) => Err(TerminalError::SpawnFailed(format!(
+            "native CLI launcher {} contains {ch:?}, which cmd.exe would \
+             reinterpret; move it to a plain path",
+            path.display()
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// Select cmd.exe from SystemRoot, never from the workspace PATH: the batch
+/// shim lives in an arbitrary user directory, but its interpreter must not.
+#[cfg(target_os = "windows")]
+fn system_cmd_exe() -> PathBuf {
+    std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+        .join("System32")
+        .join("cmd.exe")
+}
+
+/// Options for launching a fixed program + argv directly, without a shell.
+///
+/// ACP↔native switching must resume an exact CLI session, so it cannot go
+/// through `SpawnOptions.initial_command`: that path deliberately re-parses the
+/// command string in a shell. Here every element is an OS argv entry.
+pub struct ArgvSpawnOptions {
+    pub terminal_id: String,
+    pub program: String,
+    pub args: Vec<String>,
+    pub working_dir: String,
+    pub owner_window_label: String,
+    pub extra_env: Option<HashMap<String, String>>,
+    pub temp_files: Vec<PathBuf>,
+}
+
 impl TerminalManager {
     pub fn new() -> Self {
         Self {
@@ -435,6 +580,37 @@ impl TerminalManager {
         }
     }
 
+    /// Reserve an id before any fallible OS work.
+    fn reserve_spawn(
+        &self,
+        terminal_id: &str,
+        owner_window_label: &str,
+    ) -> Result<SpawnReservation, TerminalError> {
+        let terminals = lock_terminals(&self.terminals);
+        let mut spawning = self.spawning.lock().unwrap_or_else(|p| p.into_inner());
+        if terminals.contains_key(terminal_id) || spawning.contains_key(terminal_id) {
+            return Err(TerminalError::SpawnFailed(format!(
+                "terminal id '{terminal_id}' already exists"
+            )));
+        }
+        // Usually an explicit tab close is followed by a still-pending spawn
+        // request. Reject before starting the child when possible.
+        let mut pending = self
+            .cancelled_spawns
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if pending.remove(terminal_id).is_some() {
+            return Err(TerminalError::SpawnFailed(
+                "terminal launch was cancelled".to_string(),
+            ));
+        }
+        spawning.insert(terminal_id.to_string(), owner_window_label.to_string());
+        Ok(SpawnReservation {
+            id: terminal_id.to_string(),
+            spawning: self.spawning.clone(),
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn spawn_with_id(
         &self,
@@ -445,33 +621,7 @@ impl TerminalManager {
             .map_err(TerminalError::SpawnFailed)?;
         // Reserve the ID before any fallible OS work. The guard releases it
         // on every error path, and insertion happens before the guard drops.
-        let _reservation = {
-            let terminals = lock_terminals(&self.terminals);
-            let mut spawning = self.spawning.lock().unwrap_or_else(|p| p.into_inner());
-            if terminals.contains_key(&opts.terminal_id) || spawning.contains_key(&opts.terminal_id)
-            {
-                return Err(TerminalError::SpawnFailed(format!(
-                    "terminal id '{}' already exists",
-                    opts.terminal_id
-                )));
-            }
-            // Usually an explicit tab close is followed by a still-pending
-            // spawn request. Reject before starting the child when possible.
-            let mut pending = self
-                .cancelled_spawns
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            if pending.remove(&opts.terminal_id).is_some() {
-                return Err(TerminalError::SpawnFailed(
-                    "terminal launch was cancelled".to_string(),
-                ));
-            }
-            spawning.insert(opts.terminal_id.clone(), opts.owner_window_label.clone());
-            SpawnReservation {
-                id: opts.terminal_id.clone(),
-                spawning: self.spawning.clone(),
-            }
-        };
+        let _reservation = self.reserve_spawn(&opts.terminal_id, &opts.owner_window_label)?;
 
         let pty_system = native_pty_system();
 
@@ -535,6 +685,101 @@ impl TerminalManager {
             .map_err(|e| TerminalError::SpawnFailed(e.to_string()))?;
         idle.attach(child.as_ref());
 
+        self.finish_spawn(
+            opts.terminal_id,
+            opts.owner_window_label,
+            opts.temp_files,
+            idle,
+            pair,
+            child,
+            emitter,
+        )
+    }
+
+    /// Launch a fixed program and argv with no shell between them. Used when a
+    /// session must be resumed in its native CLI instead of its ACP adapter.
+    pub fn spawn_argv_with_id(
+        &self,
+        opts: ArgvSpawnOptions,
+        emitter: EventEmitter,
+    ) -> Result<String, TerminalError> {
+        let _update_admission = crate::update::admission::admit("terminal_spawn")
+            .map_err(TerminalError::SpawnFailed)?;
+        let _reservation = self.reserve_spawn(&opts.terminal_id, &opts.owner_window_label)?;
+
+        let (program, args) = resolve_argv(&opts.program, &opts.args)?;
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| TerminalError::SpawnFailed(e.to_string()))?;
+
+        let mut cmd = CommandBuilder::new(&program);
+        cmd.args(args.iter());
+        cmd.cwd(&opts.working_dir);
+        // shortcut: cmd.exe cannot take a UNC path as its cwd, so a batch shim
+        // resumed against a UNC project starts in C:\Windows. Add a `pushd`
+        // wrapper here if a native session ever needs a UNC working dir.
+        if let Some(env) = &opts.extra_env {
+            for (key, value) in env {
+                cmd.env(key, value);
+            }
+        }
+        if let Some(dir) = crate::cli_run::shim::path_dir() {
+            let current = cmd.get_env("PATH").map(|p| p.to_os_string());
+            let first = current
+                .as_deref()
+                .and_then(|p| std::env::split_paths(p).next());
+            if first.as_deref() != Some(dir) {
+                let sep = if cfg!(windows) { ";" } else { ":" };
+                let mut path = dir.as_os_str().to_os_string();
+                if let Some(current) = current.filter(|p| !p.is_empty()) {
+                    path.push(sep);
+                    path.push(current);
+                }
+                cmd.env("PATH", path);
+            }
+        }
+        crate::appimage_env::restore_pty(&mut cmd);
+
+        // No initial command: `prepare` only rewrites argv for an interactive
+        // shell, so a fixed CLI's arguments reach it unchanged.
+        let idle =
+            super::idle::TerminalIdle::prepare(&mut cmd, &opts.program, None, &opts.terminal_id);
+        let child = pair
+            .slave
+            .spawn_command(cmd)
+            .map_err(|e| TerminalError::SpawnFailed(e.to_string()))?;
+        idle.attach(child.as_ref());
+
+        self.finish_spawn(
+            opts.terminal_id,
+            opts.owner_window_label,
+            opts.temp_files,
+            idle,
+            pair,
+            child,
+            emitter,
+        )
+    }
+
+    /// The PTY half common to shell and argv launches: register the child,
+    /// insert it, then start its writer/reader threads.
+    #[allow(clippy::too_many_arguments)]
+    fn finish_spawn(
+        &self,
+        terminal_id: String,
+        owner_window_label: String,
+        temp_files: Vec<PathBuf>,
+        idle: Arc<super::idle::TerminalIdle>,
+        pair: portable_pty::PtyPair,
+        child: Box<dyn portable_pty::Child + Send>,
+        emitter: EventEmitter,
+    ) -> Result<String, TerminalError> {
         drop(pair.slave);
 
         let writer = pair
@@ -547,7 +792,6 @@ impl TerminalManager {
             .try_clone_reader()
             .map_err(|e| TerminalError::SpawnFailed(e.to_string()))?;
 
-        let terminal_id = opts.terminal_id;
         let generation = uuid::Uuid::new_v4().to_string();
         // Boundary-, length-, and NUL-safe prefix for the PTY thread names; see
         // `thread_name_prefix`. `terminal_id` is caller-supplied.
@@ -556,17 +800,17 @@ impl TerminalManager {
         let (write_tx, write_rx) = mpsc::channel::<Vec<u8>>();
         let scrollback = Arc::new(Mutex::new(Scrollback::default()));
 
-        let owner_window = opts.owner_window_label.clone();
+        let owner_window = owner_window_label.clone();
         let instance = TerminalInstance {
             idle: idle.clone(),
             write_tx,
             master: pair.master,
             _child: child,
             title: "Terminal".to_string(),
-            owner_window_label: opts.owner_window_label,
+            owner_window_label,
             generation: generation.clone(),
             scrollback: scrollback.clone(),
-            temp_files: opts.temp_files,
+            temp_files,
         };
 
         {
@@ -732,6 +976,21 @@ impl TerminalManager {
             cols: size.map(|size| size.cols),
             rows: size.map(|size| size.rows),
         }
+    }
+
+    /// The window that owns a live or retained terminal.
+    ///
+    /// A caller about to end a terminal on behalf of a session must first prove
+    /// the terminal is the one it started: terminal ids are UUIDs, but an id
+    /// can still be forwarded from another window.
+    pub fn owner_window_label_of(&self, terminal_id: &str) -> Option<String> {
+        if let Some(instance) = lock_terminals(&self.terminals).get(terminal_id) {
+            return Some(instance.owner_window_label.clone());
+        }
+        lock_completed(&self.completed)
+            .entries
+            .get(terminal_id)
+            .map(|entry| entry.owner_window_label.clone())
     }
 
     /// Close a terminal: end its process and forget it, final output included.
@@ -1137,9 +1396,177 @@ fn thread_name_prefix(terminal_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{thread_name_prefix, Scrollback, SCROLLBACK_MAX_CHARS};
+    use super::{resolve_argv, thread_name_prefix, Scrollback, SCROLLBACK_MAX_CHARS};
     #[cfg(not(target_os = "windows"))]
-    use super::{Arc, EventEmitter, SpawnOptions, TerminalManager};
+    use super::{Arc, ArgvSpawnOptions, EventEmitter, SpawnOptions, TerminalManager};
+
+    #[test]
+    fn resolve_argv_refuses_nul_bytes() {
+        let err = resolve_argv("sh", &["a\0b".to_string()]).expect_err("NUL must be refused");
+        assert!(err.to_string().contains("NUL"), "{err}");
+    }
+
+    #[test]
+    fn resolve_argv_refuses_an_empty_program() {
+        let err = resolve_argv("  ", &[]).expect_err("empty program must be refused");
+        assert!(err.to_string().contains("empty"), "{err}");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn batch_launch_keeps_each_argument_a_separate_token() {
+        // `echo.cmd` stands in for an npm/pnpm shim: the point is that the
+        // resolved launcher becomes cmd.exe with the batch path and every
+        // argument as separate argv entries, never one pre-joined shell line.
+        let dir = std::env::temp_dir().join(format!("codeg-argv-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let shim = dir.join("echo.cmd");
+        std::fs::write(&shim, b"@echo off\r\n").expect("shim");
+
+        let args = vec![
+            "resume".to_string(),
+            "0f8fad5b-d9cb-469f-a165-70867728950e".to_string(),
+        ];
+        let (program, resolved) =
+            resolve_argv(&shim.to_string_lossy(), &args).expect("batch resolves");
+        assert_eq!(program, super::system_cmd_exe());
+        assert_eq!(
+            &resolved[..4],
+            ["/e:ON", "/v:OFF", "/d", "/c"],
+            "cmd must receive its fixed flags as their own arguments"
+        );
+        assert_eq!(resolved[4], shim.to_string_lossy());
+        assert_eq!(&resolved[5..], args.as_slice());
+        assert!(
+            !resolved.iter().any(|arg| arg.as_str() == "/s"),
+            "/s would strip the quotes around a batch path containing a space"
+        );
+        assert!(
+            !resolved.iter().any(|arg| arg.contains(' ')),
+            "no argument may be pre-joined into a command line"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn batch_launch_refuses_cmd_metacharacters() {
+        let dir = std::env::temp_dir().join(format!("codeg-argv-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let shim = dir.join("echo.cmd");
+        std::fs::write(&shim, b"@echo off\r\n").expect("shim");
+
+        for bad in [
+            "a&b",
+            "100%",
+            "\"quoted\"",
+            "a|b",
+            "a^b",
+            "line\nbreak",
+            "a b",
+            "",
+        ] {
+            let err = resolve_argv(&shim.to_string_lossy(), &[bad.to_string()])
+                .expect_err("cmd metacharacters must be refused");
+            assert!(err.to_string().contains("reinterpret"), "{bad:?}: {err}");
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn batch_launch_resumes_through_a_path_with_spaces() {
+        // The real npm/pnpm shim lives in a user path that often has spaces.
+        // This runs the exact argv `resolve_argv` returns through a real
+        // child process, so the `/c` quoting rules are exercised, not assumed.
+        let dir = std::env::temp_dir().join(format!("codeg argv {}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let shim = dir.join("echo args.cmd");
+        let output = dir.join("out.txt");
+        std::fs::write(
+            &shim,
+            format!("@echo off\r\necho ARGS:%1 %2> \"{}\"\r\n", output.display()),
+        )
+        .expect("shim");
+
+        let (program, resolved) = resolve_argv(
+            &shim.to_string_lossy(),
+            &["resume".to_string(), "abc-123".to_string()],
+        )
+        .expect("batch resolves");
+        let status = std::process::Command::new(program)
+            .args(&resolved)
+            .status()
+            .expect("run cmd.exe");
+        assert!(status.success(), "cmd.exe exited with {status}");
+        assert_eq!(
+            std::fs::read_to_string(&output).expect("output file"),
+            "ARGS:resume abc-123\r\n"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[tokio::test]
+    async fn argv_spawn_passes_arguments_without_shell_reparsing() {
+        use crate::web::event_bridge::WebEventBroadcaster;
+        use std::time::Duration;
+
+        let manager = TerminalManager::new();
+        let emitter = EventEmitter::test_web_only(Arc::new(WebEventBroadcaster::new()));
+        let argv = vec![
+            "-c".to_string(),
+            "printf '%s\\n' \"$@\"".to_string(),
+            "sh".to_string(),
+            "--".to_string(),
+            "$(printf pwned)".to_string(),
+            "; id".to_string(),
+            "a b".to_string(),
+            "\"q\"".to_string(),
+        ];
+        manager
+            .spawn_argv_with_id(
+                ArgvSpawnOptions {
+                    terminal_id: "argv-e2e".to_string(),
+                    program: "/bin/sh".to_string(),
+                    args: argv,
+                    working_dir: std::env::temp_dir().to_string_lossy().to_string(),
+                    owner_window_label: "main".to_string(),
+                    extra_env: None,
+                    temp_files: vec![],
+                },
+                emitter,
+            )
+            .expect("spawn fixed argv");
+
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let _ = manager.list_with_exit_check(None);
+                let snapshot = manager.snapshot("argv-e2e");
+                if snapshot.exists && !snapshot.alive && snapshot.exit_code.is_some() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("argv child exits");
+
+        let snapshot = manager.snapshot("argv-e2e");
+        assert_eq!(snapshot.exit_code, Some(0), "output: {}", snapshot.data);
+        // Each value must arrive verbatim: nothing was substituted by a shell.
+        for expected in ["$(printf pwned)", "; id", "a b", "\"q\""] {
+            assert!(
+                snapshot.data.contains(expected),
+                "{expected:?} in {:?}",
+                snapshot.data
+            );
+        }
+        let _ = manager.kill("argv-e2e");
+    }
 
     #[test]
     fn scrollback_seq_counts_every_chunk_and_never_rewinds() {

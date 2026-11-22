@@ -66,6 +66,10 @@ pub mod process;
 #[cfg(all(feature = "tauri-runtime", target_os = "macos"))]
 mod relaunch;
 pub mod research_branch;
+pub mod native_side_policy;
+pub mod native_side_session;
+pub mod native_side_terminal;
+pub mod native_session_main;
 pub mod conversation_undo;
 pub mod runtime_lock;
 pub mod side_question;
@@ -123,7 +127,8 @@ mod tauri_app {
         delegation as delegation_commands, experts as experts_commands,
         feedback as feedback_commands, file_io, folder_commands, folder_links, folders,
         forge as forge_commands, local_command, logging as logging_commands, mcp as mcp_commands,
-        model_provider as model_provider_commands, notification,
+        model_provider as model_provider_commands, native_session as native_session_commands,
+        notification,
         office_tools as office_tools_commands, open_in, pet as pet_commands, project_boot,
         question as question_commands, quick_messages as quick_messages_commands,
         remote_proxy as remote_proxy_commands, remote_workspace as remote_workspace_commands,
@@ -2011,6 +2016,12 @@ mod tauri_app {
                 research_branch_commands::conversation_undo_preview,
                 research_branch_commands::conversation_undo,
                 side_question_commands::side_question_cancel,
+                native_session_commands::native_session_list,
+                native_session_commands::native_session_create_side,
+                native_session_commands::native_session_open_side,
+                native_session_commands::native_session_close_side,
+                native_session_commands::native_session_open_main,
+                native_session_commands::native_session_close_main,
                 folders::git_rollback_file,
                 folders::git_add_files,
                 folders::git_list_all_branches,

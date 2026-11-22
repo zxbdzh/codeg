@@ -39,6 +39,7 @@ pub mod logging;
 pub mod mcp;
 pub mod mcp_service;
 pub mod model_provider;
+pub mod native_session;
 pub mod office_tools;
 pub mod office_watch_proxy;
 pub mod opencode_credentials;

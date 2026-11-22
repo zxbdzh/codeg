@@ -171,7 +171,7 @@ describe("split group shell source shape", () => {
     expect(contentIdx).toBeGreaterThan(headerIdx)
     // The per-group title bar lives between them.
     expect(shellBody.slice(headerIdx, contentIdx)).toContain(
-      "<ConversationDetailHeader"
+      "<NativeSessionHeader"
     )
     // No fragment/wrapper around the trio — that would make the flip shift
     // slots and remount the content subtree.

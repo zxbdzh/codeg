@@ -6,10 +6,12 @@ import {
   Circle,
   EllipsisVertical,
   Info,
+  MessageSquare,
   Pencil,
   Pin,
   PinOff,
   SquarePen,
+  SquareTerminal,
   Trash2,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
@@ -25,8 +27,9 @@ import { ConversationHeaderFolderPicker } from "@/components/chat/conversation-c
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabActions } from "@/contexts/tab-context"
 import { getRuntimeSession } from "@/stores/conversation-runtime-store"
-import type { ConversationStatus } from "@/lib/types"
+import type { AgentType, ConversationStatus } from "@/lib/types"
 import { STATUS_ORDER } from "@/lib/types"
+import { supportsNativeTerminal } from "@/lib/native-session"
 import { ConversationStatusDot } from "@/components/conversations/conversation-status-dot"
 import {
   DropdownMenu,
@@ -78,6 +81,15 @@ interface ConversationDetailHeaderProps {
   folderPath: string | undefined
   title: string
   status: ConversationStatus | undefined
+  /** Agent that owns the session; drives native-terminal availability. */
+  agentType?: AgentType
+  /** Whether this tab currently renders the native terminal instead of ACP. */
+  nativeViewActive?: boolean
+  /** A live source connection exists and the tab can open its PTY. */
+  nativeViewAvailable?: boolean
+  /** The main turn is running: opening the PTY must wait for it to finish. */
+  nativeViewBusy?: boolean
+  onNativeViewChange?: (active: boolean) => void
 }
 
 /**
@@ -102,6 +114,11 @@ export const ConversationDetailHeader = memo(function ConversationDetailHeader({
   folderPath,
   title,
   status,
+  agentType,
+  nativeViewActive = false,
+  nativeViewAvailable = false,
+  nativeViewBusy: nativeBusy = false,
+  onNativeViewChange,
 }: ConversationDetailHeaderProps) {
   const t = useTranslations("Folder.conversationCard")
   const ime = useImeGuard()
@@ -150,6 +167,9 @@ export const ConversationDetailHeader = memo(function ConversationDetailHeader({
         null)
   )
   const isMobile = useIsMobile()
+  const nativeSupported = Boolean(
+    agentType && supportsNativeTerminal(agentType) && onNativeViewChange
+  )
 
   const [details, setDetails] = useState<ActiveSessionDetails | null>(null)
   // Snapshot the action target when a dialog OPENS. The header is a SINGLE
@@ -299,6 +319,42 @@ export const ConversationDetailHeader = memo(function ConversationDetailHeader({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {nativeSupported && (
+          <div
+            role="group"
+            aria-label={tConv("sessionView")}
+            className="flex h-7 items-center gap-0.5 rounded-md border border-border/60 bg-muted/40 p-0.5"
+          >
+            <button
+              type="button"
+              aria-label={tConv("acpView")}
+              aria-pressed={!nativeViewActive}
+              title={tConv("acpView")}
+              disabled={nativeBusy}
+              onClick={() => onNativeViewChange?.(false)}
+              className="flex size-6 items-center justify-center rounded text-muted-foreground transition-colors aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-sm disabled:opacity-40"
+            >
+              <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+            </button>
+            <button
+              type="button"
+              aria-label={tConv("nativeTerminal")}
+              aria-pressed={nativeViewActive}
+              title={
+                nativeBusy
+                  ? tConv("nativeTerminalBusy")
+                  : !nativeViewAvailable
+                    ? tConv("nativeTerminalUnavailable")
+                    : tConv("nativeTerminal")
+              }
+              disabled={nativeBusy || !nativeViewAvailable}
+              onClick={() => onNativeViewChange?.(true)}
+              className="flex size-6 items-center justify-center rounded text-muted-foreground transition-colors aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-sm disabled:opacity-40"
+            >
+              <SquareTerminal className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </div>
+        )}
         {!isMobile && taggable && conversationId != null && (
           <AiTagButton conversationId={conversationId} folderId={folderId} />
         )}

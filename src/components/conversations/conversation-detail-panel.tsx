@@ -222,7 +222,11 @@ import {
   projectRuntimeSessionDetails,
   resolveActiveSessionDetailsFromSnapshot,
 } from "./active-session-details"
-import { ConversationDetailHeader } from "./conversation-detail-header"
+import {
+  NativeAttachedTerminal,
+  NativeSessionHeader,
+} from "./native-session-views"
+import type { NativeMainTerminal } from "@/lib/native-session"
 import { SessionDetailsDialog } from "./session-details-dialog"
 
 interface ConversationTabViewProps {
@@ -230,6 +234,8 @@ interface ConversationTabViewProps {
   conversationId: number | null
   agentType: AgentType
   workingDir?: string
+  /** 非空时改为渲染原生终端，而不是 ACP 消息列表与输入框。 */
+  nativeTerminal?: NativeMainTerminal | null
   isActive: boolean
   /** Drive the composer's flowing active-session border. True only for the
    *  active tab while several sessions are visible (tiled within a group
@@ -315,6 +321,7 @@ const ConversationTabView = memo(function ConversationTabView({
   conversationId,
   agentType,
   workingDir,
+  nativeTerminal,
   isActive,
   showActiveFlow,
   reloadSignal,
@@ -720,7 +727,9 @@ const ConversationTabView = memo(function ConversationTabView({
   } = useConnectionLifecycle({
     contextKey: tabId,
     agentType: selectedAgent,
-    isActive: isActive && canAutoConnect,
+    // 原生终端期间刻意不自动连接：后端已释放 ACP，用户在终端里操作时
+    // 再拉起一个 ACP 会争抢同一个会话。切回后再由下面恢复后的渲染重连。
+    isActive: isActive && canAutoConnect && nativeTerminal == null,
     workingDir: workingDirForConnection,
     sessionId:
       dbConversationId != null && selectedAgent !== "cline"
@@ -733,7 +742,8 @@ const ConversationTabView = memo(function ConversationTabView({
     // composer and the status bar can show the conversation is opening instead
     // of an empty, connection-less composer. Scoped to the active tab — the
     // status bar is global.
-    preparing: isActive && awaitingHistoricalSessionId,
+    preparing:
+      isActive && awaitingHistoricalSessionId && nativeTerminal == null,
     // A cross-group move / unsplit reparents this view (React remounts it)
     // while the tab stays open — that unmount must not tear the connection
     // down. See `isReparentUnmount` for why "still open" alone is too broad.
@@ -2538,6 +2548,20 @@ const ConversationTabView = memo(function ConversationTabView({
     ]
   )
 
+  // 原生终端视图完全取代 ACP 消息区和输入框。终端期间生命周期被上面
+  // 的 isActive 门挡住，不会抢先重连；关闭终端后由恢复的连接重新接管。
+  if (nativeTerminal) {
+    return (
+      <NativeAttachedTerminal
+        terminalId={nativeTerminal.terminalId}
+        workingDir={workingDirForConnection ?? workingDir ?? ""}
+        isActive={isActive}
+        isVisible={isVisible}
+        className="h-full min-h-0 flex-1"
+      />
+    )
+  }
+
   return (
     <ConversationShell
       resizableWidth
@@ -2929,6 +2953,34 @@ export function ConversationDetailPanel() {
   const { addTask, updateTask } = useTaskContext()
   const [reloadByTabId, setReloadByTabId] = useState<Record<string, number>>({})
   const [detailsOpen, setDetailsOpen] = useState(false)
+  // 每个 tab 独立持有当前主会话 PTY；header 与内容区共读同一份状态。
+  const [nativeTerminals, setNativeTerminals] = useState<
+    Record<string, NativeMainTerminal>
+  >({})
+  const setNativeTerminal = useCallback(
+    (
+      tabId: string,
+      terminal: NativeMainTerminal | null,
+      restoredConnectionId?: string
+    ) => {
+      setNativeTerminals((prev) => {
+        if ((prev[tabId] ?? null) === terminal) return prev
+        const next = { ...prev }
+        if (terminal) next[tabId] = terminal
+        else delete next[tabId]
+        return next
+      })
+      // 终端退出后 ACP 已恢复；终端期间新增的历史已落库，用现有 reload
+      // 信号让详情重新拉取，而不是只显示进入终端前的旧消息。
+      if (restoredConnectionId) {
+        setReloadByTabId((prev) => ({
+          ...prev,
+          [tabId]: (prev[tabId] ?? 0) + 1,
+        }))
+      }
+    },
+    []
+  )
 
   const exportLabels = useExportLabels()
 
@@ -3335,6 +3387,7 @@ export function ConversationDetailPanel() {
         conversationId={tab.conversationId}
         agentType={tab.agentType}
         workingDir={tab.workingDir ?? folderPath}
+        nativeTerminal={nativeTerminals[tab.id] ?? null}
         isActive={active}
         showActiveFlow={(isSplit || canTileG) && active}
         reloadSignal={reloadByTabId[tab.id] ?? 0}
@@ -3479,14 +3532,20 @@ export function ConversationDetailPanel() {
               }
             }}
           >
-            <ConversationDetailHeader
+            <NativeSessionHeader
               tabId={selTab.id}
               conversationId={selTab.conversationId}
               runtimeConversationId={selTab.runtimeConversationId ?? null}
               folderId={selTab.folderId}
               folderPath={selTabFolder?.path}
+              workingDir={selTab.workingDir ?? selTabFolder?.path}
               title={selTab.title}
               status={selTab.status as ConversationStatus | undefined}
+              agentType={selTab.agentType}
+              nativeTerminal={nativeTerminals[selTab.id] ?? null}
+              onNativeTerminalChange={(terminal, restoredConnectionId) =>
+                setNativeTerminal(selTab.id, terminal, restoredConnectionId)
+              }
             />
           </div>
         )}
@@ -3534,14 +3593,20 @@ export function ConversationDetailPanel() {
     <>
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
         {!isSplit && activeTab && (
-          <ConversationDetailHeader
+          <NativeSessionHeader
             tabId={activeTab.id}
             conversationId={activeTab.conversationId}
             runtimeConversationId={activeTab.runtimeConversationId ?? null}
             folderId={activeTab.folderId}
             folderPath={activeTabFolder?.path}
+            workingDir={activeTab.workingDir ?? activeTabFolder?.path}
             title={activeTab.title}
             status={activeTab.status as ConversationStatus | undefined}
+            agentType={activeTab.agentType}
+            nativeTerminal={nativeTerminals[activeTab.id] ?? null}
+            onNativeTerminalChange={(terminal, restoredConnectionId) =>
+              setNativeTerminal(activeTab.id, terminal, restoredConnectionId)
+            }
           />
         )}
         <ContextMenu

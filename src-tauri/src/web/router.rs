@@ -831,6 +831,30 @@ pub fn build_router_with_srn(
             post(handlers::side_question::side_question_cancel),
         )
         .route(
+            "/native_session_list",
+            post(handlers::native_session::native_session_list),
+        )
+        .route(
+            "/native_session_create_side",
+            post(handlers::native_session::native_session_create_side),
+        )
+        .route(
+            "/native_session_open_side",
+            post(handlers::native_session::native_session_open_side),
+        )
+        .route(
+            "/native_session_close_side",
+            post(handlers::native_session::native_session_close_side),
+        )
+        .route(
+            "/native_session_open_main",
+            post(handlers::native_session::native_session_open_main),
+        )
+        .route(
+            "/native_session_close_main",
+            post(handlers::native_session::native_session_close_main),
+        )
+        .route(
             "/get_commit_message_settings",
             post(handlers::commit_message::get_commit_message_settings),
         )

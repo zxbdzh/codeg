@@ -1,153 +1,98 @@
-import type { ReactNode } from "react"
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import enMessages from "@/i18n/messages/en.json"
 import type { ConnectionState } from "@/contexts/acp-connections-context"
 import type { TabItem } from "@/contexts/tab-context"
-import type { SideQuestionAnswer } from "@/lib/side-question"
-import type {
-  RichComposerHandle,
-  RichComposerProps,
-} from "@/components/chat/composer/rich-composer"
+import type { NativeSideQuestion } from "@/lib/native-session"
 
-type TestConnection = Pick<
-  ConnectionState,
-  | "connectionId"
-  | "agentType"
-  | "status"
-  | "selectorsReady"
-  | "configOptions"
-  | "isViewer"
-  | "configStale"
-  | "sessionId"
->
-
-const scene = vi.hoisted(() => ({
-  isOpen: true,
-  activeTab: "side_question",
-  activeTabId: "tab-1",
-  tabs: [] as TabItem[],
-  hasConnectionStore: true,
-  connections: {} as Record<string, TestConnection | undefined>,
-  listeners: new Map<string, Set<() => void>>(),
-  connectionStore: {
-    getConnection: vi.fn(),
-    subscribeKey: vi.fn(),
-  },
-  call: vi.fn(),
-  copyText: vi.fn(),
-  readAttachment: vi.fn(),
-  toastError: vi.fn(),
-  getTimelineTurns: vi.fn(() => []),
-  editorSubmit: null as (() => void) | null,
-  nativeImages: true,
-}))
+const scene = vi.hoisted(() => {
+  const state = {
+    isOpen: true,
+    activeTab: "side_question",
+    activeTabId: "tab-1",
+    tabs: [] as TabItem[],
+    connection: undefined as Partial<ConnectionState> | undefined,
+    call: vi.fn(),
+    toastError: vi.fn(),
+    store: {
+      getConnection: () => state.connection,
+      subscribeKey: () => () => {},
+    },
+  }
+  return state
+})
 
 vi.mock("@/lib/transport", () => ({
   getTransport: () => ({ call: scene.call }),
 }))
-vi.mock("@/hooks/use-native-side-question", () => ({
-  useNativeSideQuestion: () => ({
-    supported: true,
-    images: scene.nativeImages,
-  }),
-}))
-vi.mock("@/lib/utils", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/utils")>()),
-  copyTextToClipboard: scene.copyText,
-}))
-vi.mock("sonner", () => ({ toast: { error: scene.toastError } }))
-vi.mock("@/lib/side-question-attachments", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/side-question-attachments")>()),
-  readSideQuestionAttachment: scene.readAttachment,
-}))
+
 vi.mock("@/contexts/aux-panel-context", () => ({
   useAuxPanelContext: () => ({
     isOpen: scene.isOpen,
     activeTab: scene.activeTab,
   }),
 }))
+
 vi.mock("@/contexts/tab-context", () => ({
   useTabStore: Object.assign(
     (select: (state: typeof scene) => unknown) => select(scene),
     { getState: () => scene }
   ),
 }))
+
 vi.mock("@/contexts/acp-connections-context", () => ({
-  useOptionalConnectionStore: () =>
-    scene.hasConnectionStore ? scene.connectionStore : null,
+  useOptionalConnectionStore: () => scene.store,
 }))
-vi.mock("@/stores/conversation-runtime-store", () => ({
-  getTimelineTurns: scene.getTimelineTurns,
+
+vi.mock("sonner", () => ({
+  toast: { error: scene.toastError },
 }))
-vi.mock("@/components/ai-elements/message", () => ({
-  Message: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  MessageContent: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
+
+vi.mock("@/components/terminal/terminal-view", () => ({
+  TerminalView: (props: {
+    terminalId: string
+    workingDir: string
+    isActive: boolean
+    isVisible: boolean
+    attach?: boolean
+  }) => (
+    <div
+      data-testid="side-terminal"
+      data-terminal-id={props.terminalId}
+      data-working-dir={props.workingDir}
+      data-active={String(props.isActive)}
+      data-visible={String(props.isVisible)}
+      data-attach={String(props.attach)}
+    />
   ),
-  MessageResponse: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-}))
-vi.mock("@/components/chat/composer/rich-composer", async () => {
-  const React = await import("react")
-  return {
-    RichComposer: React.forwardRef<RichComposerHandle, RichComposerProps>(
-      function EditorStub(props, ref) {
-        const [text, setText] = React.useState(props.defaultText ?? "")
-        const input = React.useRef<HTMLTextAreaElement>(null)
-        React.useImperativeHandle(
-          ref,
-          () => ({
-            getText: () => text,
-            setText,
-            clear: () => setText(""),
-            focus: () => input.current?.focus(),
-            focusAtCoords: () => input.current?.focus(),
-            isEmpty: () => !text,
-            getJSON: () => ({ type: "doc" }),
-            getEditor: () => null,
-            setDoc: () => {},
-            insertTextAtCursor: () => {},
-            insertReference: () => {},
-            fillPromptSuggestion: () => false,
-          }),
-          [text]
-        )
-        const { onReady, onSubmit } = props
-        React.useEffect(() => {
-          onReady?.()
-          scene.editorSubmit = onSubmit ?? null
-        }, [onReady, onSubmit])
-        return (
-          <textarea
-            ref={input}
-            aria-label={props.ariaLabel}
-            value={text}
-            disabled={props.disabled}
-            data-shared-composer
-            onChange={(event) => {
-              setText(event.target.value)
-              props.onChange?.(event.target.value)
-            }}
-            onPaste={(event) => props.onPasteFiles?.(event.nativeEvent)}
-          />
-        )
-      }
-    ),
-  }
-})
-vi.mock("@/components/ui/scroll-area", () => ({
-  ScrollArea: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }))
 
 import { SideQuestionTab } from "./aux-panel-side-question-tab"
-import {
-  resetSideQuestions,
-  useSideQuestionStore,
-} from "@/stores/side-question-store"
+
+const source = {
+  sourceConnectionId: "conn-1",
+  sourceConversationId: 7,
+  sourceAgentType: "codex",
+}
+
+function side(
+  id: string,
+  overrides: Partial<NativeSideQuestion> = {}
+): NativeSideQuestion {
+  return {
+    id,
+    sourceSessionId: "session-1",
+    branchSessionId: `branch-${id}`,
+    agentType: "codex",
+    cwd: "/repo",
+    title: id,
+    isOpen: true,
+    ...overrides,
+  }
+}
 
 function renderTab() {
   return render(
@@ -157,748 +102,369 @@ function renderTab() {
   )
 }
 
-function enterQuestion(text = "What does this mean?") {
-  fireEvent.change(screen.getByRole("textbox", { name: "Question" }), {
-    target: { value: text },
+beforeEach(() => {
+  scene.isOpen = true
+  scene.activeTab = "side_question"
+  scene.activeTabId = "tab-1"
+  scene.connection = { connectionId: "conn-1", agentType: "codex" }
+  scene.tabs = [
+    {
+      id: "tab-1",
+      conversationId: 7,
+      agentType: "codex",
+      title: "Main",
+      folderId: 1,
+    } as TabItem,
+  ]
+  scene.call.mockReset()
+  scene.toastError.mockReset()
+})
+
+describe("SideQuestionTab native side questions", () => {
+  it("restores unclosed side questions after a restart", async () => {
+    scene.call.mockImplementation((command: string) => {
+      if (command === "native_session_list")
+        return Promise.resolve([
+          side("alpha"),
+          side("closed", { isOpen: false }),
+        ])
+      if (command === "native_session_open_side")
+        return Promise.resolve({ terminalId: "pty-alpha" })
+      return Promise.resolve(undefined)
+    })
+
+    renderTab()
+
+    expect(await screen.findByRole("button", { name: "alpha" })).toBeDefined()
+    expect(screen.getByRole("button", { name: "closed" })).toBeDefined()
+    await waitFor(() => {
+      expect(screen.getByTestId("side-terminal").dataset.terminalId).toBe(
+        "pty-alpha"
+      )
+    })
+    expect(scene.call).toHaveBeenCalledWith("native_session_list", source)
+    expect(scene.call).toHaveBeenCalledWith("native_session_open_side", {
+      sideQuestionId: "alpha",
+    })
+    expect(scene.call).not.toHaveBeenCalledWith("native_session_open_side", {
+      sideQuestionId: "closed",
+    })
   })
-}
 
-function dropFiles(files: File[]) {
-  fireEvent.drop(screen.getByRole("textbox", { name: "Question" }), {
-    dataTransfer: { types: ["Files"], files },
+  it("creates an independent side question and shows its own terminal", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 })
+    scene.call.mockImplementation((command: string) => {
+      if (command === "native_session_list") return Promise.resolve([])
+      if (command === "native_session_create_side")
+        return Promise.resolve({
+          sideQuestion: side("beta"),
+          terminalId: "pty-beta",
+        })
+      return Promise.resolve(undefined)
+    })
+
+    renderTab()
+    await user.click(screen.getByRole("button", { name: "New side question" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("side-terminal").dataset.terminalId).toBe(
+        "pty-beta"
+      )
+    })
+    expect(screen.getByRole("button", { name: "beta" })).toBeDefined()
+    expect(scene.call).toHaveBeenCalledWith(
+      "native_session_create_side",
+      { ...source, requestId: expect.any(String), title: expect.any(String) },
+      expect.any(Object)
+    )
   })
-}
 
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise
+  it("retries a lost response with the same id but gives a new side question a new id", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 })
+    const attempts: string[] = []
+    scene.call.mockImplementation((command, args) => {
+      if (command === "native_session_list") return Promise.resolve([])
+      attempts.push(args.requestId)
+      if (attempts.length === 1) return Promise.reject(new Error("offline"))
+      return Promise.resolve({ sideQuestion: side(args.requestId), terminalId: `pty-${args.requestId}` })
+    })
+    renderTab()
+    const create = screen.getByRole("button", { name: "New side question" })
+    await user.click(create)
+    await user.click(create)
+    await user.click(create)
+    expect(attempts).toHaveLength(3)
+    expect(attempts[0]).toEqual(expect.any(String))
+    expect(attempts[1]).toBe(attempts[0])
+    expect(attempts[2]).not.toBe(attempts[1])
   })
-  return { promise, resolve }
-}
 
-const answer: SideQuestionAnswer = {
-  answer: "Independent answer",
-  agentType: "codex",
-  contextMessages: 0,
-  contextChars: 0,
-  selectionChars: 0,
-}
+  it("switches between side questions by attaching to each terminal", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 })
+    scene.call.mockImplementation((command: string, args: unknown) => {
+      if (command === "native_session_list")
+        return Promise.resolve([side("alpha"), side("beta")])
+      if (command === "native_session_open_side") {
+        const { sideQuestionId } = args as { sideQuestionId: string }
+        return Promise.resolve({ terminalId: `pty-${sideQuestionId}` })
+      }
+      return Promise.resolve(undefined)
+    })
 
-function connection(overrides: Partial<TestConnection> = {}): TestConnection {
-  return {
-    connectionId: "codex-connection",
-    agentType: "codex",
-    status: "connected",
-    selectorsReady: true,
-    isViewer: false,
-    configStale: false,
-    sessionId: null,
-    configOptions: [
-      {
-        id: "model",
-        name: "Model",
-        category: "model",
-        kind: {
-          type: "select",
-          current_value: "codex-model",
-          options: [{ value: "codex-model", name: "Current Codex model" }],
-          groups: [],
-        },
-      },
-    ],
-    ...overrides,
-  }
-}
+    renderTab()
+    await waitFor(() => {
+      expect(screen.getByTestId("side-terminal").dataset.terminalId).toBe(
+        "pty-alpha"
+      )
+    })
 
-function updateConnection(next: TestConnection | undefined, tabId = "tab-1") {
-  act(() => {
-    scene.connections[tabId] = next
-    scene.listeners.get(tabId)?.forEach((listener) => listener())
+    await user.click(screen.getByRole("button", { name: "beta" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("side-terminal").dataset.terminalId).toBe(
+        "pty-beta"
+      )
+    })
+    expect(scene.call).toHaveBeenCalledWith("native_session_open_side", {
+      sideQuestionId: "beta",
+    })
   })
-}
 
-describe("SideQuestionTab", () => {
-  beforeEach(() => {
-    resetSideQuestions()
-    scene.nativeImages = true
-    scene.isOpen = true
-    scene.activeTab = "side_question"
-    scene.activeTabId = "tab-1"
+  it("closes a side question but keeps it in history and can reopen it", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 })
+    scene.call.mockImplementation((command: string, args: unknown) => {
+      if (command === "native_session_list")
+        return Promise.resolve([side("alpha")])
+      if (command === "native_session_open_side") {
+        const { sideQuestionId } = args as { sideQuestionId: string }
+        return Promise.resolve({ terminalId: `pty-${sideQuestionId}` })
+      }
+      return Promise.resolve(undefined)
+    })
+
+    renderTab()
+    await waitFor(() => {
+      expect(screen.getByTestId("side-terminal").dataset.terminalId).toBe(
+        "pty-alpha"
+      )
+    })
+
+    const item = screen.getByRole("button", { name: "alpha" }).parentElement!
+    await user.click(within(item).getByRole("button", { name: "Close" }))
+
+    await waitFor(() => {
+      expect(scene.call).toHaveBeenCalledWith("native_session_close_side", {
+        sideQuestionId: "alpha",
+      })
+    })
+    // 历史项仍存在，只是标记为已关闭，不再挂载终端。
+    expect(screen.getByRole("button", { name: "alpha" })).toBeDefined()
+    expect(screen.getByText("Closed")).toBeDefined()
+    expect(screen.queryByTestId("side-terminal")).toBeNull()
+
+    await user.click(screen.getByRole("button", { name: "alpha" }))
+    await waitFor(() => {
+      expect(screen.getByTestId("side-terminal").dataset.terminalId).toBe(
+        "pty-alpha"
+      )
+    })
+  })
+
+  it("closes a persisted side question even when its terminal could not restore", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 })
+    scene.call.mockImplementation((command: string) => {
+      if (command === "native_session_list")
+        return Promise.resolve([side("alpha")])
+      if (command === "native_session_open_side")
+        return Promise.reject(new Error("terminal unavailable"))
+      return Promise.resolve(undefined)
+    })
+
+    renderTab()
+    const item = (await screen.findByRole("button", { name: "alpha" }))
+      .parentElement!
+    await user.click(within(item).getByRole("button", { name: "Close" }))
+
+    await waitFor(() => {
+      expect(scene.call).toHaveBeenCalledWith("native_session_close_side", {
+        sideQuestionId: "alpha",
+      })
+    })
+    expect(screen.getByText("Closed")).toBeDefined()
+  })
+
+  it("keeps the side question open when the close request fails", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 })
+    scene.call.mockImplementation((command: string) => {
+      if (command === "native_session_list")
+        return Promise.resolve([side("alpha")])
+      if (command === "native_session_open_side")
+        return Promise.resolve({ terminalId: "pty-alpha" })
+      if (command === "native_session_close_side")
+        return Promise.reject(new Error("close failed"))
+      return Promise.resolve(undefined)
+    })
+
+    renderTab()
+    await screen.findByTestId("side-terminal")
+    const item = screen.getByRole("button", { name: "alpha" }).parentElement!
+    await user.click(within(item).getByRole("button", { name: "Close" }))
+
+    await waitFor(() => expect(scene.toastError).toHaveBeenCalled())
+    expect(screen.getByText("Open")).toBeDefined()
+    expect(screen.getByTestId("side-terminal")).toBeDefined()
+  })
+
+  it("shows why creating a side question is unavailable", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 })
+    scene.call.mockImplementation((command: string) => {
+      if (command === "native_session_list") return Promise.resolve([])
+      return Promise.reject({
+        code: "dependency_missing",
+        message: "Read-only terminal is unavailable",
+      })
+    })
+
+    renderTab()
+    await user.click(screen.getByRole("button", { name: "New side question" }))
+
+    await waitFor(() =>
+      expect(scene.toastError).toHaveBeenCalledWith(expect.any(String), {
+        description: "Read-only terminal is unavailable",
+      })
+    )
+  })
+
+  it("does not invent state when the source connection is missing", async () => {
+    scene.connection = undefined
+    scene.call.mockResolvedValue([])
+    renderTab()
+
+    expect(
+      await screen.findByText(/Connect the current conversation first/)
+    ).toBeDefined()
+    expect(
+      screen.queryByRole("button", { name: "New side question" })
+    ).toBeDisabled()
+  })
+
+  it("keeps a side question available while the main conversation uses its native terminal", async () => {
+    scene.call.mockImplementation((command: string) => {
+      if (command === "native_session_list")
+        return Promise.resolve([side("alpha")])
+      if (command === "native_session_open_side")
+        return Promise.resolve({ terminalId: "pty-alpha" })
+      return Promise.resolve(undefined)
+    })
+
+    const { rerender } = renderTab()
+    await screen.findByTestId("side-terminal")
+
+    scene.connection = undefined
+    rerender(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <SideQuestionTab />
+      </NextIntlClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(scene.call).toHaveBeenCalledWith("native_session_list", {
+        sourceConnectionId: "",
+        sourceConversationId: 7,
+        sourceAgentType: "codex",
+      })
+      expect(screen.getByTestId("side-terminal").dataset.terminalId).toBe(
+        "pty-alpha"
+      )
+    })
+    expect(
+      screen.getByRole("button", { name: "New side question" })
+    ).toBeDisabled()
+  })
+
+  it("does not show the previous session's side question after switching to an unsupported agent", async () => {
+    scene.call.mockImplementation((command: string) => {
+      if (command === "native_session_list")
+        return Promise.resolve([side("alpha")])
+      if (command === "native_session_open_side")
+        return Promise.resolve({ terminalId: "pty-alpha" })
+      return Promise.resolve(undefined)
+    })
+
+    const { rerender } = renderTab()
+    await screen.findByTestId("side-terminal")
+
+    scene.activeTabId = "tab-2"
     scene.tabs = [
       {
-        id: "tab-1",
-        kind: "conversation",
-        isPinned: false,
+        id: "tab-2",
+        conversationId: 8,
+        agentType: "gemini",
+        title: "Other",
         folderId: 1,
-        agentType: "codex",
-        conversationId: 12,
-        title: "Main conversation",
-      },
+      } as TabItem,
+    ]
+    rerender(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <SideQuestionTab />
+      </NextIntlClientProvider>
+    )
+
+    expect(screen.queryByRole("button", { name: "alpha" })).toBeNull()
+    expect(screen.queryByTestId("side-terminal")).toBeNull()
+  })
+
+  it("does not display a late creation result in a different main session", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 })
+    let finishCreation!: (result: {
+      sideQuestion: NativeSideQuestion
+      terminalId: string
+    }) => void
+    scene.call.mockImplementation((command: string) => {
+      if (command === "native_session_list") return Promise.resolve([])
+      if (command === "native_session_create_side")
+        return new Promise((resolve) => {
+          finishCreation = resolve
+        })
+      return Promise.resolve(undefined)
+    })
+
+    const { rerender } = renderTab()
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "New side question" })
+      ).toBeEnabled()
+    )
+    await user.click(screen.getByRole("button", { name: "New side question" }))
+
+    scene.activeTabId = "tab-2"
+    scene.connection = { connectionId: "conn-2", agentType: "codex" }
+    scene.tabs = [
       {
         id: "tab-2",
-        kind: "conversation",
-        isPinned: false,
+        conversationId: 8,
+        agentType: "codex",
+        title: "Other",
         folderId: 1,
-        agentType: "pi",
-        conversationId: 13,
-        title: "Other conversation",
-      },
+      } as TabItem,
     ]
-    scene.hasConnectionStore = true
-    scene.connections = { "tab-1": connection() }
-    scene.listeners.clear()
-    scene.connectionStore.getConnection.mockReset()
-    scene.connectionStore.getConnection.mockImplementation(
-      (key: string) => scene.connections[key]
-    )
-    scene.connectionStore.subscribeKey.mockReset()
-    scene.connectionStore.subscribeKey.mockImplementation(
-      (key: string, listener: () => void) => {
-        const listeners = scene.listeners.get(key) ?? new Set<() => void>()
-        listeners.add(listener)
-        scene.listeners.set(key, listeners)
-        return () => listeners.delete(listener)
-      }
-    )
-    scene.call.mockReset()
-    scene.call.mockResolvedValue(answer)
-    scene.copyText.mockReset().mockResolvedValue(true)
-    scene.readAttachment.mockReset().mockImplementation(async (file: File) => ({
-      type: "image",
-      id: file.name,
-      name: file.name,
-      data: "image-data",
-      mimeType: "image/png",
-      bytes: file.size,
-    }))
-    scene.toastError.mockReset()
-    scene.getTimelineTurns.mockClear()
-  })
-
-  it("follows the selected Codex model and keeps the composer actions minimal", () => {
-    renderTab()
-    expect(
-      screen.getByText("Follow current conversation · Current Codex model")
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        "Continue asking here. Answers stay here, outside the main conversation."
-      )
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: "Attach images or text files" })
-    ).toBeNull()
-    expect(
-      screen.queryByText(enMessages.Folder.sideQuestion.contextLabel)
-    ).toBeNull()
-    expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled()
-  })
-
-  it("shows the answer only in the independent panel", async () => {
-    renderTab()
-    enterQuestion()
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    await screen.findByText("Independent answer")
-    expect(scene.call).toHaveBeenCalledTimes(1)
-    expect(scene.call.mock.calls[0][0]).toBe("side_question_ask")
-    expect(scene.call.mock.calls[0][1]).toEqual({
-      requestId: expect.any(String),
-      question: "What does this mean?",
-      selection: null,
-      sourceConnectionId: "codex-connection",
-      sourceConversationId: 12,
-      sourceAgentType: "codex",
-    })
-    expect(scene.getTimelineTurns).not.toHaveBeenCalled()
-  })
-
-  it("sends from a live native session and isolates the saved side thread by session id", async () => {
-    scene.connections["tab-1"] = connection({ sessionId: "native-first" })
-    renderTab()
-    enterQuestion("Native question")
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    await screen.findByText("Independent answer")
-    expect(
-      useSideQuestionStore.getState().bySource["tab-1:1:codex:native-first"]
-        ?.result?.answer
-    ).toBe("Independent answer")
-    updateConnection(connection({ sessionId: "native-second" }))
-    expect(screen.queryByText("Independent answer")).toBeNull()
-    enterQuestion("Another native question")
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    await screen.findByText("Independent answer")
-    expect(scene.call).toHaveBeenCalledTimes(2)
-  })
-
-  it("keeps earlier exchanges visible while continuing the side conversation", async () => {
-    scene.call
-      .mockResolvedValueOnce(answer)
-      .mockResolvedValueOnce({ ...answer, answer: "Follow-up answer" })
-    renderTab()
-    enterQuestion("First question")
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    await screen.findByText("Independent answer")
-    expect(screen.getByRole("textbox", { name: "Question" })).toHaveValue("")
-
-    enterQuestion("What about the alternative?")
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    await screen.findByText("Follow-up answer")
-
-    expect(screen.getByText("First question")).toBeInTheDocument()
-    expect(screen.getByText("Independent answer")).toBeInTheDocument()
-    expect(screen.getByText("What about the alternative?")).toBeInTheDocument()
-    expect(
-      screen.queryByText("Main conversation context: 0 messages · 0 characters")
-    ).toBeNull()
-    expect(scene.call).toHaveBeenLastCalledWith(
-      "side_question_ask",
-      expect.objectContaining({
-        history: [
-          { role: "user", text: "First question" },
-          { role: "assistant", text: "Independent answer" },
-        ],
-      }),
-      expect.anything()
-    )
-  })
-
-  it("uploads an image, allows an image-only question, and sends bytes without paths", async () => {
-    renderTab()
-    const file = new File(["image"], "screen.png", { type: "image/png" })
-    dropFiles([file])
-    await screen.findByAltText("screen.png")
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    await screen.findByText("Independent answer")
-    expect(scene.call).toHaveBeenCalledWith(
-      "side_question_ask",
-      expect.objectContaining({
-        question: "",
-        attachments: [
-          {
-            type: "image",
-            name: "screen.png",
-            mimeType: "image/png",
-            data: "image-data",
-          },
-        ],
-      }),
-      expect.anything()
-    )
-  })
-
-  it("rejects images when the native side-question protocol accepts text only", async () => {
-    scene.nativeImages = false
-    renderTab()
-    dropFiles([new File(["image"], "screen.png", { type: "image/png" })])
-    await waitFor(() => {
-      expect(scene.toastError).toHaveBeenCalledWith(
-        enMessages.Folder.sideQuestion.imagesUnsupported
-      )
-    })
-    expect(screen.queryByAltText("screen.png")).toBeNull()
-    expect(scene.call).not.toHaveBeenCalled()
-  })
-
-  it("accepts pasted and dropped files and removes an attachment before asking", async () => {
-    renderTab()
-    const first = new File(["image"], "paste.png", { type: "image/png" })
-    fireEvent.paste(screen.getByRole("textbox", { name: "Question" }), {
-      clipboardData: { files: [first], items: [], getData: () => "" },
-    })
-    await screen.findByAltText("paste.png")
-    const second = new File(["image"], "drop.png", { type: "image/png" })
-    fireEvent.drop(screen.getByRole("region", { name: "Side question" }), {
-      dataTransfer: { types: ["Files"], files: [second] },
-    })
-    await screen.findByAltText("drop.png")
-    fireEvent.click(screen.getByRole("button", { name: "Remove paste.png" }))
-    expect(screen.queryByAltText("paste.png")).toBeNull()
-    expect(screen.getByAltText("drop.png")).toBeInTheDocument()
-  })
-
-  it("blocks sending during a file read and discards its result after clearing", async () => {
-    const read =
-      deferred<
-        Awaited<
-          ReturnType<
-            typeof import("@/lib/side-question-attachments").readSideQuestionAttachment
-          >
-        >
-      >()
-    scene.readAttachment.mockReturnValue(read.promise)
-    renderTab()
-    enterQuestion()
-    dropFiles([new File(["image"], "late.png", { type: "image/png" })])
-    expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled()
-    fireEvent.click(screen.getByRole("button", { name: "Clear side question" }))
-    await act(async () =>
-      read.resolve({
-        type: "image",
-        id: "late",
-        name: "late.png",
-        mimeType: "image/png",
-        data: "late",
-        bytes: 4,
-      })
-    )
-    expect(screen.queryByAltText("late.png")).toBeNull()
-    expect(scene.call).not.toHaveBeenCalled()
-  })
-
-  it("copies the answer and reports a clipboard failure without losing it", async () => {
-    renderTab()
-    enterQuestion()
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    await screen.findByText("Independent answer")
-    scene.copyText.mockResolvedValueOnce(false)
-    fireEvent.click(screen.getByRole("button", { name: "Copy answer" }))
-    await waitFor(() => expect(scene.toastError).toHaveBeenCalledTimes(1))
-    expect(screen.getByText("Independent answer")).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Copy answer" }))
-    await screen.findByRole("button", { name: "Copied" })
-    expect(scene.copyText).toHaveBeenCalledWith("Independent answer")
-  })
-
-  it("never transfers a late file read into a different conversation", async () => {
-    const read =
-      deferred<
-        Awaited<
-          ReturnType<
-            typeof import("@/lib/side-question-attachments").readSideQuestionAttachment
-          >
-        >
-      >()
-    scene.readAttachment.mockReturnValueOnce(read.promise)
-    scene.tabs[1] = { ...scene.tabs[1], agentType: "codex" }
-    scene.connections["tab-2"] = connection()
-    const view = renderTab()
-    dropFiles([new File(["first"], "old.png", { type: "image/png" })])
-    scene.activeTabId = "tab-2"
-    view.rerender(
+    rerender(
       <NextIntlClientProvider locale="en" messages={enMessages}>
         <SideQuestionTab />
       </NextIntlClientProvider>
     )
-    dropFiles([new File(["second"], "new.png", { type: "image/png" })])
-    await screen.findByAltText("new.png")
-    await act(async () =>
-      read.resolve({
-        type: "image",
-        id: "old",
-        name: "old.png",
-        mimeType: "image/png",
-        data: "old",
-        bytes: 5,
+    await waitFor(() =>
+      expect(scene.call).toHaveBeenCalledWith("native_session_list", {
+        sourceConnectionId: "conn-2",
+        sourceConversationId: 8,
+        sourceAgentType: "codex",
       })
     )
-    expect(screen.queryByAltText("old.png")).toBeNull()
-    expect(
-      useSideQuestionStore.getState().bySource["tab-1:1:codex"]?.attachments ??
-        []
-    ).toEqual([])
-    expect(screen.getByRole("button", { name: "Ask" })).toBeEnabled()
-  })
 
-  it("clears and cancels a pending question without accepting its late answer", async () => {
-    const waiting = deferred<SideQuestionAnswer>()
-    scene.call.mockImplementation((command: string) =>
-      command === "side_question_ask" ? waiting.promise : Promise.resolve()
-    )
-    renderTab()
-    enterQuestion()
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    fireEvent.click(screen.getByRole("button", { name: "Clear side question" }))
-    expect(screen.getByRole("textbox", { name: "Question" })).toHaveValue("")
-    expect(
-      screen.getByRole("button", { name: "Clear side question" })
-    ).toBeDisabled()
-    await act(async () => waiting.resolve(answer))
-    expect(screen.queryByText("Independent answer")).toBeNull()
-    expect(scene.call).toHaveBeenCalledWith("side_question_cancel", {
-      requestId: expect.any(String),
+    await act(async () => {
+      finishCreation({ sideQuestion: side("late"), terminalId: "pty-late" })
     })
-  })
-
-  it("updates the displayed model from grouped options through the tab connection subscription", () => {
-    renderTab()
-    updateConnection(
-      connection({
-        configOptions: [
-          {
-            id: "agent-model",
-            name: "Model",
-            category: "model",
-            kind: {
-              type: "select",
-              current_value: "grouped-model",
-              options: [],
-              groups: [
-                {
-                  group: "provider",
-                  name: "Provider",
-                  options: [
-                    { value: "grouped-model", name: "New selected model" },
-                  ],
-                },
-              ],
-            },
-          },
-        ],
-      })
-    )
-    expect(
-      screen.getByText("Follow current conversation · New selected model")
-    ).toBeInTheDocument()
-    expect(scene.connectionStore.subscribeKey).toHaveBeenCalledWith(
-      "tab-1",
-      expect.any(Function)
-    )
-    expect(scene.call).not.toHaveBeenCalled()
-  })
-
-  it.each([false, true])(
-    "explains a missing connection without a model fallback (store present: %s)",
-    (hasStore) => {
-      scene.hasConnectionStore = hasStore
-      scene.connections = {}
-      renderTab()
-      enterQuestion()
-      expect(
-        screen.getByText(/Connect the current conversation first/)
-      ).toBeInTheDocument()
-      expect(
-        screen.getByText("Follow current conversation")
-      ).toBeInTheDocument()
-      expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled()
-      fireEvent.keyDown(screen.getByRole("textbox"), {
-        key: "Enter",
-        ctrlKey: true,
-      })
-      expect(scene.call).not.toHaveBeenCalled()
-    }
-  )
-
-  it.each(["connecting", "disconnected", "error"] as const)(
-    "disables sending while the connection is %s",
-    (status) => {
-      scene.connections["tab-1"] = connection({ status })
-      renderTab()
-      enterQuestion()
-      expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled()
-      expect(
-        screen.getByText(/Connect the current conversation first/)
-      ).toBeInTheDocument()
-    }
-  )
-
-  it("waits for selectors and reacts when they become ready", () => {
-    scene.connections["tab-1"] = connection({ selectorsReady: false })
-    renderTab()
-    enterQuestion()
-    expect(
-      screen.getByText(/Syncing the current conversation's model settings/)
-    ).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled()
-    updateConnection(connection())
-    expect(screen.getByRole("button", { name: "Ask" })).toBeEnabled()
-  })
-
-  it("shows the selected model identifier when no display label is advertised", () => {
-    const current = connection()
-    if (current.configOptions?.[0].kind.type === "select") {
-      current.configOptions[0].kind.options = []
-    }
-    scene.connections["tab-1"] = current
-    renderTab()
-    expect(
-      screen.getByText("Follow current conversation · codex-model")
-    ).toBeInTheDocument()
-  })
-
-  it("waits for a real model instead of sending with an unknown default", () => {
-    scene.connections["tab-1"] = connection({ configOptions: null })
-    renderTab()
-    expect(screen.getByText("Follow current conversation")).toBeInTheDocument()
-    expect(screen.queryByText(/Follow current conversation ·/)).toBeNull()
-    enterQuestion()
-    expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled()
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    expect(scene.call).not.toHaveBeenCalled()
-  })
-
-  it("disables asking with no active tab", () => {
-    scene.activeTabId = "missing"
-    renderTab()
-    expect(
-      screen.getByText("Select a conversation to ask a side question.")
-    ).toBeInTheDocument()
-    expect(screen.getByRole("textbox")).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled()
-    expect(scene.connectionStore.subscribeKey).not.toHaveBeenCalled()
-  })
-
-  it("rejects a connection belonging to another agent", () => {
-    scene.connections["tab-1"] = connection({ agentType: "claude_code" })
-    renderTab()
-    enterQuestion()
-    expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled()
-    expect(
-      screen.getByText(/Connect the current conversation first/)
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/Follow current conversation ·/)).toBeNull()
-  })
-
-  it("shows unsupported agents explicitly even with a ready connection", () => {
-    scene.tabs[1] = { ...scene.tabs[1], agentType: "gemini" }
-    scene.activeTabId = "tab-2"
-    scene.connections["tab-2"] = connection({ agentType: "gemini" })
-    renderTab()
-    enterQuestion()
-    expect(
-      screen.getByText(/no available native side-question capability/)
-    ).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled()
-    expect(screen.queryByText(/Follow current conversation ·/)).toBeNull()
-    expect(scene.call).not.toHaveBeenCalled()
-  })
-
-  it.each(["pi", "deepseek"] as const)(
-    "sends a plugin-backed side question for %s",
-    (agentType) => {
-      scene.tabs[0] = { ...scene.tabs[0], agentType }
-      scene.connections["tab-1"] = connection({ agentType })
-      renderTab()
-      enterQuestion()
-      expect(screen.getByRole("button", { name: "Ask" })).toBeEnabled()
-    }
-  )
-
-  it.each(["connected", "prompting"] as const)(
-    "allows a Claude viewer to ask while %s",
-    async (status) => {
-      scene.tabs[0] = { ...scene.tabs[0], agentType: "claude_code" }
-      scene.connections["tab-1"] = connection({
-        connectionId: "claude-connection",
-        agentType: "claude_code",
-        isViewer: true,
-        status,
-      })
-      renderTab()
-      enterQuestion()
-      fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-      await screen.findByText("Independent answer")
-      expect(scene.call).toHaveBeenCalledWith(
-        "side_question_ask",
-        expect.objectContaining({
-          sourceConnectionId: "claude-connection",
-          sourceAgentType: "claude_code",
-        }),
-        expect.anything()
-      )
-    }
-  )
-
-  it("sends the native source identity without reading the frontend timeline", async () => {
-    scene.tabs[0] = {
-      ...scene.tabs[0],
-      conversationId: null,
-      runtimeConversationId: -12,
-    }
-    renderTab()
-    enterQuestion()
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    await screen.findByText("Independent answer")
-    expect(scene.getTimelineTurns).not.toHaveBeenCalled()
-    expect(scene.call).toHaveBeenCalledWith(
-      "side_question_ask",
-      expect.objectContaining({ sourceConversationId: null }),
-      expect.anything()
-    )
-  })
-
-  it("re-reads the connection and persisted source at submit time", async () => {
-    renderTab()
-    enterQuestion()
-    scene.connections["tab-1"] = connection({
-      connectionId: "replacement-connection",
-    })
-    scene.tabs[0] = { ...scene.tabs[0], conversationId: 42 }
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    await screen.findByText("Independent answer")
-    expect(scene.call).toHaveBeenCalledWith(
-      "side_question_ask",
-      expect.objectContaining({
-        sourceConnectionId: "replacement-connection",
-        sourceConversationId: 42,
-      }),
-      expect.anything()
-    )
-    expect(scene.getTimelineTurns).not.toHaveBeenCalled()
-  })
-
-  it.each(["missing", "agent", "selectors", "disconnected", "tab", "retarget"])(
-    "rejects a stale submit after a %s change",
-    (change) => {
-      renderTab()
-      enterQuestion()
-      if (change === "missing") scene.connections["tab-1"] = undefined
-      if (change === "agent")
-        scene.connections["tab-1"] = connection({ agentType: "claude_code" })
-      if (change === "selectors")
-        scene.connections["tab-1"] = connection({ selectorsReady: false })
-      if (change === "disconnected")
-        scene.connections["tab-1"] = connection({ status: "disconnected" })
-      if (change === "tab") scene.activeTabId = "tab-2"
-      if (change === "retarget")
-        scene.tabs[0] = { ...scene.tabs[0], agentType: "claude_code" }
-      fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-      expect(scene.call).not.toHaveBeenCalled()
-    }
-  )
-
-  it("uses the shared editor submit intent without creating another sending path", async () => {
-    renderTab()
-    enterQuestion()
-    expect(scene.call).not.toHaveBeenCalled()
-    act(() => scene.editorSubmit?.())
-    await screen.findByText("Independent answer")
-    expect(scene.call).toHaveBeenCalledTimes(1)
-  })
-
-  it("rejects an oversized question before starting a provider request", () => {
-    renderTab()
-    enterQuestion("问".repeat(4_001))
-    expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled()
-    expect(screen.getByRole("alert")).toHaveTextContent("4,000")
-    expect(scene.call).not.toHaveBeenCalled()
-  })
-
-  it("keeps a hidden question running and restores its answer when reopened", async () => {
-    const waiting = deferred<SideQuestionAnswer>()
-    scene.call.mockImplementation((command: string) =>
-      command === "side_question_ask" ? waiting.promise : Promise.resolve()
-    )
-    const view = renderTab()
-    enterQuestion()
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument()
-    scene.isOpen = false
-    view.rerender(
-      <NextIntlClientProvider locale="en" messages={enMessages}>
-        <SideQuestionTab />
-      </NextIntlClientProvider>
-    )
-    await act(async () => waiting.resolve(answer))
-    scene.isOpen = true
-    view.rerender(
-      <NextIntlClientProvider locale="en" messages={enMessages}>
-        <SideQuestionTab />
-      </NextIntlClientProvider>
-    )
-    expect(screen.getByText("Independent answer")).toBeInTheDocument()
-    expect(scene.call.mock.calls.map(([command]) => command)).not.toContain(
-      "side_question_cancel"
-    )
-  })
-
-  it("cancels once without submitting the replacement Ask button", async () => {
-    const waiting = deferred<SideQuestionAnswer>()
-    scene.call.mockImplementation((command: string) =>
-      command === "side_question_ask" ? waiting.promise : Promise.resolve()
-    )
-    renderTab()
-    enterQuestion()
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    const cancel = screen.getByRole("button", { name: "Cancel" })
-    const click = new MouseEvent("click", {
-      bubbles: true,
-      cancelable: true,
-    })
-    fireEvent(cancel, click)
-    expect(click.defaultPrevented).toBe(true)
-    expect(screen.getByText("Cancelled")).toBeInTheDocument()
-    expect(
-      scene.call.mock.calls.filter(
-        ([command]) => command === "side_question_ask"
-      )
-    ).toHaveLength(1)
-    expect(
-      scene.call.mock.calls.filter(
-        ([command]) => command === "side_question_cancel"
-      )
-    ).toHaveLength(1)
-    await act(async () => waiting.resolve(answer))
-    expect(screen.queryByText("Independent answer")).toBeNull()
-    expect(screen.getByText("Cancelled")).toBeInTheDocument()
-  })
-
-  it("can start over after explicitly stopping the first answer", async () => {
-    const waiting = deferred<SideQuestionAnswer>()
-    scene.call.mockImplementation((command: string) =>
-      command === "side_question_ask" ? waiting.promise : Promise.resolve()
-    )
-    renderTab()
-    enterQuestion("Stopped question")
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
-    const clear = screen.getByRole("button", { name: "Clear side question" })
-    expect(clear).toBeEnabled()
-    fireEvent.click(clear)
-    expect(screen.queryByText("Stopped question")).toBeNull()
-    expect(screen.queryByText("Cancelled")).toBeNull()
-    await act(async () => waiting.resolve(answer))
-    expect(screen.queryByText("Independent answer")).toBeNull()
-  })
-
-  it("separates source drafts and restores a completed question after switching back", async () => {
-    const waiting = deferred<SideQuestionAnswer>()
-    scene.call.mockImplementation((command: string) =>
-      command === "side_question_ask" ? waiting.promise : Promise.resolve()
-    )
-    const view = renderTab()
-    enterQuestion("First source question")
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    scene.activeTabId = "tab-2"
-    view.rerender(
-      <NextIntlClientProvider locale="en" messages={enMessages}>
-        <SideQuestionTab />
-      </NextIntlClientProvider>
-    )
-    expect(screen.getByRole("textbox", { name: "Question" })).toHaveValue("")
-    enterQuestion("Second source draft")
-    await act(async () => waiting.resolve(answer))
-    expect(screen.queryByText("Independent answer")).toBeNull()
-    scene.activeTabId = "tab-1"
-    view.rerender(
-      <NextIntlClientProvider locale="en" messages={enMessages}>
-        <SideQuestionTab />
-      </NextIntlClientProvider>
-    )
-    expect(screen.getByText("Independent answer")).toBeInTheDocument()
-    expect(screen.getByText("First source question")).toBeInTheDocument()
-    expect(scene.call.mock.calls.map(([command]) => command)).not.toContain(
-      "side_question_cancel"
-    )
-    expect(
-      useSideQuestionStore.getState().bySource["tab-2:1:pi"].question
-    ).toBe("Second source draft")
-  })
-
-  it("uses a captured selection without appending recent conversation text", async () => {
-    useSideQuestionStore
-      .getState()
-      .setSelection("tab-1:1:codex", "Chosen passage")
-    renderTab()
-    expect(screen.getByText("Chosen passage")).toBeInTheDocument()
-    enterQuestion()
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }))
-    await waitFor(() => {
-      expect(scene.call).toHaveBeenCalledWith(
-        "side_question_ask",
-        expect.objectContaining({ selection: "Chosen passage" }),
-        expect.anything()
-      )
-    })
+    expect(screen.queryByRole("button", { name: "late" })).toBeNull()
+    expect(screen.queryByTestId("side-terminal")).toBeNull()
   })
 })

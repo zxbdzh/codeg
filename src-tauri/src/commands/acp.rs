@@ -465,8 +465,26 @@ pub(crate) async fn resolve_npx_command_for(agent_type: AgentType, cmd: &str) ->
 fn npx_native_install(agent_type: AgentType, cmd: &str) -> Option<PathBuf> {
     match agent_type {
         AgentType::Grok => grok_native_install(&home_dir_or_default(), cmd),
+        AgentType::DeepSeek => dsh_native_install(&home_dir_or_default(), cmd),
         _ => None,
     }
+}
+
+/// DSH 的 Windows 安装可能只有 profile 里的 Node 入口，没有写入 PATH 的
+/// `dsh.cmd`。把这份已安装入口纳入统一解析，主线和旁问才能使用同一套 DSH。
+fn dsh_native_install(home: &Path, cmd: &str) -> Option<PathBuf> {
+    if cmd != "dsh" {
+        return None;
+    }
+    let launcher = home
+        .join(".dsh")
+        .join("profiles")
+        .join("node_modules")
+        .join("@deepseek-ai")
+        .join("dsh")
+        .join("lib")
+        .join("bin.js");
+    launcher.is_file().then_some(launcher)
 }
 
 /// `grok` as Grok's own installers leave it: `x.ai/cli/install.sh` and
@@ -21743,6 +21761,29 @@ wire_api = "chat"
             Some(prefix_bin.join(with_npm).as_path()),
             "the npm copy still wins"
         );
+    }
+
+    #[test]
+    fn dsh_native_install_finds_a_profile_launcher_without_a_path_shim() {
+        let home = tempfile::tempdir().expect("tempdir");
+        let launcher = home
+            .path()
+            .join(".dsh")
+            .join("profiles")
+            .join("node_modules")
+            .join("@deepseek-ai")
+            .join("dsh")
+            .join("lib")
+            .join("bin.js");
+        std::fs::create_dir_all(launcher.parent().expect("launcher directory"))
+            .expect("create launcher directory");
+        std::fs::write(&launcher, "#!/usr/bin/env node\n").expect("write launcher");
+
+        assert_eq!(
+            dsh_native_install(home.path(), "dsh").as_deref(),
+            Some(launcher.as_path())
+        );
+        assert_eq!(dsh_native_install(home.path(), "other"), None);
     }
 
     fn write_skill_md(name: &str, body: &str) -> (PathBuf, PathBuf) {

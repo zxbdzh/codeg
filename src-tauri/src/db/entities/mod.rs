@@ -24,6 +24,7 @@ pub mod prompt_stash;
 pub mod quick_message;
 pub mod research_branch;
 pub mod remote_workspace_connection;
+pub mod side_question_session;
 pub mod srn_web_login;
 pub mod srn_web_session;
 pub mod token_usage_sync;
