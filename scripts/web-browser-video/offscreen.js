@@ -26,12 +26,15 @@ async function startRtc(session, stunUrl, send, fail) {
   })
   session.peer = peer
   const track = session.stream.getVideoTracks()[0]
-  track.contentHint = "motion"
+  // 网页文字不能为保帧率缩成低分辨率后再放大；负载高时优先降帧。
+  track.contentHint = "text"
   const sender = peer.addTrack(track, session.stream)
   const parameters = sender.getParameters()
+  parameters.degradationPreference = "maintain-resolution"
   Object.assign(parameters.encodings[0], {
     maxFramerate: VIDEO_FPS,
     maxBitrate: 6_000_000,
+    scaleResolutionDownBy: 1,
   })
   await sender.setParameters(parameters)
   peer.onconnectionstatechange = () => {
