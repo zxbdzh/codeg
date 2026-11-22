@@ -76,6 +76,7 @@ fn parse_args() -> Result<Args, String> {
     let mut parent_connection_id = None;
     let mut socket_path = None;
     let mut token = None;
+    let mut token_env = None;
     let mut parent_pid = None;
     let mut features = None;
     let mut custom_agents = None;
@@ -100,6 +101,12 @@ fn parse_args() -> Result<Args, String> {
                 token = Some(
                     iter.next()
                         .ok_or_else(|| "--token requires a value".to_string())?,
+                );
+            }
+            "--token-env" => {
+                token_env = Some(
+                    iter.next()
+                        .ok_or_else(|| "--token-env requires a value".to_string())?,
                 );
             }
             "--parent-pid" => {
@@ -131,18 +138,30 @@ fn parse_args() -> Result<Args, String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "codeg-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,tasks,result] [--custom-agents custom:<id>,...] [--disabled-agents <agent>,...]"
+                    "codeg-mcp --parent-connection-id <uuid> --socket-path <path> (--token <secret> | --token-env <name>) [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,tasks,result] [--custom-agents custom:<id>,...] [--disabled-agents <agent>,...]"
                 );
                 std::process::exit(0);
             }
             other => return Err(format!("unknown arg: {other}")),
         }
     }
+    let token = match (token, token_env) {
+        (Some(token), None) => token,
+        (None, Some(name)) => {
+            std::env::var(&name).map_err(|_| format!("environment variable {name} is missing"))?
+        }
+        (Some(_), Some(_)) => {
+            return Err("--token and --token-env are mutually exclusive".to_string())
+        }
+        (None, None) => {
+            return Err("missing --token or --token-env".to_string());
+        }
+    };
     Ok(Args {
         parent_connection_id: parent_connection_id
             .ok_or_else(|| "missing --parent-connection-id".to_string())?,
         socket_path: socket_path.ok_or_else(|| "missing --socket-path".to_string())?,
-        token: token.ok_or_else(|| "missing --token".to_string())?,
+        token,
         parent_pid,
         features,
         custom_agents,

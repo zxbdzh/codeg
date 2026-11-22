@@ -1052,6 +1052,10 @@ const CODEX_CONFIG_ENV: &str = "CODEX_CONFIG";
 /// codeg's sessions: codex's own default up to 0.163 (see
 /// [`apply_codex_env_policy`]).
 const CODEX_THREAD_UNLOAD_DELAY_SECS: u64 = 60;
+/// Codex 没有“无限 MCP 超时”值；使用已验证的约 68 年期限，仍可主动取消。
+const CODEG_MCP_TOOL_TIMEOUT_SEC: u64 = 2_147_483_647;
+const CODEG_MCP_TOKEN_ENV: &str = "CODEG_MCP_TOKEN";
+const CODEG_MCP_PRECONFIGURED_ENV: &str = "CODEG_MCP_PRECONFIGURED";
 
 /// `current` (the `CODEX_CONFIG` the agent would get) with
 /// `thread_unload_delay_secs` added, or `None` to leave it as it is: when it
@@ -1076,14 +1080,39 @@ fn codex_config_with_thread_unload_delay(current: Option<&str>) -> Option<String
     Some(serde_json::Value::Object(config).to_string())
 }
 
-/// Codex-only launch policy: force codex-acp's MCP name-conflict de-duplication
-/// OFF. codeg injects its companion server (`codeg-mcp`) over ACP
-/// `session/new.mcpServers`; codex-acp otherwise drops any ACP-passed server
-/// whose name collides with a `config.toml` entry — global *or* project layer
-/// (the check was widened to project `.codex/config.toml` in codex-acp #322) —
-/// silently stripping codeg-mcp and with it ask_user_question / delegation /
-/// feedback / session_info. The late `retain` + `push` makes the override win
-/// over any user `runtime_env` twin, so the injection is guaranteed to survive.
+/// ACP 适配器目前会丢弃 `tool_timeout_sec`，因此必须把内置 companion
+/// 预先写入 Codex 自己读取的配置，不能只依赖 `session/new.mcpServers`。
+fn codex_config_with_codeg_mcp(
+    current: Option<&str>,
+    binary: &Path,
+    args: &[String],
+) -> Option<String> {
+    let mut config = match current.map(str::trim).filter(|value| !value.is_empty()) {
+        None => serde_json::Map::new(),
+        Some(text) => match serde_json::from_str::<serde_json::Value>(text) {
+            Ok(serde_json::Value::Object(config)) => config,
+            _ => return None,
+        },
+    };
+    let servers = config
+        .entry("mcp_servers".to_string())
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()?;
+    servers.insert(
+        "codeg-mcp".to_string(),
+        serde_json::json!({
+            "command": binary.to_string_lossy(),
+            "args": args,
+            // Codex 会过滤 MCP 子进程环境；只透传本连接的 token，不把秘密写进配置。
+            "env_vars": [CODEG_MCP_TOKEN_ENV],
+            "tool_timeout_sec": CODEG_MCP_TOOL_TIMEOUT_SEC,
+        }),
+    );
+    Some(serde_json::Value::Object(config).to_string())
+}
+
+/// 预配置 companion 时保留适配器去重，避免 ACP wire 覆盖它的超时；
+/// 未预配置时关闭去重，保证普通注入不会被用户配置中的同名项吞掉。
 /// Codex launch env policy. `initial_agent_mode` is the preset resolved from
 /// `~/.codex/config.toml` by `codex_launch_initial_agent_mode`, and
 /// `inherited_codex_config` is codeg's own `CODEX_CONFIG`, which the agent
@@ -1100,8 +1129,13 @@ fn apply_codex_env_policy(
         return;
     }
     let key = "DISABLE_MCP_CONFIG_FILTERING";
+    let companion_is_preconfigured = merged
+        .iter()
+        .any(|(k, v)| k == CODEG_MCP_PRECONFIGURED_ENV && v == "true");
     merged.retain(|(k, _)| k != key);
-    merged.push((key.to_string(), "true".to_string()));
+    if !companion_is_preconfigured {
+        merged.push((key.to_string(), "true".to_string()));
+    }
 
     // Keep a closed thread's lock as short as codeg's fork expects. When a
     // fork closes its parent (`close_forked_parent`), codex holds the parent
@@ -2878,7 +2912,7 @@ pub async fn spawn_agent_connection(
     agent_type: AgentType,
     working_dir: Option<String>,
     session_id: Option<String>,
-    runtime_env: BTreeMap<String, String>,
+    mut runtime_env: BTreeMap<String, String>,
     owner_window_label: String,
     emitter: EventEmitter,
     connections: Arc<tokio::sync::Mutex<HashMap<String, AgentConnection>>>,
@@ -2892,6 +2926,9 @@ pub async fn spawn_agent_connection(
         .map_err(AcpError::protocol)?;
     // Use the same cwd for launch settings, the subprocess and session/new.
     let launch_cwd = resolve_working_dir(working_dir.as_deref());
+    // companion 会往 CODEX_CONFIG 加入连接 id 和 pipe；它们不是用户设置，不能使会话立即过期。
+    let config_fingerprint =
+        crate::commands::acp::fingerprint_config(agent_type, &runtime_env);
     // Create the authoritative session state up front. Subsequent emit_with_state
     // calls write through this state and increment its seq counter so the first
     // event the frontend sees has seq=1, not the placeholder 0 from Phase 0.
@@ -2902,6 +2939,23 @@ pub async fn spawn_agent_connection(
         owner_window_label.clone(),
         None, // folder_id 由后续 prompt handler 在首次 send 时绑定 (Phase 2)
     );
+    let preconfigured_companion_token = prepare_codex_mcp_config(
+        agent_type,
+        &mut runtime_env,
+        &connection_id,
+        &launch_cwd,
+        LaunchGroups {
+            tasks: owner_window_label == "work_task",
+            result: cli_root
+                .as_ref()
+                .is_some_and(|seed| seed.output_schema.is_some()),
+        },
+        delegation_injection.as_ref(),
+    )
+    .await;
+    if let Some(token) = preconfigured_companion_token.as_ref() {
+        initial_state.delegation_token = Some(token.clone());
+    }
 
     // Install the SessionStarted dedup signal BEFORE wrapping into Arc so the
     // first event (StatusChanged{Connecting} below) doesn't race with the
@@ -2994,6 +3048,12 @@ pub async fn spawn_agent_connection(
             if let Some(scratch) = scratch {
                 scratch.release();
             }
+            if let (Some(injection), Some(token)) = (
+                delegation_injection.as_ref(),
+                preconfigured_companion_token.as_ref(),
+            ) {
+                injection.tokens.revoke(token).await;
+            }
             return Err(e);
         }
     };
@@ -3074,13 +3134,6 @@ pub async fn spawn_agent_connection(
     let cleanup_connections = connections.clone();
     let cleanup_connection_id = connection_id.clone();
     let state_clone = Arc::clone(&session_state);
-
-    // Canonical config fingerprint of what this process is launching with.
-    // Derived from the same `runtime_env` we hand the agent (minus per-launch
-    // volatile keys) plus the agent's native config file content, so a later
-    // settings save can be compared against it to detect a stale running session.
-    let config_fingerprint =
-        crate::commands::acp::fingerprint_config(agent_type, &runtime_env);
 
     // Insert the entry BEFORE spawning the background task so that a
     // fast-failing `run_connection` can never remove it before it was
@@ -8414,6 +8467,133 @@ struct LaunchGroups {
     result: bool,
 }
 
+fn codeg_mcp_args(
+    parent_connection_id: &str,
+    socket_path: &Path,
+    token_flag: &str,
+    token_value: &str,
+    features: &str,
+    custom_agents: &[String],
+    disabled_agents: &[String],
+) -> Vec<String> {
+    let mut args = vec![
+        "--parent-connection-id".to_string(),
+        parent_connection_id.to_string(),
+        "--socket-path".to_string(),
+        socket_path.to_string_lossy().into_owned(),
+        token_flag.to_string(),
+        token_value.to_string(),
+        "--parent-pid".to_string(),
+        std::process::id().to_string(),
+        "--features".to_string(),
+        features.to_string(),
+    ];
+    if !custom_agents.is_empty() {
+        args.push("--custom-agents".to_string());
+        args.push(custom_agents.join(","));
+    }
+    if !disabled_agents.is_empty() {
+        args.push("--disabled-agents".to_string());
+        args.push(disabled_agents.join(","));
+    }
+    args
+}
+
+/// Codex 必须在适配器启动前就看到 companion 的配置，才能保留
+/// `tool_timeout_sec`。注册 token 也提前完成，等真正的 `session/new` 到来
+/// 时仍使用同一 token。
+async fn prepare_codex_mcp_config(
+    agent_type: AgentType,
+    runtime_env: &mut BTreeMap<String, String>,
+    parent_connection_id: &str,
+    working_dir: &Path,
+    groups: LaunchGroups,
+    injection: Option<&DelegationInjection>,
+) -> Option<String> {
+    if agent_type != AgentType::Codex {
+        return None;
+    }
+    let injection = injection?;
+    let Some(binary_path) = locate_codeg_mcp_binary() else {
+        return None;
+    };
+    let host_tools = HostToolsPolicy::from_env(runtime_env);
+    let delegation_configured = injection.broker.config_snapshot().await.enabled;
+    let delegation_enabled = delegation_configured && host_tools.hosts_channels();
+    let disabled = if delegation_enabled {
+        injection.agent_availability.disabled_agent_wire_slugs().await
+    } else {
+        Vec::new()
+    };
+    let authoring = injection.authoring.snapshot().await;
+    let flags = CompanionFeatureFlags {
+        delegation: delegation_enabled,
+        feedback: injection.feedback.is_enabled().await,
+        ask: injection.ask.is_enabled().await,
+        sessions: injection.sessions.is_enabled().await,
+        tasks: groups.tasks,
+        result: groups.result,
+        automations: authoring.automations_enabled,
+        taskboard: authoring.work_tasks_enabled,
+        browser: cfg!(feature = "tauri-runtime") && injection.browser.is_enabled().await,
+        browser_eval: cfg!(feature = "tauri-runtime")
+            && injection.browser.is_eval_enabled().await,
+        computer: injection.computer.is_served() && injection.computer.is_enabled().await,
+        computer_launch: injection.computer.is_served()
+            && injection.computer.is_launch_enabled().await,
+        computer_clipboard: injection.computer.is_served()
+            && injection.computer.is_clipboard_enabled().await,
+    };
+    let features = companion_features_arg(flags)?;
+    let (custom_agents, disabled_agents) = delegate_target_args(&disabled);
+    let args = codeg_mcp_args(
+        parent_connection_id,
+        &injection.socket_path,
+        "--token-env",
+        CODEG_MCP_TOKEN_ENV,
+        &features,
+        &custom_agents,
+        &disabled_agents,
+    );
+    let inherited_config = std::env::var(CODEX_CONFIG_ENV).ok();
+    let current_config = runtime_env
+        .get(CODEX_CONFIG_ENV)
+        .map(String::as_str)
+        .or(inherited_config.as_deref());
+    let Some(config) = codex_config_with_codeg_mcp(
+        current_config,
+        &binary_path,
+        &args,
+    ) else {
+        tracing::warn!(
+            "[ACP][Codex] CODEX_CONFIG cannot be extended with the codeg-mcp companion; \
+             keeping the normal ACP injection path"
+        );
+        return None;
+    };
+
+    let token = uuid::Uuid::new_v4().to_string();
+    injection
+        .tokens
+        .register(
+            token.clone(),
+            crate::acp::delegation::listener::TokenEntry {
+                parent_connection_id: parent_connection_id.to_string(),
+                working_dir: working_dir.to_path_buf(),
+                agent_hosts_tools: !host_tools.hosts_channels(),
+            },
+        )
+        .await;
+    runtime_env.insert(CODEG_MCP_TOKEN_ENV.to_string(), token.clone());
+    runtime_env.insert(
+        CODEG_MCP_PRECONFIGURED_ENV.to_string(),
+        "true".to_string(),
+    );
+    runtime_env.insert(CODEX_CONFIG_ENV.to_string(), config);
+    Some(token)
+}
+
+#[cfg(test)]
 async fn inject_codeg_mcp(
     servers: &mut Vec<McpServer>,
     injection: &DelegationInjection,
@@ -8422,18 +8602,20 @@ async fn inject_codeg_mcp(
     groups: LaunchGroups,
     host_tools: HostToolsPolicy,
 ) -> Option<CompanionInjection> {
-    inject_codeg_mcp_with_binary_locator(
+    inject_codeg_mcp_with_binary_locator_and_token(
         servers,
         injection,
         parent_connection_id,
         working_dir,
         groups,
         host_tools,
+        None,
         locate_codeg_mcp_binary,
     )
     .await
 }
 
+#[cfg(test)]
 async fn inject_codeg_mcp_with_binary_locator<F>(
     servers: &mut Vec<McpServer>,
     injection: &DelegationInjection,
@@ -8441,6 +8623,32 @@ async fn inject_codeg_mcp_with_binary_locator<F>(
     working_dir: &Path,
     groups: LaunchGroups,
     host_tools: HostToolsPolicy,
+    locate_binary: F,
+) -> Option<CompanionInjection>
+where
+    F: FnOnce() -> Option<PathBuf>,
+{
+    inject_codeg_mcp_with_binary_locator_and_token(
+        servers,
+        injection,
+        parent_connection_id,
+        working_dir,
+        groups,
+        host_tools,
+        None,
+        locate_binary,
+    )
+    .await
+}
+
+async fn inject_codeg_mcp_with_binary_locator_and_token<F>(
+    servers: &mut Vec<McpServer>,
+    injection: &DelegationInjection,
+    parent_connection_id: &str,
+    working_dir: &Path,
+    groups: LaunchGroups,
+    host_tools: HostToolsPolicy,
+    token_override: Option<&str>,
     locate_binary: F,
 ) -> Option<CompanionInjection>
 where
@@ -8530,7 +8738,10 @@ where
     // empty, which also keeps an older codeg-mcp binary — one that rejects
     // unknown flags at startup — working for installations needing neither.
     let (custom_slugs, disabled_builtins) = delegate_target_args(&disabled);
-    let token = uuid::Uuid::new_v4().to_string();
+    let token = token_override
+        .filter(|token| !token.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     injection
         .tokens
         .register(
@@ -8543,31 +8754,15 @@ where
         )
         .await;
     let mut server = McpServerStdio::new("codeg-mcp", binary_path.clone());
-    let mut args = vec![
-        "--parent-connection-id".to_string(),
-        parent_connection_id.to_string(),
-        "--socket-path".to_string(),
-        injection.socket_path.to_string_lossy().to_string(),
-        "--token".to_string(),
-        token.clone(),
-        // Self-cleanup watchdog: codeg-mcp exits when this PID is gone so
-        // orphaned companions can't keep the binary file locked across an
-        // installer upgrade (Windows) or hold a stale broker connection
-        // (any platform).
-        "--parent-pid".to_string(),
-        std::process::id().to_string(),
-        // Tool groups to expose this launch (see `CompanionFeatureFlags`).
-        "--features".to_string(),
-        features_arg,
-    ];
-    if !custom_slugs.is_empty() {
-        args.push("--custom-agents".to_string());
-        args.push(custom_slugs.join(","));
-    }
-    if !disabled_builtins.is_empty() {
-        args.push("--disabled-agents".to_string());
-        args.push(disabled_builtins.join(","));
-    }
+    let args = codeg_mcp_args(
+        parent_connection_id,
+        &injection.socket_path,
+        "--token",
+        &token,
+        &features_arg,
+        &custom_slugs,
+        &disabled_builtins,
+    );
     server = server.args(args);
     servers.push(McpServer::Stdio(server));
     Some(CompanionInjection {
@@ -9531,13 +9726,24 @@ async fn run_connection(
                             result: s.cli_output_schema.is_some(),
                         }
                     };
-                    inject_codeg_mcp(
+                    let preconfigured_token = if mcp_env
+                        .var(CODEG_MCP_PRECONFIGURED_ENV)
+                        .as_deref()
+                        == Some("true")
+                    {
+                        mcp_env.var(CODEG_MCP_TOKEN_ENV)
+                    } else {
+                        None
+                    };
+                    inject_codeg_mcp_with_binary_locator_and_token(
                         &mut mcp_servers,
                         inj,
                         &conn_id,
                         &cwd,
                         groups,
                         host_tools,
+                        preconfigured_token.as_deref(),
+                        locate_codeg_mcp_binary,
                     )
                     .await
                 } else {
@@ -33219,6 +33425,59 @@ mod tests {
             codex_config_of(&runtime),
             vec![serde_json::json!({"model": "gpt-6", "thread_unload_delay_secs": 60})],
             "the runtime env's value, replaced rather than duplicated"
+        );
+    }
+
+    #[test]
+    fn codex_companion_config_preserves_user_settings_and_sets_long_timeout() {
+        let config = codex_config_with_codeg_mcp(
+            Some(r#"{"model":"gpt-6","mcp_servers":{"other":{"enabled":false}}}"#),
+            Path::new(r"C:\codeg\codeg-mcp.exe"),
+            &[
+                "--token-env".to_string(),
+                CODEG_MCP_TOKEN_ENV.to_string(),
+                "--features".to_string(),
+                "ask".to_string(),
+            ],
+        )
+        .expect("valid Codex config");
+        let value: serde_json::Value =
+            serde_json::from_str(&config).expect("serialized Codex config");
+
+        assert_eq!(value["model"], "gpt-6");
+        assert_eq!(value["mcp_servers"]["other"]["enabled"], false);
+        assert_eq!(
+            value["mcp_servers"]["codeg-mcp"]["tool_timeout_sec"],
+            serde_json::json!(2_147_483_647u64)
+        );
+        assert_eq!(
+            value["mcp_servers"]["codeg-mcp"]["args"][1],
+            CODEG_MCP_TOKEN_ENV
+        );
+        assert_eq!(
+            value["mcp_servers"]["codeg-mcp"]["env_vars"],
+            serde_json::json!(["CODEG_MCP_TOKEN"]),
+            "Codex must explicitly forward the token to its MCP child"
+        );
+    }
+
+    #[test]
+    fn codex_env_policy_keeps_adapter_filtering_on_for_preconfigured_companion() {
+        let mut env = vec![
+            (
+                CODEG_MCP_PRECONFIGURED_ENV.to_string(),
+                "true".to_string(),
+            ),
+            (
+                "DISABLE_MCP_CONFIG_FILTERING".to_string(),
+                "true".to_string(),
+            ),
+        ];
+        apply_codex_env_policy(AgentType::Codex, &mut env, None, None);
+        assert!(
+            !env.iter()
+                .any(|(key, _)| key == "DISABLE_MCP_CONFIG_FILTERING"),
+            "preconfigured companion must let codex-acp deduplicate the same server name"
         );
     }
 

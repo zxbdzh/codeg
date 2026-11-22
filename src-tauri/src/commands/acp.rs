@@ -12151,7 +12151,10 @@ pub(crate) async fn build_runtime_env_for_agent(
 /// the env a settings save recomputes, so counting it would mark every session
 /// stale on the first save, for good.
 fn is_volatile_fingerprint_key(key: &str) -> bool {
-    key == "OPENCLAW_RESET_SESSION" || key == crate::cli_run::CLI_CALLER_ENV
+    key == "OPENCLAW_RESET_SESSION"
+        || key == crate::cli_run::CLI_CALLER_ENV
+        || key == "CODEG_MCP_TOKEN"
+        || key == "CODEG_MCP_PRECONFIGURED"
 }
 
 /// Fingerprint the effective config a spawned agent process is locked to: the
