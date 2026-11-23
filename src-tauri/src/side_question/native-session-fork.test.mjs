@@ -119,6 +119,28 @@ test("ACP fork sends the explicit completed turn and releases the child before r
   }
 })
 
+test("Windows ACP command shims work from paths containing spaces", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "codeg native ACP shim spaces "))
+  try {
+    const program = join(directory, "mock adapter.cmd")
+    await writeFile(program, [
+      "@echo off",
+      "set /p initialize=",
+      'echo {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}',
+      "set /p fork=",
+      'echo {"jsonrpc":"2.0","id":2,"result":{"sessionId":"child-parent"}}',
+      "",
+    ].join("\r\n"))
+
+    const result = await forkNativeSession(acpRequest(program, directory))
+    assert.deepEqual(result, { sessionId: "child-parent" })
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("ACP fork accepts codex, claude_code and deepseek", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codeg-native-fork-agents-"))
   try {
@@ -182,7 +204,7 @@ test("request validation rejects missing fork evidence and implicit paths", asyn
   }
 })
 
-async function createPiFixture(directory, appendDuringFork = false) {
+async function createPiFixture(directory, appendDuringFork = false, failLookup = false) {
   const packageRoot = join(directory, "node_modules", "@earendil-works", "pi-coding-agent")
   const sdkDirectory = join(packageRoot, "dist", "core")
   await mkdir(sdkDirectory, { recursive: true })
@@ -237,6 +259,7 @@ async function createPiFixture(directory, appendDuringFork = false) {
 
     class SessionManager {
       static findById(cwd, sessionId) {
+        if (${JSON.stringify(failLookup)}) throw new Error("unexpected default Pi session lookup")
         return sessionId === "parent" ? parentFile : null
       }
 
@@ -316,6 +339,23 @@ test("Pi fork creates a persistent branch at the last completed assistant turn",
     assert.equal(branch.some((entry) => entry.id === "pending-user"), false)
     assert.equal(branch.some((entry) => entry.id === "pending-assistant"), false)
     assert.equal(await readFile(parentFile, "utf8"), parentBefore)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("Pi fork uses the session file resolved from the ACP runtime", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "codeg-pi-fork-custom-session-dir-"))
+  try {
+    const { program, parentFile } = await createPiFixture(directory, false, true)
+    const result = await forkNativeSession(piRequest(program, directory, {
+      piSessionFile: parentFile,
+    }))
+
+    assert.match(result.sessionId, /^branch-/)
+    assert.notEqual(result.sessionFile, parentFile)
+    const branch = await readJsonLines(result.sessionFile)
+    assert.ok(branch.some((entry) => entry.id === "completed-assistant"))
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

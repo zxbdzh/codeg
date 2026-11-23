@@ -41,7 +41,13 @@ function validateRequest(request) {
     throw new Error("completedOccurrence must be a positive integer")
   }
   if (agent === "pi") {
-    return { ...common, piProgram: absolutePath(request.piProgram, "piProgram") }
+    return {
+      ...common,
+      piProgram: absolutePath(request.piProgram, "piProgram"),
+      piSessionFile: request.piSessionFile === undefined
+        ? undefined
+        : absolutePath(request.piSessionFile, "piSessionFile"),
+    }
   }
   return { ...common, adapterProgram: absolutePath(request.adapterProgram, "adapterProgram") }
 }
@@ -79,6 +85,7 @@ async function forkAcp(input) {
     cwd: input.cwd,
     env: process.env,
     windowsHide: true,
+    windowsVerbatimArguments: runtime.windowsVerbatimArguments,
     stdio: ["pipe", "pipe", "pipe"],
   })
   const client = createAcpClient(child)
@@ -136,7 +143,9 @@ function programCommand(program) {
   if (process.platform === "win32" && [".cmd", ".bat"].includes(extension)) {
     return {
       command: process.env.ComSpec ?? "cmd.exe",
-      args: ["/d", "/s", "/c", `"${program}"`],
+      // /s 会移除命令串首尾引号；保留双层引号才能安全承载带空格的 shim 路径。
+      args: ["/d", "/s", "/c", `""${program}""`],
+      windowsVerbatimArguments: true,
     }
   }
   return { command: program, args: [] }
@@ -398,6 +407,7 @@ async function findPiPackage(program) {
 }
 
 async function findPiSessionFile(SessionManager, input) {
+  if (input.piSessionFile) return input.piSessionFile
   const found = await SessionManager.findById(input.cwd, input.sessionId)
   const file = typeof found === "string"
     ? found

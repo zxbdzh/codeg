@@ -110,6 +110,7 @@ struct PiAnchor {
     entry_id: String,
     fingerprint: String,
     text: String,
+    session_file: PathBuf,
 }
 
 /// 创建一条原生旁问。
@@ -264,6 +265,9 @@ async fn create_guarded(
         &source.cwd,
         &source.session_id,
         &anchor,
+        pi_anchor
+            .as_ref()
+            .map(|anchor| anchor.session_file.as_path()),
         &runtime_env,
     )
     .await?;
@@ -616,6 +620,7 @@ async fn plan_driver(
     cwd: &str,
     session_id: &str,
     anchor: &ForkPoint,
+    pi_session_file: Option<&Path>,
     runtime_env: &BTreeMap<String, String>,
 ) -> Result<DriverPlan, AppCommandError> {
     let node = which::which("node").map_err(|_| {
@@ -652,6 +657,10 @@ async fn plan_driver(
     }
     if agent == AgentType::Pi {
         request["piProgram"] = json!(program);
+        let session_file = pi_session_file.ok_or_else(|| {
+            AppCommandError::not_found("The current native Pi session file is unavailable")
+        })?;
+        request["piSessionFile"] = json!(session_file);
     } else {
         request["adapterProgram"] = json!(program);
     }
@@ -665,21 +674,8 @@ async fn resolve_program(
     runtime_env: &BTreeMap<String, String>,
 ) -> Option<PathBuf> {
     match agent {
-        AgentType::Codex => {
-            let configured = runtime_env
-                .get("CODEX_PATH")
-                .cloned()
-                .or_else(|| std::env::var("CODEX_PATH").ok())
-                .filter(|path| !path.trim().is_empty())
-                .map(PathBuf::from);
-            match configured {
-                Some(path) => Some(path),
-                None => {
-                    let runtime = crate::acp::codex_runtime::current().await;
-                    runtime.confirmed.then_some(runtime.codex_js).flatten()
-                }
-            }
-        }
+        // fork driver speaks ACP; CODEX_PATH is the child CLI, not this protocol endpoint.
+        AgentType::Codex => crate::commands::acp::resolve_npx_command_for(agent, "codex-acp").await,
         AgentType::ClaudeCode => {
             crate::commands::acp::resolve_npx_command_for(agent, "claude-agent-acp").await
         }
@@ -1115,6 +1111,7 @@ fn read_pi_anchor(
             entry_id: entry_id.to_string(),
             fingerprint: fingerprint_agent_message(&text),
             text,
+            session_file: path,
         });
     }
     Err(AppCommandError::invalid_input(
@@ -1259,6 +1256,43 @@ mod tests {
     use chrono::Utc;
     use serde_json::json;
 
+    #[tokio::test]
+    async fn codex_fork_uses_the_acp_adapter_not_the_native_cli() {
+        let directory = tempfile::tempdir().unwrap();
+        let adapter = if cfg!(windows) {
+            directory.path().join("codex-acp.cmd")
+        } else {
+            directory.path().join("codex-acp")
+        };
+        std::fs::write(&adapter, "").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&adapter, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let path = std::env::join_paths([directory.path()]).unwrap();
+        let path = path.to_string_lossy().into_owned();
+        let runtime_env = BTreeMap::from([(
+            "CODEX_PATH".to_string(),
+            "C:\\custom\\codex.exe".to_string(),
+        )]);
+
+        temp_env::async_with_vars(
+            [
+                ("PATH", Some(path.as_str())),
+                ("PATHEXT", Some(".COM;.EXE;.BAT;.CMD")),
+            ],
+            async {
+                assert_eq!(
+                    resolve_program(AgentType::Codex, &runtime_env).await,
+                    Some(adapter)
+                );
+            },
+        )
+        .await;
+    }
+
     fn turn(index: usize, role: TurnRole, text: &str, completed: bool) -> MessageTurn {
         MessageTurn {
             id: format!("turn-{index}"),
@@ -1345,6 +1379,7 @@ mod tests {
             entry_id: "entry-1".into(),
             fingerprint: fingerprint_agent_message("a2"),
             text: "a2".into(),
+            session_file: PathBuf::from("/sessions/parent.jsonl"),
         };
         let point = build_anchor(&turns, 1, AgentType::Pi, Some(&pi)).unwrap();
         assert_eq!(point.message_id, "entry-1");
