@@ -310,9 +310,7 @@ export function TerminalView({
         ),
         fontFamily: terminalFontRef.current,
         theme: getTerminalTheme(containerRef.current),
-        // 允许透明背景：背景图开启时 getTerminalTheme 返回 alpha 0 的背景色，透出下方磨砂
-        // 面板。当前 DOM 渲染器本就按 CSS 应用背景色（透明即生效，不消费此项）；显式设置是
-        // 为将来若改用 canvas/webgl 渲染器时仍保持透明，不致回退成不透明黑块。
+        // 背景图模式下，透明背景要透出下方磨砂面板，DOM 与 WebGL 渲染都依赖此设置。
         allowTransparency: true,
         allowProposedApi: true,
       })
@@ -325,6 +323,21 @@ export function TerminalView({
       termRef.current = term
       const replays = { pending: 0 }
       replayGateRef.current = replays
+
+      // WebGL 按终端网格绘制方块和边框，避免字体字形间出现缝隙。
+      // 显卡不可用或上下文丢失时保留默认渲染器，终端仍可继续使用。
+      void import("@xterm/addon-webgl")
+        .then(({ WebglAddon }) => {
+          if (cancelled || termRef.current !== term) return
+          const addon = new WebglAddon()
+          try {
+            term.loadAddon(addon)
+            addon.onContextLoss(() => addon.dispose())
+          } catch {
+            addon.dispose()
+          }
+        })
+        .catch(() => {})
 
       if (terminalLigaturesRef.current) {
         enableTerminalLigatures(

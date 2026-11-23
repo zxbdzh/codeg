@@ -10,6 +10,10 @@ const h = vi.hoisted(() => ({
   fits: 0,
   emulators: 0,
   disposed: 0,
+  webglLoaded: 0,
+  webglDisposed: 0,
+  webglUnavailable: false,
+  webglContextLost: null as (() => void) | null,
   snapshot: vi.fn(),
   spawn: vi.fn(),
   kill: vi.fn(async () => {}),
@@ -130,6 +134,21 @@ vi.mock("@xterm/xterm", () => ({
   },
 }))
 vi.mock("@xterm/addon-ligatures", () => ({ LigaturesAddon: class {} }))
+vi.mock("@xterm/addon-webgl", () => ({
+  WebglAddon: class {
+    onContextLoss(callback: () => void) {
+      h.webglContextLost = callback
+      return { dispose() {} }
+    }
+    activate() {
+      if (h.webglUnavailable) throw new Error("WebGL unavailable")
+      h.webglLoaded++
+    }
+    dispose() {
+      h.webglDisposed++
+    }
+  },
+}))
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
     term: { resize: (cols: number, rows: number) => void } | null = null
@@ -169,6 +188,10 @@ describe("TerminalView recovery", () => {
     h.fits = 0
     h.emulators = 0
     h.disposed = 0
+    h.webglLoaded = 0
+    h.webglDisposed = 0
+    h.webglUnavailable = false
+    h.webglContextLost = null
     h.snapshot.mockReset()
     h.snapshot.mockResolvedValue({
       exists: false,
@@ -192,6 +215,41 @@ describe("TerminalView recovery", () => {
     h.handlers.clear()
     h.waitForRegistration = null
     h.ready = null
+  })
+
+  it("uses pixel-aligned glyph rendering and falls back when the context is lost", async () => {
+    h.snapshot.mockResolvedValueOnce(snapshot("▐▛███▛█", 1))
+    const view = render(
+      <TerminalView {...props} attach spawnOnMissing={false} reuseCompleted />
+    )
+    await waitFor(() => expect(h.webglLoaded).toBe(1))
+    expect(h.writes).toContain("▐▛███▛█")
+
+    act(() => h.webglContextLost?.())
+    expect(h.webglDisposed).toBe(1)
+    act(() => {
+      h.handlers.get("terminal://output/terminal-1")?.({
+        terminal_id: "terminal-1",
+        data: "still available",
+        seq: 2,
+        generation: "new-generation",
+      })
+    })
+    expect(h.writes).toContain("still available")
+    view.unmount()
+  })
+
+  it("keeps the terminal usable when WebGL cannot initialize", async () => {
+    h.webglUnavailable = true
+    h.snapshot.mockResolvedValueOnce(snapshot("shell ready", 1))
+    const view = render(
+      <TerminalView {...props} attach spawnOnMissing={false} reuseCompleted />
+    )
+    await waitFor(() => expect(h.webglDisposed).toBe(1))
+    expect(h.writes).toContain("shell ready")
+    act(() => h.onData?.("x"))
+    await waitFor(() => expect(h.write).toHaveBeenCalledWith("terminal-1", "x"))
+    view.unmount()
   })
 
   it("restores a live PTY, filters old-generation events, and fills WS gaps from a snapshot", async () => {

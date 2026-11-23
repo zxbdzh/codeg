@@ -66,6 +66,47 @@ impl Scrollback {
     }
 }
 
+#[derive(Default)]
+struct Utf8ChunkDecoder {
+    // PTY 读取可能在字符中间断开，暂存末尾的字节，等下一次读取补齐。
+    pending: Vec<u8>,
+}
+
+impl Utf8ChunkDecoder {
+    fn push(&mut self, bytes: &[u8]) -> String {
+        self.pending.extend_from_slice(bytes);
+        let mut output = String::new();
+        let mut remaining = self.pending.as_slice();
+
+        loop {
+            match std::str::from_utf8(remaining) {
+                Ok(text) => {
+                    output.push_str(text);
+                    self.pending.clear();
+                    break;
+                }
+                Err(error) => {
+                    let (valid, tail) = remaining.split_at(error.valid_up_to());
+                    output.push_str(&String::from_utf8_lossy(valid));
+                    let Some(invalid_len) = error.error_len() else {
+                        let consumed = self.pending.len() - tail.len();
+                        self.pending.drain(..consumed);
+                        break;
+                    };
+                    output.push('\u{fffd}');
+                    remaining = &tail[invalid_len..];
+                }
+            }
+        }
+
+        output
+    }
+
+    fn finish(&mut self) -> String {
+        String::from_utf8_lossy(&std::mem::take(&mut self.pending)).into_owned()
+    }
+}
+
 struct TerminalInstance {
     idle: Arc<super::idle::TerminalIdle>,
     write_tx: mpsc::Sender<Vec<u8>>,
@@ -1299,41 +1340,37 @@ fn read_loop(
     let mut buf = [0u8; 8192];
     // Thread-confined, so the carry buffer and the rate limit need no lock.
     let mut services = ServiceScanner::new();
+    let mut decoder = Utf8ChunkDecoder::default();
+    let mut emit_output = |data: String| {
+        if data.is_empty() {
+            return;
+        }
+        // 先记入快照再推送事件，让重连时能用相同的游标去重。
+        let seq = scrollback
+            .lock()
+            .map(|mut state| state.append(&data))
+            .unwrap_or_default();
+        watch.feed(&mut services, &data, &terminal_id);
+        let event = TerminalEvent {
+            terminal_id: terminal_id.clone(),
+            data,
+            seq,
+            generation: generation.clone(),
+        };
+        crate::web::event_bridge::emit_event(emitter, &output_event, event);
+    };
 
     loop {
         match reader.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
                 idle.output(&buf[..n]);
-                let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                // Record BEFORE emitting, and take the seq from the same
-                // critical section: a snapshot read concurrent with this chunk
-                // either sees it (and reports a seq at least this high) or does
-                // not (and reports one below it). Either way the receiving
-                // client can tell overlap from new output — see `TerminalEvent`.
-                // A poisoned lock is not fatal here: the buffer is an
-                // optimisation, so fall back to an un-deduplicable seq of 0
-                // rather than killing the reader thread and the terminal with it.
-                let seq = scrollback
-                    .lock()
-                    .map(|mut s| s.append(&data))
-                    .unwrap_or_default();
-                // Before the emit, not after: this is the only place a
-                // terminal's output passes through in one piece, and a viewer
-                // that is not mounted (the mobile drawer, a canvas card on
-                // another route) never sees it at all.
-                watch.feed(&mut services, &data, &terminal_id);
-                let event = TerminalEvent {
-                    terminal_id: terminal_id.clone(),
-                    data,
-                    seq,
-                    generation: generation.clone(),
-                };
-                crate::web::event_bridge::emit_event(emitter, &output_event, event.clone());
+                emit_output(decoder.push(&buf[..n]));
             }
             Err(_) => break,
         }
     }
+    emit_output(decoder.finish());
 
     // Terminal exited — remove from map and clean up temp files. Poison-tolerant
     // like the scrollback lock above: this runs on the long-lived `pty-reader-*`
@@ -1396,7 +1433,9 @@ fn thread_name_prefix(terminal_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_argv, thread_name_prefix, Scrollback, SCROLLBACK_MAX_CHARS};
+    use super::{
+        resolve_argv, thread_name_prefix, Scrollback, Utf8ChunkDecoder, SCROLLBACK_MAX_CHARS,
+    };
     #[cfg(not(target_os = "windows"))]
     use super::{Arc, ArgvSpawnOptions, EventEmitter, SpawnOptions, TerminalManager};
 
@@ -1609,6 +1648,100 @@ mod tests {
         let (data, seq) = buffer.read();
         assert_eq!(seq, 1);
         assert_eq!(data.chars().count(), huge.chars().count());
+    }
+
+    #[test]
+    fn terminal_output_keeps_unicode_when_a_read_splits_a_utf8_character() {
+        let expected = "\x1b[1m╭─ 中文 ─╮\x1b[0m\r\n│ ACP │\r\n╰─┬─╯";
+        let mut decoder = Utf8ChunkDecoder::default();
+        let mut actual = String::new();
+
+        // PTY reads are arbitrary byte slices. Every byte boundary must produce
+        // the same text as one complete read, including box-drawing characters.
+        for chunk in expected.as_bytes().chunks(1) {
+            actual.push_str(&decoder.push(chunk));
+        }
+        actual.push_str(&decoder.finish());
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn terminal_output_replaces_invalid_bytes_and_flushes_an_incomplete_character() {
+        let bytes = b"\x1b[1m\xe4\xb8\xad\x1b[0m\xff\xe2(\xa1\xf0\x9f";
+        let expected = String::from_utf8_lossy(bytes).to_string();
+
+        for chunk_size in 1..=bytes.len() {
+            let mut decoder = Utf8ChunkDecoder::default();
+            let mut actual = String::new();
+            for chunk in bytes.chunks(chunk_size) {
+                actual.push_str(&decoder.push(chunk));
+            }
+            actual.push_str(&decoder.finish());
+            assert_eq!(actual, expected, "chunk size {chunk_size}");
+            assert!(decoder.finish().is_empty());
+        }
+    }
+
+    #[test]
+    fn terminal_output_events_and_scrollback_share_the_decoded_stream() {
+        use crate::browser::services::ServiceWatch;
+        use crate::browser::types::ServiceSource;
+        use crate::terminal::idle::TerminalIdle;
+        use crate::terminal::types::TerminalEvent;
+        use crate::web::event_bridge::{EventEmitter, WebEventBroadcaster};
+        use std::sync::{Arc, Mutex};
+
+        struct OneByteReader(std::io::Cursor<Vec<u8>>);
+        impl std::io::Read for OneByteReader {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                let length = buffer.len().min(1);
+                std::io::Read::read(&mut self.0, &mut buffer[..length])
+            }
+        }
+
+        let bytes = b"\x1b[31m\xe4\xb8\xad\xe2\x96\x88\x1b[0m\xff\xf0\x9f";
+        let expected = String::from_utf8_lossy(bytes).to_string();
+        let broadcaster = Arc::new(WebEventBroadcaster::new());
+        let mut receiver = broadcaster.subscribe();
+        let emitter = EventEmitter::test_web_only(broadcaster);
+        let watch = ServiceWatch::new(emitter.clone(), "test".into(), ServiceSource::Terminal);
+        let manager = super::TerminalManager::new();
+        let scrollback = Arc::new(Mutex::new(Scrollback::default()));
+        let mut command = portable_pty::CommandBuilder::new("unused");
+        let idle = TerminalIdle::prepare(&mut command, "unused", Some("unused"), "decode-test");
+
+        super::read_loop(
+            Box::new(OneByteReader(std::io::Cursor::new(bytes.to_vec()))),
+            "decode-test".into(),
+            "generation".into(),
+            &emitter,
+            &manager.terminals,
+            &manager.completed,
+            &scrollback,
+            &watch,
+            &idle,
+        );
+
+        let mut output = String::new();
+        let mut last_seq = 0;
+        let mut saw_exit = false;
+        while let Ok(event) = receiver.try_recv() {
+            if event.channel == "terminal://exit/decode-test" {
+                saw_exit = true;
+                continue;
+            }
+            assert!(!saw_exit, "output must arrive before exit");
+            assert_eq!(event.channel, "terminal://output/decode-test");
+            let payload: TerminalEvent = serde_json::from_value((*event.payload).clone()).unwrap();
+            assert_eq!(payload.seq, last_seq + 1);
+            assert_eq!(payload.generation, "generation");
+            last_seq = payload.seq;
+            output.push_str(&payload.data);
+        }
+        assert!(saw_exit);
+        assert_eq!(output, expected);
+        assert_eq!(scrollback.lock().unwrap().read(), (expected, last_seq));
     }
 
     #[test]
