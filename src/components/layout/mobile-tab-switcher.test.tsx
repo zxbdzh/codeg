@@ -9,9 +9,11 @@ const state = vi.hoisted(() => ({
   tabs: [] as TabItem[],
   activeTabId: "one",
   activePane: "conversation",
+  fileTabs: [{ id: "file", title: "README.md", kind: "file", isDirty: true }],
   switchTab: vi.fn(),
   closeTab: vi.fn(),
   openConversations: vi.fn(),
+  openBrowserTab: vi.fn(),
   activateConversationPane: vi.fn(),
   switchFileTab: vi.fn(),
   closeFileTab: vi.fn(),
@@ -38,8 +40,8 @@ vi.mock("@/contexts/workbench-route-context", () => ({
 vi.mock("@/contexts/workspace-context", () => ({
   useWorkspaceView: () => ({ mode: "fusion", activePane: state.activePane }),
   useWorkspaceFileTabs: () => ({
-    fileTabs: [{ id: "file", title: "README.md", kind: "file", isDirty: true }],
-    activeFileTabId: "file",
+    fileTabs: state.fileTabs,
+    activeFileTabId: state.fileTabs[0]?.id ?? null,
   }),
   useWorkspaceActions: () => state,
 }))
@@ -50,13 +52,20 @@ function setup() {
       <MobileTabSwitcher />
     </NextIntlClientProvider>
   )
-  fireEvent.click(screen.getByRole("button", { name: "Switch tabs (3)" }))
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: `Switch tabs (${state.tabs.length + state.fileTabs.length})`,
+    })
+  )
 }
 
 describe("mobile open tabs", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     state.activePane = "conversation"
+    state.fileTabs = [
+      { id: "file", title: "README.md", kind: "file", isDirty: true },
+    ]
     state.tabs = ["one", "two"].map((id) => ({
       id,
       kind: "conversation",
@@ -115,4 +124,30 @@ describe("mobile open tabs", () => {
     expect(state.closeFileTab).toHaveBeenCalledExactlyOnceWith("file")
     expect(state.switchFileTab).not.toHaveBeenCalled()
   })
+
+  it.each([false, true])(
+    "opens a browser without existing file tabs (empty workspace: %s)",
+    (emptyWorkspace) => {
+      state.fileTabs = []
+      if (emptyWorkspace) state.tabs = []
+      setup()
+
+      fireEvent.click(screen.getByRole("button", { name: "Open browser tab" }))
+
+      expect(state.openConversations).toHaveBeenCalledOnce()
+      expect(state.openBrowserTab).toHaveBeenCalledExactlyOnceWith(
+        "about:blank"
+      )
+      expect(state.openConversations.mock.invocationCallOrder[0]).toBeLessThan(
+        state.openBrowserTab.mock.invocationCallOrder[0]
+      )
+      expect(
+        screen.getByRole("button", {
+          name: `Switch tabs (${state.tabs.length})`,
+        })
+      ).toHaveAttribute("aria-expanded", "false")
+      expect(state.closeTab).not.toHaveBeenCalled()
+      expect(state.closeFileTab).not.toHaveBeenCalled()
+    }
+  )
 })

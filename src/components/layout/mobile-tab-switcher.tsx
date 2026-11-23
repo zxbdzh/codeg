@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Check, File, PanelsTopLeft, X } from "lucide-react"
+import { Check, File, Globe, PanelsTopLeft, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { AgentIcon } from "@/components/agent-icon"
 import { ConversationStatusDot } from "@/components/conversations/conversation-status-dot"
@@ -22,23 +22,35 @@ import {
 import { useVisibleConversationTabs } from "@/stores/tab-store"
 import { useHistoryBackDismiss } from "@/hooks/use-history-back-dismiss"
 import { cn } from "@/lib/utils"
+import { BLANK_PAGE_URL } from "@/lib/browser/browser-url"
 
 /** 手机不挂载桌面 Tab 栏，用独立入口切换已打开内容，不依赖悬停或快捷键。 */
 export function MobileTabSwitcher() {
   const t = useTranslations("Folder.mobileTabs")
   const tTabs = useTranslations("Folder.tabs")
+  const tQuickActions = useTranslations("Folder.statusBar.quickActions")
   const [open, setOpen] = useState(false)
   const tabs = useVisibleConversationTabs()
   const activeTabId = useTabStore((state) => state.activeTabId)
   const { switchTab, closeTab } = useTabActions()
   const { fileTabs, activeFileTabId } = useWorkspaceFileTabs()
   const { mode, activePane } = useWorkspaceView()
-  const { switchFileTab, closeFileTab, activateConversationPane } =
-    useWorkspaceActions()
+  const {
+    switchFileTab,
+    closeFileTab,
+    activateConversationPane,
+    openBrowserTab,
+  } = useWorkspaceActions()
   const { isConversations, openConversations } = useWorkbenchRoute()
   const conversationVisible =
     mode === "conversation" || activePane === "conversation"
   const count = tabs.length + fileTabs.length
+  const openBrowser = () => {
+    // 手机没有桌面标签栏的“+”，即使尚无文件标签也必须保留创建入口。
+    openConversations()
+    openBrowserTab(BLANK_PAGE_URL)
+    setOpen(false)
+  }
   useHistoryBackDismiss(open, () => setOpen(false))
 
   return (
@@ -78,6 +90,16 @@ export function MobileTabSwitcher() {
               {t("empty")}
             </p>
           )}
+          <button
+            type="button"
+            className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm touch-manipulation hover:bg-accent/60"
+            onClick={openBrowser}
+          >
+            <Globe className="size-4 shrink-0" />
+            <span className="min-w-0 flex-1">
+              {tQuickActions("browserTab")}
+            </span>
+          </button>
           {tabs.length > 0 && (
             <div role="group" aria-label={t("conversations")}>
               <h3 className="px-2 py-2 text-xs font-medium text-muted-foreground">
