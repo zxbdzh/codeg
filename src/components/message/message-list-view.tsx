@@ -1701,11 +1701,8 @@ export function MessageListView({
   )
   const hasOlderTurns = isWindowedDetail(detail) && detail.turns_offset > 0
   const loadingOlderTurns = session?.loadingOlderTurns ?? false
-  const {
-    loadOlderTurns,
-    loadOlderTurnsThrough,
-    refetchDetail,
-  } = useConversationRuntimeActions()
+  const { loadOlderTurns, loadOlderTurnsThrough, refetchDetail } =
+    useConversationRuntimeActions()
   const handleLoadOlder = useCallback(() => {
     loadOlderTurns(conversationId)
   }, [loadOlderTurns, conversationId])
@@ -1977,8 +1974,7 @@ export function MessageListView({
   // the host keeps `onForkFromTurn` set for the whole "prompting" window (see
   // its gate in `conversation-detail-panel`), and every reply's footer says
   // "not right now" instead of dropping its button and shifting the icon row.
-  const forkBusy =
-    connStatus === "prompting" || forkPromptBusy
+  const forkBusy = connStatus === "prompting" || forkPromptBusy
 
   const renderThreadItem = useCallback(
     (item: ThreadRenderItem) => {
