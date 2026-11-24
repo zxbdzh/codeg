@@ -34,6 +34,14 @@ pub struct LiveMessage {
     pub role: MessageRole,
     pub content: Vec<LiveContentBlock>,
     pub started_at: DateTime<Utc>,
+    /// The turn FAILED, in the agent's words: a terminal `SessionFailure`
+    /// applied while it ran. Kept so a snapshot taken before `TurnComplete`
+    /// closes the turn on the same failure line the watching clients drew
+    /// from the event (the frontend's closing `turn_error` block). A field
+    /// rather than a content block so a client that predates it ignores it
+    /// instead of meeting a block kind it cannot decode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_error: Option<String>,
 }
 
 /// 流式 turn 的内容块。事件按到达顺序追加。
@@ -529,6 +537,39 @@ pub struct SessionState {
     /// on the snapshot so a frontend that reconnects after refresh can see
     /// "init complete" without waiting for an event that already fired.
     pub selectors_ready: bool,
+    /// True while a session establishment is in progress and its selectors
+    /// are not settled yet: from creation / every `SessionStarted` (new,
+    /// resumed, loaded, forked session) until the following `SelectorsReady`.
+    /// The conversation's stored selection is never written while this is set
+    /// — that is exactly when the agent's pre-application defaults are
+    /// visible (a resume emits `session.modes()` before replaying the stored
+    /// selection; a fork emits the forked session's defaults before restoring
+    /// the inherited ones). Backend-internal; not serialized.
+    pub selectors_settling: bool,
+    /// The conversation row this connection writes its selection to before
+    /// the first prompt links it (`conversation_id` is only set by
+    /// `ConversationLinked`): set by `acp_connect` for an existing
+    /// conversation (`ConnectionManager::bind_selection_conversation`).
+    /// Backend-internal; not serialized.
+    pub selection_conversation_id: Option<i32>,
+    /// A mode the user picked in a tab's composer that the tab applies at its
+    /// next send (legacy-modes picks are deferred to send time), recorded so a
+    /// close-and-reopen without sending keeps the pick. Never sent to the
+    /// agent from here. Written only by `AcpEvent::ComposerModeChanged`;
+    /// carried on `to_snapshot()`.
+    pub composer_mode_id: Option<String>,
+    /// Latched by the first EXPLICIT composer pick on this connection, never
+    /// reset. A draft's one-time hand-over of its pick (and a reconnect's
+    /// restore of the stored intent) applies only while this is false, so it
+    /// can never overwrite a pick another surface already made.
+    /// Backend-internal; not serialized.
+    pub composer_mode_touched: bool,
+    /// Set by the connection's driver once its loop has ended, right before
+    /// the final selection flush. From then on direct selection mutations
+    /// (`acp_set_composer_mode`, `bind_selection_conversation`) are refused,
+    /// so a pick is either in the flushed row or rejected, never accepted and
+    /// lost. Backend-internal; not serialized.
+    pub selection_finalized: bool,
 
     /// Most recent unresolved `AcpEvent::Error` payload. Cleared when a new
     /// prompt starts, matching the frontend reducer's live-event behavior. The
@@ -619,6 +660,15 @@ pub struct SessionState {
     /// the id prefix alone says nothing about who minted it
     /// (`connection.rs::speaks_antigravity_interactions`). Backend-only.
     pub antigravity_interactions: bool,
+    /// Whether a declined bridged Antigravity question stops the turn: the
+    /// running adapter reported 1.5.1 or later at initialize
+    /// (`connection.rs::antigravity_skip_cancels_turn`). Backend-only.
+    pub antigravity_skip_cancels_turn: bool,
+    /// Configured Gemini home for this launch's trajectory (backend only).
+    pub(crate) antigravity_sessions_dir: Option<std::path::PathBuf>,
+    /// A transiently unreadable task DB at the foreground boundary. Passive
+    /// releases wait for the next successful read (bounded if the DB is lost).
+    pub(crate) antigravity_reconcile_at: Option<DateTime<Utc>>,
 
     /// Whether live-feedback notes for THIS session go over the native ACP
     /// `_session/steering` push channel instead of the `check_user_feedback`
@@ -973,6 +1023,11 @@ impl SessionState {
             claude_settings: None,
             remote_control: None,
             selectors_ready: false,
+            selectors_settling: true,
+            selection_conversation_id: None,
+            composer_mode_id: None,
+            composer_mode_touched: false,
+            selection_finalized: false,
             last_error: None,
             session_started_tx: None,
             event_seq: 0,
@@ -985,6 +1040,9 @@ impl SessionState {
             result_tool_available: false,
             antigravity_answered_interactions: BTreeSet::new(),
             antigravity_interactions: agent_type == AgentType::Antigravity,
+            antigravity_skip_cancels_turn: false,
+            antigravity_sessions_dir: None,
+            antigravity_reconcile_at: None,
             native_steering_available: false,
             codex_user_input_shape: None,
             neutral_goal_channel: false,
@@ -1236,6 +1294,9 @@ impl SessionState {
                 }
                 self.external_id = Some(session_id.clone());
                 self.status = ConnectionStatus::Connected;
+                // A new establishment begins: its selectors are transitional
+                // until the `SelectorsReady` that follows it.
+                self.selectors_settling = true;
                 // Fire the dedup waiter (if any). Take()-and-send is
                 // single-shot: a duplicate SessionStarted (replay, agent
                 // re-init) finds None here and is a no-op, which is
@@ -1305,6 +1366,12 @@ impl SessionState {
                 // stream has long since corrected it.
                 if let Some(modes) = self.modes.as_mut() {
                     modes.current_mode_id = mode_id.clone();
+                }
+            }
+            AcpEvent::ComposerModeChanged { mode_id, explicit } => {
+                self.composer_mode_id = mode_id.clone();
+                if *explicit {
+                    self.composer_mode_touched = true;
                 }
             }
             AcpEvent::SessionConfigOptions { config_options } => {
@@ -1779,6 +1846,7 @@ impl SessionState {
                 // after browser refresh) can tell the initial handshake is
                 // already done — the event fires only once per connection.
                 self.selectors_ready = true;
+                self.selectors_settling = false;
             }
             AcpEvent::Error {
                 message,
@@ -1944,6 +2012,24 @@ impl SessionState {
                     .get(&record.id)
                     .is_none_or(|existing| record.revision > existing.revision);
                 if accept {
+                    // The reply chunk that told this failure is no reply: a
+                    // snapshot taken before `TurnComplete` must not hand it to
+                    // an attaching client as one (the frontend reducer drops it
+                    // the same way for the clients already watching).
+                    if record.echoed_in_reply && record.severity == "error" {
+                        if let Some(live) = self.live_message.as_mut() {
+                            drop_echoed_failure_text(&mut live.content, &record.title);
+                        }
+                    }
+                    // A terminal record told during the turn closes it: the
+                    // snapshot keeps the line, as a watching client's reducer
+                    // does (`TURN_FAILED`), so an attach before `TurnComplete`
+                    // does not lose it. A blank title is left to the clients,
+                    // which word it from the category.
+                    let title = record.title.trim();
+                    if record.severity == "error" && self.turn_in_flight && !title.is_empty() {
+                        self.ensure_live_message().turn_error = Some(title.to_string());
+                    }
                     self.session_failures
                         .insert(record.id.clone(), record.clone());
                 }
@@ -2034,6 +2120,9 @@ impl SessionState {
             return true;
         }
         self.watcher_counts_work(now)
+            || self
+                .antigravity_reconcile_at
+                .is_some_and(|at| now.signed_duration_since(at) < background_keepalive_max_age())
     }
 
     /// Whether the transcript watcher (or another `BackgroundActivity`
@@ -2357,6 +2446,7 @@ impl SessionState {
                 role: MessageRole::Assistant,
                 content: Vec::new(),
                 started_at: Utc::now(),
+                turn_error: None,
             });
         }
         self.live_message
@@ -2732,6 +2822,7 @@ impl SessionState {
             fork_supported: self.fork_supported,
             available_commands: self.available_commands.clone(),
             selectors_ready: self.selectors_ready,
+            composer_mode_id: self.composer_mode_id.clone(),
             config_stale: self.config_stale,
             config_stale_kind: self.config_stale_kind,
             last_error: self.last_error.clone(),
@@ -2766,6 +2857,50 @@ pub(crate) fn owner_composes_prompts(owner_window_label: &str) -> bool {
         && !crate::acp::one_shot::is_one_shot_owner(owner_window_label)
         && !crate::research_branch::is_temporary_owner(owner_window_label)
         && !owner_window_label.starts_with("chat_channel:")
+}
+
+/// `content` without the failure account `title` a reply chunk told (see
+/// `SessionFailureRecord::echoed_in_reply`): its LAST occurrence in the last
+/// main-thread text block is cut out — anything the agent appended after it
+/// (Antigravity's citation notice) stays — and the block goes once nothing is
+/// left. `false` when no such occurrence exists.
+///
+/// The frontend's `dropEchoedFailureText` is the same rule; keep them in step.
+fn drop_echoed_failure_text(content: &mut Vec<LiveContentBlock>, title: &str) -> bool {
+    let title = title.trim();
+    if title.is_empty() {
+        return false;
+    }
+    let Some(index) = content.iter().rposition(|block| {
+        matches!(
+            block,
+            LiveContentBlock::Text {
+                parent_tool_use_id: None,
+                ..
+            }
+        )
+    }) else {
+        return false;
+    };
+    let LiveContentBlock::Text { text, .. } = &mut content[index] else {
+        return false;
+    };
+    let Some(at) = text.rfind(title) else {
+        return false;
+    };
+    let before = text[..at].trim_end();
+    let after = text[at + title.len()..].trim_start();
+    let rest = match (before.is_empty(), after.is_empty()) {
+        (true, _) => after.to_string(),
+        (false, true) => before.to_string(),
+        (false, false) => format!("{before}\n\n{after}"),
+    };
+    if rest.is_empty() {
+        content.remove(index);
+    } else {
+        *text = rest;
+    }
+    true
 }
 
 /// The answer of the last assistant turn in `turns`: its last non-empty `Text`
@@ -2907,6 +3042,11 @@ pub struct LiveSessionSnapshot {
     pub fork_supported: bool,
     pub available_commands: Vec<AvailableCommandInfo>,
     pub selectors_ready: bool,
+    /// The composer's pending mode pick (see `SessionState.composer_mode_id`).
+    /// Omitted when there is none, so the common snapshot keeps its
+    /// pre-feature wire shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composer_mode_id: Option<String>,
     /// Whether the running session is on stale (launch-time) config after a
     /// later settings save (see `SessionState.config_stale`). `#[serde(default)]`
     /// so older server payloads without the field deserialize to `false`; always
@@ -3167,6 +3307,7 @@ mod tests {
                     details: None,
                     actions: vec!["retry".into()],
                     resolved: false,
+                    echoed_in_reply: false,
                 },
             }
         }
@@ -3519,6 +3660,85 @@ mod tests {
         assert_eq!(s.last_assistant_text.as_deref(), Some("You're welcome."));
     }
 
+    /// Antigravity streams a dead executor's account as a reply chunk; the
+    /// terminal record marked `echoed_in_reply` takes those words out of the
+    /// live message, so a snapshot taken before `TurnComplete` does not hand
+    /// them to an attaching client as the reply — and closes the turn on the
+    /// failure line instead. A record without the mark (an AIR adapter's)
+    /// leaves matching prose alone, but still closes the turn.
+    #[test]
+    fn an_echoed_terminal_failure_leaves_the_reply() {
+        let text = |text: &str| AcpEvent::ContentDelta {
+            text: text.into(),
+            parent_tool_use_id: None,
+        };
+        let failure = |id: &str, echoed: bool| AcpEvent::SessionFailure {
+            record: SessionFailureRecord {
+                id: id.into(),
+                revision: 1,
+                category: "access".into(),
+                severity: "error".into(),
+                title: "Not eligible.".into(),
+                details: None,
+                actions: Vec::new(),
+                resolved: false,
+                echoed_in_reply: echoed,
+            },
+        };
+        let texts = |s: &SessionState| -> Vec<String> {
+            s.live_message
+                .as_ref()
+                .map(|live| {
+                    live.content
+                        .iter()
+                        .filter_map(|block| match block {
+                            LiveContentBlock::Text { text, .. } => Some(text.clone()),
+                            _ => None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        let lines = |s: &SessionState| -> Vec<String> {
+            s.to_snapshot()
+                .live_message
+                .and_then(|live| live.turn_error)
+                .into_iter()
+                .collect()
+        };
+
+        let mut s = fresh_state();
+        s.apply_event(&AcpEvent::StatusChanged {
+            status: ConnectionStatus::Prompting,
+        });
+        s.turn_in_flight = true;
+        s.apply_event(&text("Not eligible."));
+        s.apply_event(&failure("a:1", false));
+        assert_eq!(texts(&s), vec!["Not eligible.".to_string()]);
+        // The snapshot closes the turn on the line, once.
+        assert_eq!(lines(&s), vec!["Not eligible.".to_string()]);
+        s.apply_event(&failure("a:2", true));
+        assert!(texts(&s).is_empty(), "{:?}", texts(&s));
+        assert_eq!(lines(&s), vec!["Not eligible.".to_string()]);
+
+        // Outside a turn (a `session/load` replay of an earlier turn's record)
+        // nothing is drawn.
+        let mut idle = fresh_state();
+        idle.apply_event(&failure("a:9", false));
+        assert!(lines(&idle).is_empty());
+
+        // Fused onto the model's words, with a citation notice after it.
+        let mut s = fresh_state();
+        s.apply_event(&AcpEvent::StatusChanged {
+            status: ConnectionStatus::Prompting,
+        });
+        s.turn_in_flight = true;
+        s.apply_event(&text("Let me look.Not eligible.\n\nSources: x"));
+        s.apply_event(&failure("a:3", true));
+        assert_eq!(texts(&s), vec!["Let me look.\n\nSources: x".to_string()]);
+    }
+
     #[test]
     fn session_failure_warnings_survive_non_clean_turn_ends() {
         fn failure(id: &str, revision: u64, severity: &str, title: &str) -> AcpEvent {
@@ -3532,6 +3752,7 @@ mod tests {
                     details: None,
                     actions: vec!["new_session".into()],
                     resolved: false,
+                    echoed_in_reply: false,
                 },
             }
         }
@@ -3592,6 +3813,7 @@ mod tests {
                     details: None,
                     actions: vec![],
                     resolved: false,
+                    echoed_in_reply: false,
                 },
             }
         }
@@ -5473,6 +5695,7 @@ mod tests {
                 },
             ],
             started_at: Utc::now(),
+            turn_error: None,
         });
         s.apply_event(&AcpEvent::TurnComplete {
             session_id: "ext".into(),
@@ -5500,6 +5723,7 @@ mod tests {
                 },
             ],
             started_at: Utc::now(),
+            turn_error: None,
         });
         s.apply_event(&AcpEvent::TurnComplete {
             session_id: "ext".into(),
@@ -5527,6 +5751,7 @@ mod tests {
                 },
             ],
             started_at: Utc::now(),
+            turn_error: None,
         });
         s.apply_event(&AcpEvent::TurnComplete {
             session_id: "ext".into(),
@@ -5562,6 +5787,7 @@ mod tests {
                 },
             ],
             started_at: Utc::now(),
+            turn_error: None,
         });
         s.apply_event(&AcpEvent::TurnComplete {
             session_id: "ext".into(),
@@ -5590,6 +5816,7 @@ mod tests {
                 },
             ],
             started_at: Utc::now(),
+            turn_error: None,
         });
         s.apply_event(&AcpEvent::TurnComplete {
             session_id: "ext".into(),
@@ -5613,6 +5840,7 @@ mod tests {
                 parent_tool_use_id: None,
             }],
             started_at: Utc::now(),
+            turn_error: None,
         });
         let complete = AcpEvent::TurnComplete {
             session_id: "ext".into(),
@@ -5667,6 +5895,7 @@ mod tests {
                 parent_tool_use_id: None,
             }],
             started_at: Utc::now(),
+            turn_error: None,
         });
         let complete = AcpEvent::TurnComplete {
             session_id: "ext".into(),

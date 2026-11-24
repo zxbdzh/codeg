@@ -88,7 +88,6 @@ import {
   Plus,
   RefreshCw,
   ListTodo,
-  Undo2,
 } from "lucide-react"
 import { useCreateTaskFromMessage } from "./use-create-task-from-message"
 import { Button } from "@/components/ui/button"
@@ -174,6 +173,8 @@ interface MessageListViewProps {
   availableCommands: readonly AvailableCommandInfo[] | null | undefined
   connStatus?: ConnectionStatus | null
   isActive?: boolean
+  /** Whether the mounted transcript is shown, including unfocused tiles. */
+  isVisible?: boolean
   sendSignal?: number
   detailLoading?: boolean
   detailError?: string | null
@@ -235,8 +236,6 @@ interface MessageListViewProps {
     sourcePrompt?: ForkPromptSnapshot
   ) => void
   forkPromptBusy?: boolean
-  onUndoFromPrompt?: MessageListViewProps["onForkFromPrompt"]
-  undoPromptBusy?: boolean
   /**
    * Fork the session at a rendered assistant turn ("fork from here"). Undefined
    * hides the affordance everywhere in this view — pass it only where a fork
@@ -1274,38 +1273,6 @@ const UserMessageForkButton = memo(function UserMessageForkButton({
   )
 })
 
-const UserMessageUndoButton = memo(function UserMessageUndoButton({
-  disabled,
-  onUndo,
-  refreshFirst,
-}: {
-  disabled: boolean
-  onUndo: () => void
-  refreshFirst: boolean
-}) {
-  const t = useTranslations("ConversationUndo")
-  const tList = useTranslations("Folder.chat.messageList")
-  return (
-    <MessageAction
-      tooltip={
-        refreshFirst
-          ? tList("errorActionReload")
-          : t(disabled ? "busy" : "action")
-      }
-      className="opacity-0 group-hover/user-msg:opacity-100 group-focus-within/user-msg:opacity-100 transition-opacity self-end [@media(hover:none)]:opacity-100"
-      disabled={disabled}
-      onClick={onUndo}
-      size="icon-xs"
-    >
-      {refreshFirst ? (
-        <RefreshCw size={12} aria-hidden="true" />
-      ) : (
-        <Undo2 size={12} aria-hidden="true" />
-      )}
-    </MessageAction>
-  )
-})
-
 /**
  * Flag the thread's last rendered element, which is where the backend's tail
  * fork would land — a user message or a compaction divider after the newest
@@ -1406,12 +1373,8 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   foldEpoch = 0,
   onForkFromTurn,
   onForkFromPrompt,
-  onUndoFromPrompt,
-  undoSourceTurnId,
-  onRefreshUndoPrompt,
   promptFromStart = false,
   forkDisabled = false,
-  undoDisabled = false,
   isThreadTail = false,
 }: {
   group: ResolvedMessageGroup
@@ -1431,12 +1394,8 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
     fromStart?: boolean,
     sourcePrompt?: ForkPromptSnapshot
   ) => void
-  onUndoFromPrompt?: MessageListViewProps["onUndoFromPrompt"]
-  undoSourceTurnId?: string | null
-  onRefreshUndoPrompt?: () => void
   promptFromStart?: boolean
   forkDisabled?: boolean
-  undoDisabled?: boolean
   /** Whether nothing follows this group in the thread — the one position where
    *  a turn the backend cannot name still forks where the user pointed. */
   isThreadTail?: boolean
@@ -1469,17 +1428,6 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
     promptTurn.blocks.length > 0 &&
     promptTurn.blocks.every((block) => block.type === "text") &&
     promptText.trim().length > 0
-  const canUndoPrompt =
-    promptTurn != null &&
-    promptTurn.blocks.length > 0 &&
-    promptTurn.blocks.every(
-      (block) => block.type === "text" || block.type === "image"
-    ) &&
-    promptTurn.blocks.some(
-      (block) =>
-        block.type === "image" ||
-        (block.type === "text" && block.text.trim().length > 0)
-    )
   const forkPointUnnamed = isForkPointUnnamed(forkPoint, isThreadTail)
 
   return (
@@ -1497,26 +1445,6 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
         ) : null}
         {group.role === "user" ? (
           <div className="group/user-msg flex w-fit ml-auto max-w-full items-start gap-1">
-            {(undoSourceTurnId != null || onRefreshUndoPrompt) &&
-            onUndoFromPrompt &&
-            promptTurn &&
-            canUndoPrompt &&
-            isResponseComplete ? (
-              <UserMessageUndoButton
-                disabled={undoDisabled}
-                refreshFirst={undoSourceTurnId == null}
-                onUndo={() =>
-                  undoSourceTurnId == null
-                    ? onRefreshUndoPrompt?.()
-                    : onUndoFromPrompt(
-                        undoSourceTurnId,
-                        promptText,
-                        promptFromStart,
-                        snapshotForkPrompt(promptTurn)
-                      )
-                }
-              />
-            ) : null}
             {onForkFromPrompt &&
             promptTurn &&
             canForkPrompt &&
@@ -1710,6 +1638,7 @@ export function MessageListView({
   availableCommands,
   connStatus,
   isActive = true,
+  isVisible = true,
   sendSignal = 0,
   detailLoading = false,
   detailError = null,
@@ -1726,8 +1655,6 @@ export function MessageListView({
   onForkFromTurn,
   onForkFromPrompt,
   forkPromptBusy = false,
-  onUndoFromPrompt,
-  undoPromptBusy = false,
   liveRuns = null,
 }: MessageListViewProps) {
   const t = useTranslations("Folder.chat.messageList")
@@ -1778,23 +1705,7 @@ export function MessageListView({
     loadOlderTurns,
     loadOlderTurnsThrough,
     refetchDetail,
-    refreshSettledTurns,
   } = useConversationRuntimeActions()
-  const handleRefreshUndoPrompt = useCallback(() => {
-    refreshSettledTurns(conversationId)
-  }, [conversationId, refreshSettledTurns])
-  const detailTurns = detail?.turns
-  const backgroundTurns = session?.backgroundTurns
-  const localTurns = session?.localTurns
-  const savedTurns = useMemo(
-    () =>
-      new Set([
-        ...(detailTurns ?? []),
-        ...(backgroundTurns ?? []).map((entry) => entry.turn),
-      ]),
-    [detailTurns, backgroundTurns]
-  )
-  const settledLocalTurns = useMemo(() => new Set(localTurns), [localTurns])
   const handleLoadOlder = useCallback(() => {
     loadOlderTurns(conversationId)
   }, [loadOlderTurns, conversationId])
@@ -2068,8 +1979,6 @@ export function MessageListView({
   // "not right now" instead of dropping its button and shifting the icon row.
   const forkBusy =
     connStatus === "prompting" || forkPromptBusy
-  // 运行中仍可打开确认框，由后端停止当前会话的任务后再精确撤回。
-  const undoBusy = false
 
   const renderThreadItem = useCallback(
     (item: ThreadRenderItem) => {
@@ -2087,13 +1996,6 @@ export function MessageListView({
           const promptTurnId = promptTurn
             ? (promptTurn.source_turn_id ?? promptTurn.id)
             : null
-          // 仅原生日志中的消息可作为撤回起点，直播去重 ID 只用于渲染。
-          const undoSourceTurnId =
-            promptTurn && savedTurns.has(promptTurn)
-              ? promptTurn.id === detail?.in_flight_user_turn_id
-                ? detail.in_flight_user_source_turn_id
-                : promptTurnId
-              : null
           return (
             <div style={pt > 0 ? { paddingTop: pt } : undefined}>
               {phaseLabel ? (
@@ -2117,9 +2019,6 @@ export function MessageListView({
                 onRoundOpenChange={handleRoundOpenChange}
                 foldEpoch={fold.epoch}
                 onForkFromTurn={onForkFromTurn}
-                onUndoFromPrompt={undefined}
-                undoSourceTurnId={undefined}
-                onRefreshUndoPrompt={undefined}
                 onForkFromPrompt={
                   onForkFromPrompt &&
                   supportsPromptFork(agentType) &&
@@ -2139,7 +2038,6 @@ export function MessageListView({
                   isFirstUserPrompt(forkAnchorTurns, promptTurnId)
                 }
                 forkDisabled={forkBusy}
-                undoDisabled={undoBusy}
                 isThreadTail={item.isThreadTail}
               />
             </div>
@@ -2176,16 +2074,11 @@ export function MessageListView({
       handleRoundOpenChange,
       onForkFromTurn,
       onForkFromPrompt,
-      onUndoFromPrompt,
-      savedTurns,
-      settledLocalTurns,
-      handleRefreshUndoPrompt,
       agentType,
       forkAnchorTurns,
       detail,
       hasOlderTurns,
       forkBusy,
-      undoBusy,
     ]
   )
 
@@ -2506,6 +2399,7 @@ export function MessageListView({
         asyncTasks: liveRuns?.asyncTasks ?? EMPTY_ASYNC_TASKS,
         foregroundAgents,
         backgroundTasks,
+        nativeShellTasks: agentType === "antigravity",
         findLaunchCard: (toolCallId) => {
           if (!cardThread) return null
           for (let i = cardThread.length - 1; i >= 0; i -= 1) {
@@ -2521,6 +2415,7 @@ export function MessageListView({
         delegationBindings,
       }),
     [
+      agentType,
       liveRuns?.asyncTasks,
       liveRuns?.delegatedChildren,
       foregroundAgents,
@@ -2726,6 +2621,7 @@ export function MessageListView({
         )}
         <SelectionActionBubble
           containerRef={selectionBoxRef}
+          isVisible={isVisible}
           onQuote={onQuoteSelection}
           onAsk={onAskSelection}
           onSideQuestion={onSideQuestionSelection}

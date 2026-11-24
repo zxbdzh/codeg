@@ -33,30 +33,6 @@ impl GeminiParser {
         }
     }
 
-    pub(crate) fn undo_document(
-        &self,
-        session_id: &str,
-    ) -> Result<(PathBuf, String, Value), ParseError> {
-        let mut found = None;
-        for path in self.list_chat_files() {
-            let raw = fs::read_to_string(&path)?;
-            let Some(value) = Self::parse_chat_value(&path, &raw) else {
-                continue;
-            };
-            if value["sessionId"].as_str() != Some(session_id) {
-                continue;
-            }
-            // 多份同身份历史不能任意挑一份改写，否则原生恢复可能读到另一份。
-            if found.is_some() {
-                return Err(ParseError::InvalidData(
-                    "Multiple native histories have the same Gemini session identity".into(),
-                ));
-            }
-            found = Some((path, raw, value));
-        }
-        found.ok_or_else(|| ParseError::ConversationNotFound(session_id.to_owned()))
-    }
-
     /// Test-only constructor that lets callers point the parser at a fixture
     /// directory instead of `~/.gemini`.
     #[cfg(any(test, feature = "test-utils"))]

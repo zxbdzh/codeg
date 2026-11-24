@@ -451,6 +451,8 @@ function ListSetting({
           currentValue={setting.currentValue}
           recommendedValue={setting.recommendedValue}
           recommendedLabel={t("recommendedBadge")}
+          asides={setting.effortRanges}
+          asideTitle={(range) => t("effortRange", { range })}
           onSelect={commit}
           searchPlaceholder={
             setting.isModel ? t("searchModel") : t("searchOptions")
@@ -486,6 +488,7 @@ function PlainList({
   recommendedLabel: string
   onPick: (value: string) => void
 }) {
+  const t = useTranslations("Folder.chat.messageInput")
   const rows = flattenModelGroups(setting.groups)
   const options = rows.flatMap((row) => (row.kind === "option" ? [row] : []))
   const roving = useRovingFocus(
@@ -526,6 +529,7 @@ function PlainList({
             }
             const { option } = row
             const selected = option.value === setting.currentValue
+            const effortRange = setting.effortRanges?.get(option.value) ?? null
             return (
               <button
                 key={row.key}
@@ -556,6 +560,14 @@ function PlainList({
                       >
                         {recommendedLabel}
                       </Badge>
+                    ) : null}
+                    {effortRange ? (
+                      <span
+                        className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground"
+                        title={t("effortRange", { range: effortRange })}
+                      >
+                        {effortRange}
+                      </span>
                     ) : null}
                   </span>
                   {option.description ? (

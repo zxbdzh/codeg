@@ -79,6 +79,8 @@ export interface SnapshotPatch {
   pendingUserMessage: PendingUserMessage | null
   promptCapabilities: PromptCapabilitiesInfo | null
   selectorsReady: boolean
+  /** The composer's pending mode pick on this connection, or `null`. */
+  composerModeId: string | null
   supportsFork: boolean
   /** Whether the running session is on stale (launch-time) config — recovered
    *  from the snapshot so a reconnect/refresh/new tile sees the banner state
@@ -184,6 +186,7 @@ export function denormalizeSnapshot(wire: LiveSessionSnapshot): SnapshotPatch {
       : null,
     promptCapabilities: wire.prompt_capabilities ?? DEFAULT_PROMPT_CAPS,
     selectorsReady: wire.selectors_ready,
+    composerModeId: wire.composer_mode_id ?? null,
     supportsFork: wire.fork_supported,
     configStale: wire.config_stale ?? false,
     configStaleKind: wire.config_stale_kind ?? null,
@@ -219,9 +222,22 @@ function denormalizeLiveMessage(
   return {
     id: wire.id,
     role: wire.role === "tool" ? "tool" : "assistant",
-    content: wire.content
-      .map((block) => denormalizeBlock(block, toolMap))
-      .filter((b): b is LocalLiveContentBlock => b !== null),
+    content: [
+      ...wire.content
+        .map((block) => denormalizeBlock(block, toolMap))
+        .filter((b): b is LocalLiveContentBlock => b !== null),
+      // Only the agent's own account is kept (a blank title is worded by the
+      // client from the category), so the line is the agent's.
+      ...(wire.turn_error
+        ? [
+            {
+              type: "turn_error" as const,
+              message: wire.turn_error,
+              fromAgent: true,
+            },
+          ]
+        : []),
+    ],
     startedAt: Number.isNaN(startedAtMs) ? Date.now() : startedAtMs,
   }
 }
