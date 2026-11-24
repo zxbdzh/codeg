@@ -574,6 +574,12 @@ pub fn advertise_host(local_addr: Option<std::net::SocketAddr>, configured_host:
         .unwrap_or_else(|| configured_host.to_string())
 }
 
+/// Binds the web listener. Kept as a seam: Rust sets `IPV6_V6ONLY` on
+/// Windows, so widening here would drop IPv4 instead of adding IPv6.
+pub async fn bind_listener(addr: SocketAddr) -> std::io::Result<tokio::net::TcpListener> {
+    tokio::net::TcpListener::bind(addr).await
+}
+
 /// Addresses to advertise for a server bound to `host` (a bare IP — see
 /// [`advertise_host`], which normalizes the configured host into one).
 ///
@@ -648,7 +654,7 @@ pub(crate) async fn do_start_web_server_with_state(
                     .with_detail(e.to_string())
             })?;
 
-    let listener = tokio::net::TcpListener::bind(addr)
+    let listener = bind_listener(addr)
         .await
         .map_err(classify_bind_error)?;
 
@@ -884,7 +890,7 @@ pub(crate) async fn do_start_web_server_tauri(
                     .with_detail(e.to_string())
             })?;
 
-    let listener = tokio::net::TcpListener::bind(addr)
+    let listener = bind_listener(addr)
         .await
         .map_err(classify_bind_error)?;
 
@@ -1018,6 +1024,10 @@ pub(crate) async fn do_start_web_server_tauri(
         // HTTP and webview readers see the identical update snapshot.
         update_state: app
             .state::<crate::update::AppUpdateStateHandle>()
+            .inner()
+            .clone(),
+        whale_balance: app
+            .state::<Arc<crate::whale_balance::WhaleBalanceService>>()
             .inner()
             .clone(),
     });

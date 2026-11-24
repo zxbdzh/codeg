@@ -799,34 +799,6 @@ pub fn build_router_with_srn(
             post(handlers::research_branch::conversation_fork),
         )
         .route(
-            "/conversation_redo_status",
-            post(handlers::research_branch::conversation_redo_status),
-        )
-        .route(
-            "/conversation_redo_clear",
-            post(handlers::research_branch::conversation_redo_clear),
-        )
-        .route(
-            "/conversation_redo",
-            post(handlers::research_branch::conversation_redo),
-        )
-        .route(
-            "/conversation_undo_commit",
-            post(handlers::research_branch::conversation_undo_commit).layer(
-                axum::extract::DefaultBodyLimit::max(
-                    crate::commands::prompt_stash::STASH_BODY_LIMIT_BYTES,
-                ),
-            ),
-        )
-        .route(
-            "/conversation_undo_preview",
-            post(handlers::research_branch::conversation_undo_preview),
-        )
-        .route(
-            "/conversation_undo",
-            post(handlers::research_branch::conversation_undo),
-        )
-        .route(
             "/side_question_cancel",
             post(handlers::side_question::side_question_cancel),
         )
@@ -2347,6 +2319,27 @@ pub fn build_router_with_srn(
         .route(
             "/cli_access_set_enabled",
             post(handlers::cli_access::cli_access_set_enabled),
+        )
+        // ─── Whale balance widget ───
+        .route(
+            "/whale_balance_get_state",
+            post(handlers::whale_balance::whale_balance_get_state),
+        )
+        .route(
+            "/whale_balance_refresh",
+            post(handlers::whale_balance::whale_balance_refresh),
+        )
+        .route(
+            "/whale_balance_get_settings",
+            post(handlers::whale_balance::whale_balance_get_settings),
+        )
+        .route(
+            "/whale_balance_update_settings",
+            post(handlers::whale_balance::whale_balance_update_settings),
+        )
+        .route(
+            "/whale_balance_test_settings",
+            post(handlers::whale_balance::whale_balance_test_settings),
         )
         // `codeg-cli` against this runtime with the main token (how CI reaches
         // a remote server); the loopback listener serves the same handlers.

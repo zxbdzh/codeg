@@ -7193,41 +7193,74 @@ fn undo_turn_id(lines: &[String], prompt: &MessageTurn) -> Option<String> {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let images = prompt
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Image {
+                mime_type, data, ..
+            } => Some((mime_type.clone(), data.clone())),
+            _ => None,
+        })
+        .collect();
+    let selected = UserTurnFingerprint::new(text, images);
     let mut current_turn = None;
-    let mut has_prompt = false;
-    let mut matches = Vec::new();
-    for line in lines {
+    let mut first_event = None;
+    let mut first_response = None;
+    let mut matched = None;
+    for (index, line) in lines.iter().enumerate() {
         let record: serde_json::Value = serde_json::from_str(line).ok()?;
-        if record["type"] != "event_msg" {
-            continue;
-        }
+        let kind = record["type"].as_str().unwrap_or_default();
         let payload = &record["payload"];
-        match payload["type"].as_str() {
-            Some("task_started") => {
-                current_turn = payload["turn_id"].as_str().map(str::to_owned);
-                has_prompt = false;
+        let (fingerprint, first, other) = match (kind, promotion_payload_type(kind, &record)) {
+            ("event_msg", "task_started") => {
+                current_turn = payload["turn_id"]
+                    .as_str()
+                    .map(|turn_id| (index, turn_id.to_owned()));
+                first_event = None;
+                first_response = None;
+                continue;
             }
-            Some("user_message") => {
-                let raw = payload["message"].as_str().unwrap_or_default();
-                if parse_codex_timestamp(&record) == Some(prompt.timestamp)
-                    && normalize_user_text(raw) == text
-                {
-                    // 原生回退以整轮为单位，不能把轮中追加消息误当作轮首而多撤回前文。
-                    if has_prompt || current_turn.is_none() {
-                        return None;
-                    }
-                    matches.push(current_turn.clone()?);
-                }
-                has_prompt = true;
-            }
-            Some("task_complete" | "turn_aborted") => {
+            ("event_msg", "task_complete" | "turn_aborted") => {
                 current_turn = None;
+                continue;
             }
-            _ => {}
+            ("event_msg", "user_message") => (
+                UserTurnFingerprint::from_event_message(payload),
+                &mut first_event,
+                &first_response,
+            ),
+            ("response_item", "message") if payload["role"] == "user" => {
+                let fingerprint = UserTurnFingerprint::from_response_item(payload);
+                if fingerprint.images.is_empty()
+                    && !fingerprint
+                        .text
+                        .as_deref()
+                        .is_some_and(is_promotable_user_text)
+                {
+                    continue;
+                }
+                (fingerprint, &mut first_response, &first_event)
+            }
+            _ => continue,
+        };
+        let timestamp = parse_codex_timestamp(&record);
+        if timestamp == Some(prompt.timestamp) && fingerprint == selected {
+            let turn = current_turn.as_ref()?;
+            // 双写只认同时间、同内容的记录；不能把较早的同文输入当作本条的副本。
+            if first.is_some()
+                || other.as_ref().is_some_and(|(earlier_at, earlier)| {
+                    *earlier_at != timestamp || earlier != &fingerprint
+                })
+                || matched.as_ref().is_some_and(|earlier| earlier != turn)
+            {
+                return None;
+            }
+            matched = Some(turn.clone());
         }
+        first.get_or_insert((timestamp, fingerprint));
     }
-    // 重复文本可以靠时间定位；身份仍有歧义时拒绝操作，绝不猜测回退点。
-    (matches.len() == 1).then(|| matches.remove(0))
+    matched.map(|(_, turn_id)| turn_id)
 }
 
 fn strip_blocked_resource_mentions(input: &str) -> String {

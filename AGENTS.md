@@ -50,6 +50,20 @@ cargo insta review
 INSTA_UPDATE=auto cargo test --features test-utils     # 自动写新 .snap
 ```
 
+### 本地自用安装包（Windows，必须用脚本）
+
+生成可替换 `D:\software\codeg\codeg.exe` 的完整本地包，只能走：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build-local.ps1            # 只构建
+powershell -ExecutionPolicy Bypass -File scripts/build-local.ps1 -Replace    # 构建并替换（Codeg 需先退出）
+```
+
+- 禁止直接 `cargo build --release`：漏掉 `--features tauri/custom-protocol` 时 tauri-codegen 嵌入空 assets，主窗口会去加载 `devUrl: http://localhost:3000/workspace`，结果是白屏 / `ERR_CONNECTION_REFUSED`。`pnpm tauri build` 在本机还会让 sidecar 的 rustc 崩 `0xC0000005`，同样不要用。
+- 并发默认 `-j 8`。`-j 1` 会把 rustc 的 jobserver 锁成单路 codegen，实测 25 分钟未完成；`-j 8` 约 13 分钟。内存吃紧时用 `-Jobs 4`。
+- 脚本构建后会用 `out/index.html` 里的 chunk 路径校验 exe 是否真的内嵌了前端产物，未命中直接失败，避免再发一个 dev 包。
+- 替换前会在安装目录留一份 `codeg.exe.bak-<时间戳>`；Codeg 未退出时脚本报错退出，不会静默覆盖。
+
 ## 架构
 
 ### 双模式运行

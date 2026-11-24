@@ -352,6 +352,15 @@ pub async fn switch_native_to_acp(
             ))
         })?;
 
+    // 恢复出来的连接只携带 session_id；补回原 conversation_id / folder_id，
+    // 确保发下一条消息前按会话 id 的发现与跨端附着已经能定位到它。
+    acp.bind_conversation_if_unset(
+        &outcome.connection_id,
+        identity.conversation_id,
+        identity.folder_id,
+    )
+    .await;
+
     Ok(RestoredAcp {
         connection_id: outcome.connection_id,
         agent_type: identity.agent_type,

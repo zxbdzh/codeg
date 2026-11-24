@@ -60,6 +60,8 @@ pub struct NativeTerminalHandle {
 #[serde(rename_all = "camelCase")]
 pub struct NativeRestoredAcp {
     pub connection_id: String,
+    /// 为 true 表示并发下复用了已有连接，前端应以 viewer 接入以免关闭 tab 时误杀它。
+    pub reused: bool,
 }
 
 /// 两种运行时都能提供的依赖。Tauri 从窗口 label 取所有权，Web 固定用
@@ -632,6 +634,7 @@ pub async fn native_session_close_main_core(
     match restored {
         Ok(restored) => Ok(NativeRestoredAcp {
             connection_id: restored.connection_id,
+            reused: restored.reused,
         }),
         Err(error) => {
             lock_main_terminals().insert(source_connection_id.to_string(), handle);

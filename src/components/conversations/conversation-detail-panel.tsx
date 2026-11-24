@@ -77,14 +77,6 @@ import {
   type ConversationForkTarget,
 } from "@/stores/conversation-fork-store"
 import { ConversationForkProgress } from "@/components/conversations/conversation-fork-progress"
-import { ConversationUndoDialog } from "@/components/conversations/conversation-undo-dialog"
-import { ConversationRedoControl } from "@/components/conversations/conversation-redo-control"
-import { useConversationUndo } from "@/hooks/use-conversation-undo"
-import {
-  commitConversationUndo,
-  previewConversationUndo,
-  type ConversationUndoResult,
-} from "@/lib/conversation-undo"
 import { isConnectionBusy } from "@/lib/connection-teardown"
 import { openForkConversation } from "@/lib/research-branch-navigation"
 import {
@@ -1083,8 +1075,10 @@ const ConversationTabView = memo(function ConversationTabView({
       signal: reloadSignal,
       sawLoading: false,
     }
-    refetchDetail(dbConversationId)
-  }, [dbConversationId, reloadSignal, refetchDetail])
+    // 使用 effectiveConversationId：新建/聊天模式会话即使已落库，tab 内仍以负虚拟 id
+    // 订阅 runtime store；store 会按 dbConversationId 绑定请求后端并把结果写回该 key。
+    refetchDetail(effectiveConversationId)
+  }, [dbConversationId, effectiveConversationId, reloadSignal, refetchDetail])
 
   useEffect(() => {
     const pending = pendingReloadState.current
@@ -1434,110 +1428,7 @@ const ConversationTabView = memo(function ConversationTabView({
   const promptForkRequestRef = useRef(false)
   const [promptForking, setPromptForking] = useState(false)
   const tResearch = useTranslations("ResearchBranch")
-  const tUndo = useTranslations("ConversationUndo")
   const composerHistoryRef = useRef<ComposerHistoryHandle | null>(null)
-  const undoBackend = useMemo(
-    () => ({
-      preview: previewConversationUndo,
-      commit: commitConversationUndo,
-    }),
-    []
-  )
-  const handleUndoComplete = useCallback(
-    async (
-      result: ConversationUndoResult,
-      text: string,
-      original?: MessageTurn
-    ) => {
-      // 先保存回填，再清除旧连接；重连失败也不会丢掉要重发的原文。
-      if (original) {
-        if (!composerHistoryRef.current?.restore(original, result.input)) {
-          throw new Error(
-            "Undo completed but the original input could not be restored"
-          )
-        }
-      } else {
-        parkForkConversationPrompt(result.conversationId, text)
-      }
-      if (conn.connectionId) {
-        try {
-          await conn.disconnect()
-        } catch (error) {
-          console.warn("[ConversationUndo] old connection cleanup:", error)
-        }
-      }
-      refetchDetail(effectiveConversationId, {
-        dropBackgroundTurnIds: getRuntimeSession(
-          effectiveConversationId
-        )?.backgroundTurns.map((entry) => entry.turn.id),
-      })
-      void refreshConversations()
-      try {
-        await conn.connect(
-          selectedAgent,
-          workingDirForConnection,
-          result.sessionId,
-          result.conversationId
-        )
-      } catch {
-        toast.info(tUndo("reconnectFailed"))
-      }
-    },
-    [
-      conn,
-      effectiveConversationId,
-      refetchDetail,
-      refreshConversations,
-      selectedAgent,
-      tUndo,
-      workingDirForConnection,
-    ]
-  )
-  const handleUndoFailure = useCallback(
-    async (failedConversationId: number, historyRestored = false) => {
-      refetchDetail(effectiveConversationId, {
-        // 原生恢复成功才移除旧覆盖层；撤回失败时保留全部历史，不能按较小水位猜测删除。
-        dropBackgroundTurnIds: historyRestored
-          ? getRuntimeSession(effectiveConversationId)?.backgroundTurns.map(
-              (entry) => entry.turn.id
-            )
-          : undefined,
-      })
-      void refreshConversations()
-      const sessionId = detail?.summary.external_id ?? sessionIdRef.current
-      if (!sessionId || !workingDirForConnection) return
-      await conn.connect(
-        selectedAgent,
-        workingDirForConnection,
-        sessionId,
-        failedConversationId
-      )
-    },
-    [
-      conn,
-      detail?.summary.external_id,
-      effectiveConversationId,
-      refetchDetail,
-      refreshConversations,
-      selectedAgent,
-      workingDirForConnection,
-    ]
-  )
-  const conversationUndo = useConversationUndo({
-    conversationId: dbConversationId,
-    busy: isConnectionBusy(conn),
-    blocked: promptForking,
-    onComplete: handleUndoComplete,
-    onFailure: handleUndoFailure,
-    backend: undoBackend,
-    captureDraft: () => {
-      const composer = composerHistoryRef.current
-      if (!composer) throw new Error("The composer is not ready")
-      composer.setLocked(true)
-      return composer.capture()
-    },
-    onSettled: () => composerHistoryRef.current?.setLocked(false),
-  })
   // 独立连接创建分支，主行、主连接和草稿保持原样；历史提示词只进入新分支的输入框。
   const handleForkFromPrompt = useCallback(
     async (
@@ -2110,8 +2001,15 @@ const ConversationTabView = memo(function ConversationTabView({
     if (acpLoadError) {
       acpActions.clearAcpLoadError(tabId)
     }
-    refetchDetail(dbConversationId)
-  }, [acpActions, acpLoadError, dbConversationId, refetchDetail, tabId])
+    refetchDetail(effectiveConversationId)
+  }, [
+    acpActions,
+    acpLoadError,
+    dbConversationId,
+    effectiveConversationId,
+    refetchDetail,
+    tabId,
+  ])
   // Open (or re-activate) the singleton draft tab BEFORE closing the failing
   // tab. closeTab auto-creates a replacement draft when it removes the last
   // tab, and `openNewConversationTab` reads `rawTabsRef.current` which
@@ -2410,11 +2308,9 @@ const ConversationTabView = memo(function ConversationTabView({
           availableCommands={connectionCommands}
           connStatus={connStatus}
           forkPromptBusy={promptForking}
-          undoPromptBusy={conversationUndo.pending}
+          undoPromptBusy={false}
           // 共享连接仍可共同操作；isViewer 只约束断开时不误杀其他客户端的连接。
-          onUndoFromPrompt={
-            hasPersistedConversation ? conversationUndo.requestUndo : undefined
-          }
+          onUndoFromPrompt={undefined}
           isActive={isActive}
           sendSignal={sendSignal}
           detailLoading={detailLoading}
@@ -2570,13 +2466,6 @@ const ConversationTabView = memo(function ConversationTabView({
       topBanner={
         <>
           <ConversationForkProgress open={promptForking} />
-          <ConversationUndoDialog
-            open={conversationUndo.selection !== null}
-            pending={conversationUndo.pending}
-            preview={conversationUndo.selection?.preview}
-            onCancel={conversationUndo.cancelUndo}
-            onConfirm={() => void conversationUndo.confirmUndo()}
-          />
           <SessionConfigStaleBanner contextKey={tabId} />
           <PiProjectTrustBanner
             contextKey={tabId}
@@ -2628,19 +2517,6 @@ const ConversationTabView = memo(function ConversationTabView({
       injectContent={composerInject}
       onInjectConsumed={handleComposerInjectConsumed}
       composerBanner={acpLoadErrorBanner}
-      composerActions={
-        dbConversationId != null && (
-          <ConversationRedoControl
-            key={dbConversationId}
-            conversationId={dbConversationId}
-            revision={`${conversationUndo.pending}:${sendSignal}:${detail?.turns.reduce((lastId, turn) => (turn.role === "user" ? turn.id : lastId), "") ?? ""}`}
-            busy={conversationUndo.pending || isConnectionBusy(conn)}
-            onRestored={async (result) => {
-              await handleUndoFailure(result.conversationId, true)
-            }}
-          />
-        )
-      }
       feedbackList={
         feedback.showList ? (
           <FeedbackNotesDisplay
@@ -2916,6 +2792,9 @@ export function ConversationDetailPanel() {
   } = useConversationRuntimeActions()
   const { activeFolder: folder } = useActiveFolder()
   const conversations = useAppWorkspaceStore((s) => s.conversations)
+  const refreshConversations = useAppWorkspaceStore(
+    (s) => s.refreshConversations
+  )
   const allFolders = useAppWorkspaceStore((s) => s.allFolders)
   const tabs = useTabStore((s) => s.tabs)
   const paneState = useTabStore((s) => s.paneState)
@@ -2971,15 +2850,16 @@ export function ConversationDetailPanel() {
         return next
       })
       // 终端退出后 ACP 已恢复；终端期间新增的历史已落库，用现有 reload
-      // 信号让详情重新拉取，而不是只显示进入终端前的旧消息。
+      // 信号让详情重新拉取，并刷新侧边栏列表（消息数、标题与更新时间）。
       if (restoredConnectionId) {
         setReloadByTabId((prev) => ({
           ...prev,
           [tabId]: (prev[tabId] ?? 0) + 1,
         }))
+        void refreshConversations()
       }
     },
-    []
+    [refreshConversations]
   )
 
   const exportLabels = useExportLabels()

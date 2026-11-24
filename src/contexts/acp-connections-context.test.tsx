@@ -395,6 +395,32 @@ describe("AcpConnectionsProvider cross-client viewer lifecycle", () => {
       { sinceSeq: undefined },
       expect.anything()
     )
+    expect(h.store!.getConnection(TAB)?.isViewer).toBe(true)
+  })
+
+  it("attaches a restored connection as owner when isViewer is false", async () => {
+    await mountProvider()
+
+    let attached = false
+    await act(async () => {
+      attached = await h.actions!.attachToConnection(
+        TAB,
+        "restored-conn",
+        "claude_code",
+        "/tmp/x",
+        { isViewer: false }
+      )
+    })
+
+    expect(attached).toBe(true)
+    expect(h.acpConnect).not.toHaveBeenCalled()
+    expect(h.store!.getConnection(TAB)?.isViewer).toBe(false)
+
+    // 以 owner 接回后，关闭 tab 必须真实释放后端 ACP 进程，不能像 viewer 那样跳过。
+    await act(async () => {
+      await h.actions!.disconnect(TAB)
+    })
+    expect(h.acpDisconnect).toHaveBeenCalledWith("restored-conn")
   })
 
   it("a SECOND local surface joins the connection this client owns instead of spawning another agent", async () => {

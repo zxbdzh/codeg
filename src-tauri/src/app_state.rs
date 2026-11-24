@@ -101,6 +101,8 @@ pub struct AppState {
     /// The loopback listener and discovery file the CLIs of this machine
     /// come in by, and the setting that turns them on and off.
     pub cli_access: Arc<crate::cli_run::CliAccess>,
+    /// 小鲸鱼余额挂件独立查询与状态服务，桌面、内置 Web 与独立 server 共用同一实例。
+    pub whale_balance: Arc<crate::whale_balance::WhaleBalanceService>,
 }
 
 pub fn default_system_op_lock() -> Arc<tokio::sync::Mutex<()>> {
@@ -266,6 +268,10 @@ impl AppState {
             crate::cli_run::wire::RuntimeKind::Server,
         );
         let cli_access = crate::cli_run::CliAccess::new(cli_runs.clone(), data_dir.clone());
+        let whale_balance = Arc::new(crate::whale_balance::WhaleBalanceService::new(
+            db.conn.clone(),
+            emitter.clone(),
+        ));
         let (
             delegation_broker,
             delegation_tokens,
@@ -308,6 +314,7 @@ impl AppState {
             update_state: default_update_state(),
             cli_runs,
             cli_access,
+            whale_balance,
         }
     }
 }

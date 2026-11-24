@@ -358,6 +358,10 @@ async fn async_main(
         codeg_lib::cli_run::wire::RuntimeKind::Server,
     );
     let cli_access = codeg_lib::cli_run::CliAccess::new(cli_runs.clone(), data_dir.clone());
+    let whale_balance = Arc::new(codeg_lib::whale_balance::WhaleBalanceService::new(
+        db.conn.clone(),
+        emitter.clone(),
+    ));
     let (
         delegation_broker,
         delegation_tokens,
@@ -401,7 +405,9 @@ async fn async_main(
         update_state: codeg_lib::app_state::default_update_state(),
         cli_runs,
         cli_access,
+        whale_balance: whale_balance.clone(),
     });
+    codeg_lib::whale_balance::spawn_whale_balance_poller(whale_balance);
     state
         .connection_manager
         .install_chat_channel(state.chat_channel_manager.clone_ref());
@@ -635,10 +641,6 @@ async fn async_main(
     // `CODEG_ACP_IDLE_TIMEOUT_SECS=0` disables idle disconnects, not disk
     // reclamation.
     tokio::spawn(codeg_lib::scratch_sweep_task());
-    tokio::spawn(codeg_lib::conversation_undo::cleanup_task(
-        state.connection_manager.clone_ref(),
-        state.data_dir.clone(),
-    ));
 
     // Office watch preview servers: reap dead children + ref0 stragglers.
     if let Some(idle_timeout) = codeg_lib::office_watch::idle_timeout_from_env() {

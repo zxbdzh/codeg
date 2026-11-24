@@ -25,6 +25,7 @@ import type { ImperativePanelGroupHandle } from "react-resizable-panels"
 import { FolderTitleBar } from "@/components/layout/folder-title-bar"
 import { Sidebar } from "@/components/layout/sidebar"
 import { StatusBar } from "@/components/layout/status-bar"
+import { WhaleBalanceWidget } from "@/components/layout/whale-balance-widget"
 import {
   AppWorkspaceProvider,
   ConversationStatusEventBridge,
@@ -1543,6 +1544,7 @@ function FolderLayoutShell({ children }: { children: React.ReactNode }) {
         duration={TOAST_DURATION_MS}
         closeButton
       />
+      <WhaleBalanceWidget />
     </div>
   )
 }

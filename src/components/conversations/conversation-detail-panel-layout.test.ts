@@ -724,3 +724,27 @@ it("gates the no-tab draft creation effect on folder-tabs mode", () => {
   )
   expect(effect).toContain("openNewConversationTab(")
 })
+
+describe("ConversationDetailPanel native-session reload path", () => {
+  it("reloads the detail under effectiveConversationId so virtual-id tabs update", () => {
+    const reloadIdx = source.indexOf("if (reloadSignal === latestReloadSignal")
+    expect(reloadIdx).toBeGreaterThan(-1)
+    const reloadEffect = source.slice(reloadIdx, reloadIdx + 400)
+    expect(reloadEffect).toContain("refetchDetail(effectiveConversationId)")
+    expect(reloadEffect).not.toContain("refetchDetail(dbConversationId)")
+
+    const handlerIdx = source.indexOf("const handleReloadDetail = useCallback")
+    expect(handlerIdx).toBeGreaterThan(-1)
+    const handlerBlock = source.slice(handlerIdx, handlerIdx + 500)
+    expect(handlerBlock).toContain("refetchDetail(effectiveConversationId)")
+    expect(handlerBlock).not.toContain("refetchDetail(dbConversationId)")
+  })
+
+  it("refreshes the sidebar conversation list when returning from native terminal", () => {
+    const start = source.indexOf("const setNativeTerminal = useCallback")
+    expect(start).toBeGreaterThan(-1)
+    const block = source.slice(start, start + 800)
+    expect(block).toContain("if (restoredConnectionId)")
+    expect(block).toContain("refreshConversations()")
+  })
+})

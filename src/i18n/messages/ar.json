@@ -33,8 +33,8 @@
     "remove": "إزالة وسم من المحادثة: {name}",
     "mergeInto": "الإبقاء على «{name}»",
     "global": "عام",
-    "folder": "مجموعة المجلدات \u2066#{id}\u2069",
-    "session": "المحادثة \u2066#{id}\u2069",
+    "folder": "مجموعة المجلدات ⁦#{id}⁩",
+    "session": "المحادثة ⁦#{id}⁩",
     "affected": "عدد المحادثات المتأثرة: {count}",
     "manual": "رابط أضيف يدويًا",
     "confirmManual": "تأكيد إزالة الروابط اليدوية المعروضة",
@@ -2644,7 +2644,7 @@
       "openFailed": "تعذر فتح طرفية السؤال الجانبي. حاول مرة أخرى.",
       "closeFailed": "تعذر إغلاق طرفية السؤال الجانبي. حاول مرة أخرى.",
       "nativeTerminalHint": "يعمل كل سؤال جانبي في طرفية أصلية مستقلة عن المحادثة الرئيسية.",
-      "noActiveSession": "افتح محادثة أولاً.",
+      "noActiveSession": "اختر محادثة لطرح سؤال جانبي.",
       "engine": "صور ونصوص · بدون أدوات",
       "followCurrent": "اتباع المحادثة الحالية",
       "clear": "مسح السؤال الجانبي",
@@ -2681,7 +2681,6 @@
       "imagesUnsupported": "تدعم الأسئلة الجانبية الأصلية لهذا الوكيل النصوص والملفات النصية فقط.",
       "dropTextFiles": "أفلت الملفات النصية هنا",
       "source": "المصدر",
-      "noActiveSession": "اختر محادثة لطرح سؤال جانبي.",
       "contextHint": "النص الحديث المكتمل فقط: حتى 12 رسالة و12,000 حرف، دون مخرجات الأدوات أو التفكير.",
       "selectionHint": "يُرسل النص المحدد فقط، حتى 8,000 حرف. لا تُورث المحادثة الكاملة.",
       "selectionStats": "{chars} حرف محدد",
@@ -2761,17 +2760,17 @@
       "menuLabel": "نقل إلى",
       "title": "نقل المحادثة",
       "titleMany": "نقل {count, plural, zero {# محادثة} one {محادثة واحدة} two {محادثتين} few {# محادثات} many {# محادثة} other {# محادثة}}",
-      "intro": "ستُنقل «\u2066{title}\u2069» إلى هذا المجلد:",
+      "intro": "ستُنقل «⁦{title}⁩» إلى هذا المجلد:",
       "introMany": "{count, plural, zero {لن تُنقل أي محادثة} one {ستُنقل المحادثة المحددة} two {ستُنقل المحادثتان المحددتان} few {ستُنقل # محادثات محددة} many {ستُنقل # محادثة محددة} other {ستُنقل # محادثة محددة}} إلى هذا المجلد:",
       "untitledConversation": "محادثة بدون عنوان",
       "explain": "بدءًا من الرسالة التالية، يعمل الوكيل في هذا المجلد، ويبقى السجل كما هو. إذا تعذّر على الوكيل استئناف الجلسة هنا، فسيُعرض عليك إعادة تحميلها أو بدء جلسة جديدة.",
-      "chatFilesNote": "تبقى الملفات التي أُنشئت أثناء الدردشة في دليلها المؤقت \u2066{path}\u2069، ولا تُنقل إلى المجلد.",
+      "chatFilesNote": "تبقى الملفات التي أُنشئت أثناء الدردشة في دليلها المؤقت ⁦{path}⁩، ولا تُنقل إلى المجلد.",
       "chatFilesNoteMany": "تبقى الملفات التي أُنشئت أثناء هذه الدردشات في أدلتها المؤقتة، ولا تُنقل إلى المجلد.",
       "noTargets": "لا يوجد مجلد مفتوح آخر",
       "targetUnavailable": "أُغلق هذا المجلد أو أُزيل — اختر مجلدًا آخر.",
       "cancel": "إلغاء",
       "move": "نقل",
-      "toastMoved": "{count, plural, zero {لم تُنقل أي محادثة} one {نُقلت محادثة واحدة} two {نُقلت محادثتان} few {نُقلت # محادثات} many {نُقلت # محادثة} other {نُقلت # محادثة}} إلى \u2066{folder}\u2069",
+      "toastMoved": "{count, plural, zero {لم تُنقل أي محادثة} one {نُقلت محادثة واحدة} two {نُقلت محادثتان} few {نُقلت # محادثات} many {نُقلت # محادثة} other {نُقلت # محادثة}} إلى ⁦{folder}⁩",
       "toastSkipped": "{count, plural, zero {لم تُنقل أي محادثة} one {لم تُنقل محادثة واحدة} two {لم تُنقل محادثتان} few {لم تُنقل # محادثات} many {لم تُنقل # محادثة} other {لم تُنقل # محادثة}}",
       "toastFailed": "تعذّر النقل: {message}",
       "skipReason": {
@@ -2933,14 +2932,14 @@
         "cancel": "إلغاء",
         "confirmStart": "تشغيل",
         "confirmTitle": "فتح Codeg لشبكتك؟",
-        "confirmDescription": "ستستمع خدمة الويب على \u2066{address}\u2069. سيتمكن أي جهاز على شبكتك من الوصول إلى Codeg — بما في ذلك الطرفيات والوكلاء — باستخدام رمز الوصول.",
-        "tooltipNetwork": "خدمة الويب · تستمع على \u2066{address}\u2069 (يمكن الوصول إليها من شبكتك)",
-        "tooltipLocal": "خدمة الويب · تستمع على \u2066{address}\u2069 (هذا الحاسوب فقط)",
+        "confirmDescription": "ستستمع خدمة الويب على ⁦{address}⁩. سيتمكن أي جهاز على شبكتك من الوصول إلى Codeg — بما في ذلك الطرفيات والوكلاء — باستخدام رمز الوصول.",
+        "tooltipNetwork": "خدمة الويب · تستمع على ⁦{address}⁩ (يمكن الوصول إليها من شبكتك)",
+        "tooltipLocal": "خدمة الويب · تستمع على ⁦{address}⁩ (هذا الحاسوب فقط)",
         "tooltipStopped": "خدمة الويب · متوقفة",
-        "hintNetwork": "تستمع على \u2066{address}\u2069. يمكن للأجهزة على شبكتك فتح Codeg باستخدام رمز الوصول.",
-        "hintLocal": "تستمع على \u2066{address}\u2069. هذا الحاسوب فقط يمكنه الوصول إليها.",
-        "hintStoppedNetwork": "متوقفة. عند التشغيل ستستمع على \u2066{address}\u2069، ويمكن الوصول إليها من شبكتك.",
-        "hintStoppedLocal": "متوقفة. عند التشغيل ستستمع على \u2066{address}\u2069، لهذا الحاسوب فقط.",
+        "hintNetwork": "تستمع على ⁦{address}⁩. يمكن للأجهزة على شبكتك فتح Codeg باستخدام رمز الوصول.",
+        "hintLocal": "تستمع على ⁦{address}⁩. هذا الحاسوب فقط يمكنه الوصول إليها.",
+        "hintStoppedNetwork": "متوقفة. عند التشغيل ستستمع على ⁦{address}⁩، ويمكن الوصول إليها من شبكتك.",
+        "hintStoppedLocal": "متوقفة. عند التشغيل ستستمع على ⁦{address}⁩، لهذا الحاسوب فقط.",
         "copyAddress": "نسخ العنوان",
         "openSettings": "فتح إعدادات خدمة الويب"
       }
@@ -3859,7 +3858,7 @@
         "errors": {
           "connectionFailed": "فشل الاتصال",
           "sendPromptFailed": "فشل إرسال الرسالة: {error}",
-          "conversationMoved": "نُقلت هذه المحادثة إلى \u2066{folder}\u2069. أعد إرسال رسالتك للمتابعة هناك."
+          "conversationMoved": "نُقلت هذه المحادثة إلى ⁦{folder}⁩. أعد إرسال رسالتك للمتابعة هناك."
         }
       },
       "shared": {
@@ -4939,8 +4938,8 @@
       "bindFailed": "فشل ربط العنوان"
     },
     "bindHost": "الاستماع على",
-    "bindHostAll": "كل الواجهات (\u20660.0.0.0\u2069)",
-    "bindHostLocal": "هذا الحاسوب فقط (\u2066127.0.0.1\u2069)",
+    "bindHostAll": "كل الواجهات (⁦0.0.0.0⁩)",
+    "bindHostLocal": "هذا الحاسوب فقط (⁦127.0.0.1⁩)",
     "bindHostAllHint": "يمكن للأجهزة على شبكتك المحلية الوصول إلى الخدمة باستخدام رمز الوصول.",
     "bindHostLocalHint": "هذا الحاسوب فقط يمكنه الوصول إلى الخدمة — مثلًا خلف وكيل عكسي أو Tailscale Serve."
   },
@@ -8005,7 +8004,7 @@
       }
     },
     "link": {
-      "discoverOff": "«اكتشاف» متوقف في هذا الـ Codeg، لذا لا يمكن فتح \u2066{ref}\u2069 هنا."
+      "discoverOff": "«اكتشاف» متوقف في هذا الـ Codeg، لذا لا يمكن فتح ⁦{ref}⁩ هنا."
     },
     "discover": {
       "search": {
@@ -8149,7 +8148,7 @@
           "runs_hooks": "خطافات تشغِّل أوامر",
           "launches_mcp": "يشغِّل خادم MCP خاصًا به"
         },
-        "findingRule": "قاعدة · \u2066{name}\u2069",
+        "findingRule": "قاعدة · ⁦{name}⁩",
         "minorFindings": "{count, plural, zero {لا ملاحظات ثانوية} one {ملاحظة ثانوية واحدة} two {ملاحظتان ثانويتان} few {# ملاحظات ثانوية} many {# ملاحظة ثانوية} other {# ملاحظة ثانوية}}: أوامر شائعة وما شابهها، سُجِّلت ولا تدعو للقلق",
         "secretsFound": "{count, plural, zero {لم يُعثر على بيانات اعتماد} one {عُثر على بيان اعتماد واحد} two {عُثر على بيانَي اعتماد} few {عُثر على # بيانات اعتماد} many {عُثر على # بيان اعتماد} other {عُثر على # بيان اعتماد}} في المصدر؛ ولم تُنسخ إلى هنا.",
         "dropped": "ملفات استُبعدت من الحزمة:",
@@ -8165,7 +8164,7 @@
         },
         "installScript": "يشغِّل سكربت تثبيت",
         "files": "الملفات",
-        "filesTotal": "{count, plural, zero {لا ملفات} one {ملف واحد} two {ملفان} few {# ملفات} many {# ملفًا} other {# ملف}} · \u2066{size}\u2069",
+        "filesTotal": "{count, plural, zero {لا ملفات} one {ملف واحد} two {ملفان} few {# ملفات} many {# ملفًا} other {# ملف}} · ⁦{size}⁩",
         "executable": "تنفيذي",
         "showAll": "عرض الكل ({count, number})",
         "versions": "الإصدارات",
@@ -8283,11 +8282,11 @@
         "copy": "نسخ التعريف",
         "copying": "جارٍ النسخ…",
         "copied": "نُسخ",
-        "copiedNote": "نُسخ التعريف. احفظه ملفًا في \u2066~/.claude/agents/\u2069 لتستخدمه في Claude Code.",
+        "copiedNote": "نُسخ التعريف. احفظه ملفًا في ⁦~/.claude/agents/⁩ لتستخدمه في Claude Code.",
         "copyFailed": "تعذَّر النسخ إلى الحافظة.",
         "copyErrors": {
           "notFound": "لا يحتفظ SRN Harness بنسخة من هذا التعريف.",
-          "tooLarge": "التعريف أكبر مما ينسخه Codeg (\u2066256 KB\u2069).",
+          "tooLarge": "التعريف أكبر مما ينسخه Codeg (⁦256 KB⁩).",
           "invalidResponse": "التعريف ليس نصًّا يستطيع Codeg نسخه.",
           "invalidRef": "لا يستطيع Codeg طلب هذا التعريف: بصمة ملفه غير صالحة.",
           "unsupported": "هذا الإصدار من Codeg لا ينسخ التعريفات بعد. حدِّثه لنسخها.",
@@ -10469,7 +10468,7 @@
       "signedOut": "حساب SRN: لم يتم تسجيل الدخول",
       "pending": "حساب SRN: بانتظار المتصفح",
       "completing": "حساب SRN: جارٍ إكمال تسجيل الدخول",
-      "signedIn": "حساب SRN: ⁨{name}\u2069",
+      "signedIn": "حساب SRN: ⁨{name}⁩",
       "unreadable": "حساب SRN: تعذّرت قراءة تسجيل الدخول المحفوظ",
       "unavailable": "حساب SRN: لا يستطيع الخادم التحقق الآن"
     },
@@ -10553,5 +10552,56 @@
       "rateLimited": "طلب SRN من Codeg الانتظار قبل إعادة المحاولة.",
       "server": "ردّ SRN بخطأ."
     }
+  },
+  "WhaleBalanceSettings": {
+    "title": "أداة رصيد الحوت",
+    "description": "يستعلم عن رصيد الحساب في الخلفية بشكل مستقل ويعرض نفس الأداة عبر جميع المحادثات.",
+    "enableAriaLabel": "تفعيل أداة رصيد الحوت",
+    "loadFailed": "تعذر تحميل إعدادات الرصيد: {message}",
+    "saveSuccess": "تم حفظ إعدادات رصيد الحوت",
+    "saveFailed": "تعذر حفظ إعدادات الرصيد: {message}",
+    "accountNameLabel": "اسم الحساب",
+    "accountNameDescription": "يظهر كبادئة لعنوان فقاعة الرصيد.",
+    "accountNamePlaceholder": "مثال: lk888",
+    "urlLabel": "عنوان واجهة الرصيد",
+    "urlDescription": "رابط HTTP أو HTTPS يعيد بيانات الرصيد بصيغة JSON.",
+    "urlPlaceholder": "https://api.example.com/v1/skills/balance",
+    "methodLabel": "طريقة HTTP",
+    "authHeaderLabel": "قالب الترويسة",
+    "authHeaderDescription": "ترويسات مفصولة بفاصلة منقوطة مع استخدام '{key}' لمفتاح API.",
+    "apiKeyLabel": "مفتاح API",
+    "apiKeyDescription": "يُحفظ في الخلفية فقط ولا يُعاد إرساله للواجهة.",
+    "apiKeySavedDescription": "يوجد مفتاح محفوظ في الخلفية. اتركه فارغاً للإبقاء عليه.",
+    "apiKeyWillClear": "سيتم حذف مفتاح API المحفوظ عند الحفظ.",
+    "apiKeyPlaceholder": "أدخل مفتاح API",
+    "apiKeySavedPlaceholder": "محفوظ ({hint}) — أدخل مفتاحاً جديداً للاستبدال",
+    "clearApiKey": "مسح المفتاح",
+    "undoClearApiKey": "إبقاء المفتاح",
+    "pathsLabel": "مسارات JSON",
+    "pathsDescription": "مسارات مفصولة بنقاط (مع دعم فهارس المصفوفة) للرصيد والمستهلك.",
+    "remainingPathLabel": "مسار الرصيد",
+    "usedPathLabel": "مسار المستهلك (اختياري)",
+    "pollingLabel": "المعامل والتحديث",
+    "pollingDescription": "تحديد معامل الضرب وفترة التحديث بالثواني (15–3600).",
+    "scaleLabel": "معامل الضرب",
+    "pollIntervalLabel": "فترة التحديث (ثانية)",
+    "testButton": "اختبار الاتصال",
+    "saveButton": "حفظ",
+    "testSuccess": "تم الاتصال: الرصيد {balance}",
+    "testSuccessWithUsed": "تم الاتصال: {balance} · مستخدم {used}",
+    "testFailed": "فشل الاتصال: {message}",
+    "unknownError": "خطأ غير معروف"
+  },
+  "WhaleBalanceWidget": {
+    "toggleAriaLabel": "تبديل فقاعة رصيد الحوت",
+    "avatarAlt": "أداة رصيد الحوت",
+    "titleWithAccount": "رصيد {account}",
+    "titleDefault": "رصيد الحساب",
+    "summaryWithUsed": "{balance} · مستخدم {used}",
+    "refreshAriaLabel": "تحديث الرصيد",
+    "settingsAriaLabel": "فتح إعدادات الرصيد",
+    "notConfiguredHint": "قم بإعداد واجهة الرصيد في الإعدادات",
+    "staleWithTime": "فشل التحديث · آخر نجاح {time}",
+    "fetchFailed": "تعذر جلب الرصيد"
   }
 }

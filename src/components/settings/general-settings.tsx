@@ -48,6 +48,7 @@ import { MentionPanelSettingsSection } from "@/components/settings/mention-panel
 import { NotificationSoundSettingsSection } from "@/components/settings/notification-sound-settings"
 import { WindowAttentionSettingsSection } from "@/components/settings/window-attention-settings"
 import { WebAppInstallSettings } from "@/components/settings/web-app-install-settings"
+import { WhaleBalanceSettingsSection } from "@/components/settings/whale-balance-settings"
 
 const TERMINAL_SHELL_OPTION_SYSTEM = "system"
 const TERMINAL_SHELL_OPTION_CUSTOM = "custom"
@@ -531,6 +532,8 @@ export function GeneralSettings() {
         <WindowAttentionSettingsSection />
 
         <NotificationSoundSettingsSection />
+
+        <WhaleBalanceSettingsSection />
       </div>
     </ScrollArea>
   )

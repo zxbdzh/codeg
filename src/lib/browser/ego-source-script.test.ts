@@ -28,7 +28,7 @@ test("a missing bound Ego profile is refused instead of using another account", 
   assert.deepEqual(JSON.parse(output[0]), { error: "source_missing" })
 })
 
-test("exports only the bound profile and current site's data through the local result channel", async () => {
+test("exports only the bound site's data even when a page resource keeps loading", async () => {
   const script = await readFile(path, "utf8")
   const output: string[] = []
   let closed = false
@@ -46,8 +46,17 @@ test("exports only the bound profile and current site's data through the local r
       return {
         ownership: "agent",
         page: () => ({
-          goto: async () => {},
-          url: async () => "https://example.com/account",
+          goto: async (_url: string, options?: { waitUntil?: string }) => {
+            if (
+              options?.waitUntil !== "commit" &&
+              options?.waitUntil !== "domcontentloaded"
+            ) {
+              throw new Error(
+                "Navigation committed but timed out waiting for load"
+              )
+            }
+          },
+          url: async () => "https://example.com/login",
           evaluate: async () => ({ token: "synthetic-only" }),
           cdp: async (method: string, params: { urls: string[] }) => {
             assert.equal(method, "Network.getCookies")

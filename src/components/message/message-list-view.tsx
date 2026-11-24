@@ -2067,9 +2067,9 @@ export function MessageListView({
   // its gate in `conversation-detail-panel`), and every reply's footer says
   // "not right now" instead of dropping its button and shifting the icon row.
   const forkBusy =
-    connStatus === "prompting" || forkPromptBusy || undoPromptBusy
+    connStatus === "prompting" || forkPromptBusy
   // 运行中仍可打开确认框，由后端停止当前会话的任务后再精确撤回。
-  const undoBusy = forkPromptBusy || undoPromptBusy
+  const undoBusy = false
 
   const renderThreadItem = useCallback(
     (item: ThreadRenderItem) => {
@@ -2117,17 +2117,9 @@ export function MessageListView({
                 onRoundOpenChange={handleRoundOpenChange}
                 foldEpoch={fold.epoch}
                 onForkFromTurn={onForkFromTurn}
-                onUndoFromPrompt={
-                  item.phase === "persisted" && item.isResponseComplete
-                    ? onUndoFromPrompt
-                    : undefined
-                }
-                undoSourceTurnId={undoSourceTurnId}
-                onRefreshUndoPrompt={
-                  promptTurn && settledLocalTurns.has(promptTurn)
-                    ? handleRefreshUndoPrompt
-                    : undefined
-                }
+                onUndoFromPrompt={undefined}
+                undoSourceTurnId={undefined}
+                onRefreshUndoPrompt={undefined}
                 onForkFromPrompt={
                   onForkFromPrompt &&
                   supportsPromptFork(agentType) &&

@@ -109,6 +109,7 @@ pub mod terminal;
 pub mod token_usage;
 pub mod turn_window;
 pub mod version_control;
+pub mod whale_balance;
 #[cfg(feature = "tauri-runtime")]
 pub mod windows;
 pub mod work_task;

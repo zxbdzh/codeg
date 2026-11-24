@@ -55,6 +55,8 @@ export interface NativeMainTerminal {
 /** 终端退出后后端恢复出来的 ACP 连接。 */
 export interface NativeRestoredAcp {
   connectionId: string
+  /** 为 true 时表示并发复用了已有连接，前端应保持 viewer 身份以免误断。 */
+  reused?: boolean
 }
 
 export function listNativeSideQuestions(

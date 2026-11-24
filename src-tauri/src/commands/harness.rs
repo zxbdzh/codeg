@@ -193,7 +193,8 @@ mod tauri_commands {
         app: tauri::AppHandle,
         path: String,
     ) -> Result<PetSpriteAsset, AppCommandError> {
-        srn_asset_core(&harness(&app), &path).await
+        // The download state machine is large; keep it off the IPC callback stack.
+        Box::pin(async move { srn_asset_core(&harness(&app), &path).await }).await
     }
 }
 

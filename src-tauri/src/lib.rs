@@ -70,7 +70,6 @@ pub mod native_side_policy;
 pub mod native_side_session;
 pub mod native_side_terminal;
 pub mod native_session_main;
-pub mod conversation_undo;
 pub mod runtime_lock;
 pub mod side_question;
 /// The skills engine: every skill link, copy, status and store write
@@ -84,6 +83,7 @@ mod terminal;
 pub mod turn_timings;
 pub mod update;
 pub mod web;
+pub mod whale_balance;
 pub mod work_task;
 pub mod workspace_state;
 pub mod workspace_transfer;
@@ -1421,6 +1421,20 @@ mod tauri_app {
                     });
                 }
 
+                // 小鲸鱼余额挂件独立查询服务：托管给 Tauri 并复用给内置 Web 服务，同时开启后台轮询。
+                {
+                    let db_conn = app.state::<db::AppDatabase>().conn.clone();
+                    let emitter = web::event_bridge::EventEmitter::from_app(app.handle());
+                    let whale_balance = std::sync::Arc::new(
+                        crate::whale_balance::WhaleBalanceService::new(db_conn, emitter),
+                    );
+                    app.manage(whale_balance.clone());
+                    // Tauri setup 运行在同步主线程，必须通过 tauri::async_runtime::spawn 进入 Tokio reactor
+                    tauri::async_runtime::spawn(
+                        crate::whale_balance::run_whale_balance_poller(whale_balance),
+                    );
+                }
+
                 match tauri::async_runtime::block_on(web::load_web_service_config(&db.conn)) {
                     Ok(config) if config.auto_start => {
                         let port = config.port.unwrap_or(web::DEFAULT_WEB_SERVICE_PORT);
@@ -1455,12 +1469,6 @@ mod tauri_app {
                         std::time::Duration::from_secs(crate::acp::SWEEP_INTERVAL_SECS),
                     ));
                 }
-
-                // 即使关闭空闲断连，也仍按七天期限清理撤回备份。
-                tauri::async_runtime::spawn(crate::conversation_undo::cleanup_task(
-                    app.state::<ConnectionManager>().clone_ref(),
-                    effective_data_dir.clone(),
-                ));
 
                 // Office watch preview servers: reap dead children + ref0
                 // stragglers (live previews are never swept). Override via
@@ -2009,12 +2017,6 @@ mod tauri_app {
                 side_question_commands::side_question_capability,
                 side_question_commands::side_question_ask,
                 research_branch_commands::conversation_fork,
-                research_branch_commands::conversation_redo_status,
-                research_branch_commands::conversation_redo_clear,
-                research_branch_commands::conversation_redo,
-                research_branch_commands::conversation_undo_commit,
-                research_branch_commands::conversation_undo_preview,
-                research_branch_commands::conversation_undo,
                 side_question_commands::side_question_cancel,
                 native_session_commands::native_session_list,
                 native_session_commands::native_session_create_side,
@@ -2549,6 +2551,11 @@ mod tauri_app {
                 web::get_web_service_config,
                 web::update_web_service_config,
                 web::probe_web_service_port,
+                crate::commands::whale_balance::whale_balance_get_state,
+                crate::commands::whale_balance::whale_balance_refresh,
+                crate::commands::whale_balance::whale_balance_get_settings,
+                crate::commands::whale_balance::whale_balance_update_settings,
+                crate::commands::whale_balance::whale_balance_test_settings,
             ])
             .build(context)
             .expect("error while building tauri application")

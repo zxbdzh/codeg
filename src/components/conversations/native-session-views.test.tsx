@@ -183,9 +183,9 @@ describe("NativeSessionHeader", () => {
     )
   })
 
-  it("re-attaches the restored connection before returning to ACP", async () => {
+  it("re-attaches the restored connection as owner before returning to ACP", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 })
-    scene.call.mockResolvedValue({ connectionId: "conn-2" })
+    scene.call.mockResolvedValue({ connectionId: "conn-2", reused: false })
     // 被动 attach 完成前不能切回 ACP，否则自动重连会先看到旧连接。
     let finishAttach!: () => void
     scene.attach.mockImplementation(
@@ -205,12 +205,34 @@ describe("NativeSessionHeader", () => {
       "tab-1",
       "conn-2",
       "codex",
-      "/repo"
+      "/repo",
+      { isViewer: false }
     )
     expect(onNativeTerminalChange).not.toHaveBeenCalled()
     finishAttach()
     await waitFor(() =>
       expect(onNativeTerminalChange).toHaveBeenCalledWith(null, "conn-2")
+    )
+  })
+
+  it("re-attaches as viewer when the backend reused an existing connection", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 })
+    scene.call.mockResolvedValue({ connectionId: "conn-2", reused: true })
+    renderHeader({
+      terminalId: "pty-main",
+      sourceConnectionId: "conn-1",
+    })
+
+    await user.click(screen.getByRole("button", { name: "to-acp" }))
+
+    await waitFor(() =>
+      expect(scene.attach).toHaveBeenCalledWith(
+        "tab-1",
+        "conn-2",
+        "codex",
+        "/repo",
+        { isViewer: true }
+      )
     )
   })
 

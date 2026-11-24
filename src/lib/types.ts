@@ -6608,3 +6608,55 @@ export interface DeepSeekProviderRoutes {
    *  keep the routes they had until the rows are fixed. */
   invalid: string | null
 }
+
+/** 前端展示用的小鲸鱼账户余额快照（仅含显示字段，绝不含凭据）。 */
+export interface WhaleBalanceSnapshot {
+  configured: boolean
+  enabled: boolean
+  accountName: string
+  balance: number | null
+  used: number | null
+  lastSuccessAt: string | null
+  lastAttemptAt: string | null
+  lastError: string | null
+  stale: boolean
+  refreshing: boolean
+  accountGeneration: number
+}
+
+/** 设置页脱敏配置视图：仅返回是否存在密钥及脱敏提示。 */
+export interface WhaleBalanceSettingsView {
+  enabled: boolean
+  accountName: string
+  url: string
+  method: string
+  authHeader: string
+  hasApiKey: boolean
+  apiKeyHint: string | null
+  remainingPath: string
+  usedPath: string
+  scale: number
+  pollIntervalSecs: number
+}
+
+/** 更新配置或测试连接时提交的载荷。 */
+export interface UpdateWhaleBalanceSettingsInput {
+  enabled: boolean
+  accountName: string
+  url: string
+  method?: string
+  authHeader?: string
+  apiKey?: string | null
+  clearApiKey?: boolean
+  remainingPath?: string
+  usedPath?: string
+  scale?: number
+  pollIntervalSecs?: number
+}
+
+export interface WhaleBalanceTestResult {
+  ok: boolean
+  balance: number | null
+  used: number | null
+  error: string | null
+}

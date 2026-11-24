@@ -3527,11 +3527,11 @@ export interface AcpActionsValue {
     conversationId?: number
   ): Promise<void>
   /**
-   * Attach to a connection the backend already established, by id, as a
-   * NON-owning viewer — never spawns and never `acpDisconnect`s it. Used when
-   * a surface already knows the exact connection to rejoin (e.g. the ACP
-   * connection restored after leaving a native terminal), where discovery is
-   * unnecessary and a stale local entry could otherwise win the fast path.
+   * Attach to a connection the backend already established, by id. By default
+   * attaches as a NON-owning viewer — never spawns and never `acpDisconnect`s
+   * it. Pass `{ isViewer: false }` when the current tab takes ownership of a
+   * freshly restored backend connection (e.g. leaving native terminal), so
+   * closing the tab tears down the process normally instead of leaking it.
    *
    * Resolves `false` when the connection turned out to be gone, so the caller
    * can fall back to a normal connect/spawn.
@@ -3540,7 +3540,8 @@ export interface AcpActionsValue {
     contextKey: string,
     connectionId: string,
     agentType: AgentType,
-    workingDir?: string | null
+    workingDir?: string | null,
+    options?: { isViewer?: boolean }
   ): Promise<boolean>
   /**
    * Release the connection for `contextKey`. The LOCAL entry always goes away
@@ -7301,15 +7302,18 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       contextKey: string,
       connectionId: string,
       agentType: AgentType,
-      workingDir: string | null
+      workingDir: string | null,
+      options?: { isViewer?: boolean }
     ): Promise<boolean> => {
+      // 默认以只读 viewer 附着；原生终端切回非复用连接时显式传 isViewer: false 接管 owner。
+      const isViewer = options?.isViewer ?? true
       dispatch({
         type: "CONNECTION_CREATED",
         contextKey,
         connectionId,
         agentType,
         workingDir,
-        isViewer: true,
+        isViewer,
       })
       lastActivityRef.current.set(contextKey, Date.now())
 
@@ -8657,13 +8661,15 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         contextKey: string,
         connectionId: string,
         agentType: AgentType,
-        workingDir?: string | null
+        workingDir?: string | null,
+        options?: { isViewer?: boolean }
       ) =>
         connectAsViewer(
           contextKey,
           connectionId,
           agentType,
-          workingDir ?? null
+          workingDir ?? null,
+          options
         ),
       disconnect,
       disconnectIfIdle,

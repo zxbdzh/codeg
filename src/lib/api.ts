@@ -7045,3 +7045,39 @@ export async function removePromptStash(
     draftScopeKey: draftScopeKey ?? null,
   })
 }
+
+export async function getWhaleBalanceState(): Promise<
+  import("./types").WhaleBalanceSnapshot
+> {
+  return getTransport().call("whale_balance_get_state")
+}
+
+export async function refreshWhaleBalance(): Promise<
+  import("./types").WhaleBalanceSnapshot
+> {
+  return getTransport().call("whale_balance_refresh")
+}
+
+export async function getWhaleBalanceSettings(): Promise<
+  import("./types").WhaleBalanceSettingsView
+> {
+  return getTransport().call("whale_balance_get_settings")
+}
+
+export async function updateWhaleBalanceSettings(
+  settings: import("./types").UpdateWhaleBalanceSettingsInput
+): Promise<import("./types").WhaleBalanceSettingsView> {
+  return getTransport().call("whale_balance_update_settings", { settings })
+}
+
+export async function testWhaleBalanceSettings(
+  settings: import("./types").UpdateWhaleBalanceSettingsInput
+): Promise<import("./types").WhaleBalanceTestResult> {
+  return getTransport().call("whale_balance_test_settings", { settings })
+}
+
+export async function subscribeWhaleBalanceUpdated(
+  handler: (snapshot: import("./types").WhaleBalanceSnapshot) => void
+): Promise<() => void> {
+  return getTransport().subscribe("whale://balance-updated", handler)
+}

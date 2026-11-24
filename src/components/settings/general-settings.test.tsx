@@ -52,6 +52,32 @@ vi.mock("@/lib/api", () => ({
     behavior,
     tray_available: true,
   })),
+  getWhaleBalanceSettings: vi.fn(async () => ({
+    enabled: false,
+    accountName: "",
+    url: "",
+    method: "GET",
+    authHeader: "Bearer {key}",
+    hasApiKey: false,
+    apiKeyHint: null,
+    remainingPath: "balance",
+    usedPath: "api_key_quota.used",
+    scale: 1,
+    pollIntervalSecs: 60,
+  })),
+  updateWhaleBalanceSettings: vi.fn(
+    async (settings: Record<string, unknown>) => ({
+      ...settings,
+      hasApiKey: false,
+      apiKeyHint: null,
+    })
+  ),
+  testWhaleBalanceSettings: vi.fn(async () => ({
+    ok: true,
+    balance: 0,
+    used: 0,
+    error: null,
+  })),
 }))
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))

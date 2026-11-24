@@ -121,14 +121,16 @@ export function NativeSessionHeader({
           nativeTerminal.sourceConnectionId,
           nativeTerminal.terminalId
         )
-        // 后端已用原 session 恢复了新连接。先按 id 被动挂回 store，避免
-        // 随后自动重连的 fast path 继续复用终端前的旧连接 id。
+        // 后端已用原 session 恢复了新连接。先按 id 挂回 store，避免随后自动重连
+        // 复用旧连接 id；非并发复用时接管 owner 身份（isViewer: false），否则关闭
+        // 页签会跳过 acpDisconnect 导致后台 CLI 进程泄漏、并屏蔽分叉/停止等主控操作。
         try {
           await attachToConnection(
             tabId,
             restored.connectionId,
             agentType,
-            workingDir ?? folderPath ?? null
+            workingDir ?? folderPath ?? null,
+            { isViewer: restored.reused === true }
           )
         } catch (error) {
           // attach 失败也回到 ACP，让正常重连流程兜底。

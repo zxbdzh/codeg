@@ -31,7 +31,8 @@ try {
       { profileId: profile.id }
     )
     const page = task.page("p1")
-    await page.goto(url.href, { timeout: 15000 })
+    // 文档提交后即可读取同源存储，不必等图片和第三方资源全部加载。
+    await page.goto(url.href, { timeout: 15000, waitUntil: "commit" })
     if (new URL(await page.url()).origin !== url.origin) {
       throw new Error("origin_changed")
     }

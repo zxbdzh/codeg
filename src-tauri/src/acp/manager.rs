@@ -1043,9 +1043,7 @@ impl ConnectionManager {
     ) -> Result<SpawnOutcome, AcpError> {
         let _update_admission = crate::update::admission::admit("agent_spawn")
             .map_err(AcpError::protocol)?;
-        let _history_guard = session_id.as_deref()
-            .map(|session| crate::conversation_undo::operations::allow_send(self, agent_type, session))
-            .transpose()?;
+
         // Held for the whole establishment. A restore writing back to the
         // agents' own directories takes the write side, so it can never see an
         // empty connection list and then have one appear underneath it. Not
@@ -1413,8 +1411,6 @@ impl ConnectionManager {
     ) -> Result<(), AcpError> {
         let _update_admission = crate::update::admission::admit("agent_prompt")
             .map_err(AcpError::protocol)?;
-        let _history_guard =
-            crate::conversation_undo::operations::allow_connection_send(self, conn_id).await?;
         // Reject an empty prompt BEFORE touching the concurrency gate. An empty
         // prompt produces no turn — and thus no `TurnComplete` to clear the gate
         // — so enqueuing one with the gate set would wedge the connection into
@@ -1618,8 +1614,6 @@ impl ConnectionManager {
     ) -> Result<Option<i32>, AcpError> {
         let update_admission = crate::update::admission::admit("linked_prompt")
             .map_err(AcpError::protocol)?;
-        let _history_guard =
-            crate::conversation_undo::operations::allow_connection_send(self, conn_id).await?;
         // Reject an empty prompt up front, BEFORE any side effects: linking /
         // creating the conversation row, flipping it to InProgress, or emitting
         // events. An empty prompt is never accepted, so it must not mutate
@@ -3709,6 +3703,27 @@ impl ConnectionManager {
     ) -> Option<std::sync::Arc<tokio::sync::RwLock<crate::acp::SessionState>>> {
         let connections = self.connections.lock().await;
         connections.get(conn_id).map(|conn| conn.state.clone())
+    }
+
+    /// 补全连接的对话与目录归属（仅写入仍为 `None` 的字段，不覆盖已有绑定）。
+    /// 原生终端切回 ACP 后，恢复出的连接只有 `session_id`，需补回原身份才能让
+    /// 按对话查找与跨端附着在下一轮对话前生效。
+    pub async fn bind_conversation_if_unset(
+        &self,
+        conn_id: &str,
+        conversation_id: Option<i32>,
+        folder_id: Option<i32>,
+    ) {
+        let Some(state_arc) = self.get_state(conn_id).await else {
+            return;
+        };
+        let mut state = state_arc.write().await;
+        if state.conversation_id.is_none() {
+            state.conversation_id = conversation_id;
+        }
+        if state.folder_id.is_none() {
+            state.folder_id = folder_id;
+        }
     }
 
     /// Like `get_state`, but also clones the connection's `EventEmitter`.
@@ -8364,6 +8379,33 @@ mod tests {
             .expect("should find c1");
         assert_eq!(found, "c1");
         assert!(mgr.find_connection_by_conversation_id(999).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn bind_conversation_if_unset_populates_none_without_overwriting() {
+        let mgr = ConnectionManager::new();
+        {
+            let mut map = mgr.connections.lock().await;
+            map.insert("unbound".to_string(), fake_connection("unbound", None));
+            map.insert("bound".to_string(), fake_connection("bound", Some(10)));
+        }
+
+        mgr.bind_conversation_if_unset("unbound", Some(42), Some(7))
+            .await;
+        let unbound_state = mgr.get_state("unbound").await.expect("unbound");
+        assert_eq!(unbound_state.read().await.conversation_id, Some(42));
+        assert_eq!(unbound_state.read().await.folder_id, Some(7));
+        assert_eq!(
+            mgr.find_connection_by_conversation_id(42).await.as_deref(),
+            Some("unbound")
+        );
+
+        // 已有 conversation_id 不应被覆盖，仍保留原值；仍为 None 的 folder_id 可补全。
+        mgr.bind_conversation_if_unset("bound", Some(99), Some(8))
+            .await;
+        let bound_state = mgr.get_state("bound").await.expect("bound");
+        assert_eq!(bound_state.read().await.conversation_id, Some(10));
+        assert_eq!(bound_state.read().await.folder_id, Some(8));
     }
 
     #[tokio::test]
