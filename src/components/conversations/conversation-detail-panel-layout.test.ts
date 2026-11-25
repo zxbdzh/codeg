@@ -396,7 +396,8 @@ describe("ConversationDetailPanel split-group render model", () => {
     const shellStart = source.indexOf("const renderGroupShell = (shellId")
     const shellBody = source.slice(shellStart, shellStart + 6000)
     expect(shellBody).toContain("{isSplit && selTab && (")
-    expect(shellBody).toContain("<ConversationDetailHeader")
+    // Local 分支用 NativeSessionHeader 包装官方标题栏，以同时保留原生终端入口。
+    expect(shellBody).toContain("<NativeSessionHeader")
     expect(shellBody).toContain("tabId={selTab.id}")
     expect(source).toContain("{!isSplit && activeTab && (")
   })
@@ -533,7 +534,14 @@ describe("ConversationDetailPanel send-path hardening", () => {
     )
     expect(effectWithDeps).toContain("if (queueSteerInFlight) return")
     // …and as a dependency, so releasing the hold re-runs the flush.
-    expect(effectWithDeps).toContain("queueSteerInFlight])")
+    expect(effectWithDeps).toMatch(
+      /queueSteerInFlight,\s+editInFlight,\s+\]\)$/
+    )
+    // An edited message between its rewind and its send holds it the same
+    // way (`handleEditUserTurn`): nothing else may take the cut session's
+    // first turn, so the timer re-checks the ref too.
+    expect(effectWithDeps).toContain("if (editInFlight) return")
+    expect(effectWithDeps).toContain("if (editInFlightRef.current) return")
 
     const steerStart = source.indexOf("const handleQueueSteer = useCallback")
     expect(steerStart).toBeGreaterThan(-1)
@@ -575,7 +583,7 @@ describe("ConversationDetailPanel send-path hardening", () => {
     const guardIdx = source.indexOf("shouldRejectDuplicateCreate(")
     // The CALL site (assignment), not the function definition earlier in the file.
     const optimisticIdx = source.indexOf(
-      "const optimisticTurn = buildOptimisticUserTurnFromDraft("
+      "const builtTurn = buildOptimisticUserTurnFromDraft("
     )
     expect(guardIdx).toBeGreaterThan(-1)
     expect(optimisticIdx).toBeGreaterThan(guardIdx)

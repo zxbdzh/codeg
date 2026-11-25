@@ -88,6 +88,8 @@ pub mod plugin_indicators;
 /// OpenCode 2's provider credentials, through OpenCode's own API (both
 /// runtimes).
 pub mod opencode_credentials;
+/// The personal agent's page (both runtimes).
+pub mod personal_agent;
 pub mod pet;
 pub mod project_boot;
 pub mod prompt_stash;

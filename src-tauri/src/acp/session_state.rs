@@ -21,8 +21,8 @@ use crate::acp::question::PendingQuestionState;
 use crate::acp::types::{
     AcpEvent, AsyncTaskRecord, AvailableCommandInfo, BackgroundOutstandingTask, ConfigStaleKind,
     ConnectionStatus, EventEnvelope, GrokModelCatalog, GrokModelSpec, PromptCapabilitiesInfo,
-    RemoteControlInfo, SessionConfigOptionInfo, SessionFailureRecord, SessionModeStateInfo,
-    ToolApprovalInfo, ToolCallImageInfo,
+    RemoteControlInfo, SessionConfigKindInfo, SessionConfigOptionInfo, SessionFailureRecord,
+    SessionModeStateInfo, ToolApprovalInfo, ToolCallImageInfo,
 };
 use crate::models::agent::AgentType;
 use crate::models::message::MessageRole;
@@ -244,6 +244,8 @@ pub struct ActiveDelegationState {
     pub assistant_id: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assistant_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_uid: Option<String>,
 }
 
 /// The in-flight user prompt for the current turn. Captured from
@@ -320,6 +322,11 @@ pub struct SessionState {
     /// `exit_plan_mode` tool call); the connection parks the ext responder keyed
     /// by `approval_id`.
     pub pending_plan_approval: Option<PendingPlanApprovalState>,
+
+    /// What the assistant that dispatched this session answers for the owner
+    /// (7.3.1): a window holds back its notification of those until one is
+    /// forwarded. Set by `AskDelegate`; outlives turns.
+    pub ask_delegate: Option<crate::acp::types::AskDelegate>,
 
     /// In-flight (running) sub-agent delegations keyed by `parent_tool_use_id`.
     /// `DelegationStarted` inserts; `DelegationCompleted` removes. UNLIKE
@@ -505,6 +512,14 @@ pub struct SessionState {
     pub pi_enabled_model_patterns: Option<Vec<String>>,
     pub prompt_capabilities: Option<PromptCapabilitiesInfo>,
     pub fork_supported: bool,
+    /// Whether the agent offers `_session/rewind` (`AcpEvent::RewindSupported`).
+    pub rewind_supported: bool,
+    /// A rewound session waiting for the edited message that replaces what it
+    /// cut (see `crate::acp::rewind::RewindHold`). While it holds, every other
+    /// prompt, fork and rewind on this connection is turned away as busy.
+    ///
+    /// Backend-internal — not serialized, not carried on `to_snapshot()`.
+    pub rewind_hold: Option<crate::acp::rewind::RewindHold>,
     pub available_commands: Vec<AvailableCommandInfo>,
     pub usage: Option<UsageInfo>,
     /// The follow-up prompt the agent last predicted (`AcpEvent::PromptSuggestion`),
@@ -693,6 +708,13 @@ pub struct SessionState {
     /// from its own markers. Backend-internal routing only: not part of the
     /// client snapshot.
     pub codex_user_input_shape: Option<crate::acp::question::CodexUserInputShape>,
+
+    /// What the RUNNING adapter said it is at initialize: `agentInfo`'s
+    /// `(name, version)`, when it sent one. The personal agent reads it to
+    /// decide whether a message can be folded into a turn in flight
+    /// (claude-agent-acp 0.86.0 and earlier never answer a folded prompt).
+    /// Backend-only: not part of the client snapshot.
+    pub agent_info: Option<(String, String)>,
 
     /// Which `session_info_update` meta key carries goal snapshots for this
     /// connection: `true` ⇒ the provider-neutral `_meta.goal` (adapter
@@ -920,6 +942,18 @@ pub struct SessionState {
     /// one. Never on the snapshot.
     pub cli_output_schema: Option<Arc<crate::cli_run::OutputSchema>>,
 
+    /// The personal agent's own connection: given the personal-agent tool
+    /// group and never the delegation or board-authoring ones. Set from the
+    /// spawn seed before anything can read it, never inherited by a
+    /// delegation child. Never on the snapshot.
+    pub personal_agent: bool,
+
+    /// The personal agent's replies, built from the events of the prompts its
+    /// engine tagged (see [`crate::acp::reply_turn`]). Opened when such a
+    /// prompt starts, fed by [`Self::apply_event`] under the write lock,
+    /// released by the engine. Never on the snapshot.
+    pub reply_turns: crate::acp::reply_turn::ReplyTurns,
+
     /// Which writer owns the conversation-status write of a `TurnComplete`,
     /// keyed by that event's envelope `seq`. See [`Self::claim_turn_status`].
     pub turn_status_claim: Option<(u64, TurnStatusWriter)>,
@@ -994,6 +1028,7 @@ impl SessionState {
             pending_permission: None,
             pending_question: None,
             pending_plan_approval: None,
+            ask_delegate: None,
             active_delegations: BTreeMap::new(),
             delegated_children: BTreeSet::new(),
             feedback: Vec::new(),
@@ -1016,6 +1051,8 @@ impl SessionState {
             pi_enabled_model_patterns: None,
             prompt_capabilities: None,
             fork_supported: false,
+            rewind_supported: false,
+            rewind_hold: None,
             available_commands: Vec::new(),
             usage: None,
             prompt_suggestion: None,
@@ -1045,6 +1082,7 @@ impl SessionState {
             antigravity_reconcile_at: None,
             native_steering_available: false,
             codex_user_input_shape: None,
+            agent_info: None,
             neutral_goal_channel: false,
             goal_control_method: crate::acp::codex_goal::LEGACY_GOAL_CONTROL_METHOD.to_string(),
             goal_actions: None,
@@ -1070,6 +1108,8 @@ impl SessionState {
             wire_title_wake: Arc::new(tokio::sync::Notify::new()),
             cli_run: None,
             cli_output_schema: None,
+            personal_agent: false,
+            reply_turns: Default::default(),
             turn_status_claim: None,
         }
     }
@@ -1120,6 +1160,15 @@ impl SessionState {
     /// 单一分发器：把一个 AcpEvent 应用到 self。注意此方法**不**自增 event_seq——
     /// seq 由 emit_with_state 在外层管理（这样 apply_event 可独立单元测试）。
     pub fn apply_event(&mut self, payload: &AcpEvent) {
+        // The personal agent's reply in the making sees every event, before
+        // anything below changes the state it reads. `event_seq` is bumped
+        // right after this applies (`emit_with_state_built`), so the event's
+        // envelope seq is the next one.
+        if self.reply_turns.is_active() {
+            let turn_open = self.turn_in_flight || self.live_message.is_some();
+            self.reply_turns
+                .apply(payload, self.event_seq + 1, turn_open);
+        }
         let was_prompting = self.status == ConnectionStatus::Prompting;
         // A tool call's status before this event, to spot the moment it settles.
         let tool_call_before = match payload {
@@ -1367,6 +1416,14 @@ impl SessionState {
                 if let Some(modes) = self.modes.as_mut() {
                     modes.current_mode_id = mode_id.clone();
                 }
+                // And the other way round from `SessionConfigOptions` below: a
+                // `session/set_mode` that Antigravity 1.5.2 answers with `{}`
+                // pushes no option list, so its mode selector would keep the
+                // old mode — on screen, and in the row, where the next connect
+                // replays the selector over this switch (#1309).
+                if let Some(options) = self.config_options.as_mut() {
+                    point_mode_options_at(options, mode_id);
+                }
             }
             AcpEvent::ComposerModeChanged { mode_id, explicit } => {
                 self.composer_mode_id = mode_id.clone();
@@ -1375,6 +1432,23 @@ impl SessionState {
                 }
             }
             AcpEvent::SessionConfigOptions { config_options } => {
+                // The composer shows an agent's mode as its `mode` config
+                // option whenever it has config options, so a pick goes out as
+                // `session/set_config_option` — and Google Antigravity 1.5.2
+                // answers that without a `current_mode_update`. Follow the
+                // option here, or `modes` keeps the old mode: the row would
+                // save it as the conversation's mode and the next connect would
+                // `session/set_mode` the agent back to it (#1309).
+                if let Some(mode_id) = self
+                    .modes
+                    .as_ref()
+                    .and_then(|modes| mode_option_value(config_options, modes))
+                {
+                    self.current_mode = Some(mode_id.clone());
+                    if let Some(modes) = self.modes.as_mut() {
+                        modes.current_mode_id = mode_id;
+                    }
+                }
                 self.config_options = Some(config_options.clone());
             }
             AcpEvent::SessionConfigStale { stale, kind } => {
@@ -1388,6 +1462,9 @@ impl SessionState {
             }
             AcpEvent::ForkSupported { supported } => {
                 self.fork_supported = *supported;
+            }
+            AcpEvent::RewindSupported { supported } => {
+                self.rewind_supported = *supported;
             }
             AcpEvent::AvailableCommands { commands } => {
                 self.available_commands = commands.clone();
@@ -1550,7 +1627,7 @@ impl SessionState {
                     created_at: Utc::now(),
                 });
             }
-            AcpEvent::QuestionResolved { question_id } => {
+            AcpEvent::QuestionResolved { question_id, .. } => {
                 // Mirror `PermissionResolved`: only clear when the resolved id
                 // matches the current one, so a late event for an already-
                 // replaced question can't wipe a live card from under the user.
@@ -1573,7 +1650,12 @@ impl SessionState {
                     created_at: Utc::now(),
                 });
             }
-            AcpEvent::PlanApprovalResolved { approval_id } => {
+            AcpEvent::AskDelegate { delegate } => {
+                self.ask_delegate = *delegate;
+            }
+            // A notification for the windows; nothing to keep.
+            AcpEvent::AskForwarded { .. } => {}
+            AcpEvent::PlanApprovalResolved { approval_id, .. } => {
                 // Mirror `QuestionResolved`: only clear when the resolved id
                 // matches the current one, so a late event for an already-
                 // replaced approval can't wipe a live card from under the user.
@@ -1874,6 +1956,7 @@ impl SessionState {
                 task_id,
                 assistant_id,
                 assistant_name,
+                bot_uid,
                 ..
             } => {
                 // Record the running delegation so the binding is snapshot-
@@ -1893,6 +1976,7 @@ impl SessionState {
                         task_id: task_id.clone(),
                         assistant_id: *assistant_id,
                         assistant_name: assistant_name.clone(),
+                        bot_uid: bot_uid.clone(),
                     },
                 );
             }
@@ -2803,6 +2887,7 @@ impl SessionState {
             pending_permission: self.pending_permission.clone(),
             pending_question: self.pending_question.clone(),
             pending_plan_approval: self.pending_plan_approval.clone(),
+            ask_delegate: self.ask_delegate,
             pending_user_message: self.pending_user_message.clone(),
             active_delegations: self.active_delegations.values().cloned().collect(),
             delegated_children: self.delegated_children.iter().cloned().collect(),
@@ -2820,6 +2905,7 @@ impl SessionState {
             prompt_suggestion: self.prompt_suggestion.clone(),
             remote_control: self.remote_control.clone(),
             fork_supported: self.fork_supported,
+            rewind_supported: self.rewind_supported,
             available_commands: self.available_commands.clone(),
             selectors_ready: self.selectors_ready,
             composer_mode_id: self.composer_mode_id.clone(),
@@ -2846,13 +2932,16 @@ impl SessionState {
 /// `codeg-cli` run lets its connection go as soon as its one turn has ended.
 /// Nor a one-shot generation (owner
 /// [`OWNER_LABEL`](crate::acp::one_shot::OWNER_LABEL)), which has no
-/// conversation to continue at all.
+/// conversation to continue at all. Nor the personal agent and the work it
+/// dispatches ([`crate::personal_agent::is_personal_agent_owner`]): codeg's
+/// own engine writes their prompts.
 /// For them a prediction would only be paid for.
 /// Everything else is a person's window, a work task (its session takes
 /// follow-ups once the task stops), or a delegated child (which inherits its
 /// parent's label, and whose session the user can open and continue).
 pub(crate) fn owner_composes_prompts(owner_window_label: &str) -> bool {
     owner_window_label != "automation"
+        && !crate::personal_agent::is_personal_agent_owner(owner_window_label)
         && owner_window_label != crate::cli_run::service::CLI_OWNER_LABEL
         && !crate::acp::one_shot::is_one_shot_owner(owner_window_label)
         && !crate::research_branch::is_temporary_owner(owner_window_label)
@@ -2970,6 +3059,10 @@ pub struct LiveSessionSnapshot {
     /// pre-feature shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_plan_approval: Option<PendingPlanApprovalState>,
+    /// See `SessionState.ask_delegate`; off the wire when nobody answers for
+    /// the owner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ask_delegate: Option<crate::acp::types::AskDelegate>,
     /// The in-flight user prompt for the current turn (see
     /// `SessionState.pending_user_message`). `#[serde(default)]` so older
     /// payloads still deserialize; `skip_serializing_if` so the no-pending case
@@ -3040,6 +3133,10 @@ pub struct LiveSessionSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_control: Option<RemoteControlInfo>,
     pub fork_supported: bool,
+    /// Omitted when false, so the common snapshot keeps its pre-feature wire
+    /// shape; the frontend reads a missing key as false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rewind_supported: bool,
     pub available_commands: Vec<AvailableCommandInfo>,
     pub selectors_ready: bool,
     /// The composer's pending mode pick (see `SessionState.composer_mode_id`).
@@ -3220,6 +3317,55 @@ pub(crate) fn extract_tool_call_id(tool_call: &serde_json::Value) -> String {
         .to_string()
 }
 
+/// The session mode an agent's mode selector (a `select` config option under
+/// the `mode` category or id) currently holds — only when it names one of the
+/// session's own modes. Grok publishes reasoning effort under `category:"mode"`
+/// too, and its values are no mode of the session, so it never moves one.
+pub(crate) fn mode_option_value(
+    config_options: &[SessionConfigOptionInfo],
+    modes: &SessionModeStateInfo,
+) -> Option<String> {
+    config_options
+        .iter()
+        .filter(|o| is_mode_option(o))
+        .find_map(|o| match &o.kind {
+            SessionConfigKindInfo::Select(sel)
+                if modes
+                    .available_modes
+                    .iter()
+                    .any(|m| m.id == sel.current_value) =>
+            {
+                Some(sel.current_value.clone())
+            }
+            _ => None,
+        })
+}
+
+/// Whether an option is an agent's mode selector by its signals alone: a
+/// `select` under the `mode` category or id. Callers still check its value
+/// against the session's modes.
+fn is_mode_option(option: &SessionConfigOptionInfo) -> bool {
+    option.category.as_deref() == Some("mode") || option.id == "mode"
+}
+
+/// Point every mode selector that lists `mode_id` among its rows at it. One
+/// that does not list it (Grok's effort under `category:"mode"`) is left alone.
+fn point_mode_options_at(options: &mut [SessionConfigOptionInfo], mode_id: &str) {
+    for option in options.iter_mut().filter(|o| is_mode_option(o)) {
+        let SessionConfigKindInfo::Select(sel) = &mut option.kind else {
+            continue;
+        };
+        let listed = sel.options.iter().any(|o| o.value == mode_id)
+            || sel
+                .groups
+                .iter()
+                .any(|g| g.options.iter().any(|o| o.value == mode_id));
+        if listed {
+            sel.current_value = mode_id.to_string();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3283,12 +3429,14 @@ mod tests {
         // A resolve for a DIFFERENT id must not wipe the live approval.
         s.apply_event(&AcpEvent::PlanApprovalResolved {
             approval_id: "other".into(),
+            resolution: None,
         });
         assert!(s.pending_plan_approval.is_some());
 
         // Matching resolve clears it (and the snapshot).
         s.apply_event(&AcpEvent::PlanApprovalResolved {
             approval_id: "ap-1".into(),
+            resolution: None,
         });
         assert!(s.pending_plan_approval.is_none());
         assert!(s.to_snapshot().pending_plan_approval.is_none());
@@ -5470,6 +5618,7 @@ mod tests {
             task_id: "task-ss-1".into(),
             assistant_id: None,
             assistant_name: None,
+            bot_uid: None,
         }
     }
 
@@ -5486,6 +5635,7 @@ mod tests {
             },
             assistant_id: None,
             assistant_name: None,
+            bot_uid: None,
         }
     }
 
@@ -6124,6 +6274,101 @@ mod tests {
             "edit",
             "ModeChanged must keep modes.current_mode_id consistent for snapshot consumers"
         );
+    }
+
+    fn select_option(id: &str, category: Option<&str>, current: &str) -> SessionConfigOptionInfo {
+        SessionConfigOptionInfo {
+            id: id.into(),
+            name: id.into(),
+            description: None,
+            category: category.map(Into::into),
+            kind: SessionConfigKindInfo::Select(SessionConfigSelectInfo {
+                current_value: current.into(),
+                options: vec![],
+                groups: vec![],
+            }),
+            recommended_value: None,
+        }
+    }
+
+    /// #1309: Antigravity answers `session/set_mode` with `{}`, so the mode
+    /// selector follows the switch here. A `mode`-category option that does
+    /// not list the mode (Grok's effort) is left alone.
+    #[test]
+    fn mode_changed_points_the_mode_selector_at_the_mode() {
+        let row = |value: &str| crate::acp::types::SessionConfigSelectOptionInfo {
+            value: value.into(),
+            name: value.into(),
+            description: None,
+            reasoning_efforts: None,
+        };
+        let listing = |id: &str, current: &str, values: &[&str]| {
+            let mut option = select_option(id, Some("mode"), current);
+            if let SessionConfigKindInfo::Select(sel) = &mut option.kind {
+                sel.options = values.iter().map(|v| row(v)).collect();
+            }
+            option
+        };
+        let mut s = fresh_state();
+        s.apply_event(&AcpEvent::SessionConfigOptions {
+            config_options: vec![
+                listing("mode", "default", &["default", "yolo"]),
+                listing("reasoning_effort", "high", &["low", "high"]),
+            ],
+        });
+        s.apply_event(&AcpEvent::ModeChanged {
+            mode_id: "yolo".into(),
+        });
+        let values = crate::acp::connection::current_config_option_values(
+            s.config_options.as_deref().unwrap(),
+        );
+        assert_eq!(values.get("mode").map(String::as_str), Some("yolo"));
+        assert_eq!(
+            values.get("reasoning_effort").map(String::as_str),
+            Some("high")
+        );
+    }
+
+    /// #1309: Antigravity 1.5.2 answers `set_config_option("mode", "yolo")`
+    /// with the new option list and no `current_mode_update`. The session's
+    /// mode has to follow the mode selector, or the row saves `default` as
+    /// the conversation's mode next to `mode: yolo`.
+    #[test]
+    fn mode_selector_value_moves_the_session_mode() {
+        let mode = |id: &str| SessionModeInfo {
+            id: id.into(),
+            name: id.into(),
+            description: None,
+        };
+        let mut s = fresh_state();
+        s.apply_event(&AcpEvent::SessionModes {
+            modes: SessionModeStateInfo {
+                current_mode_id: "default".into(),
+                available_modes: vec![mode("default"), mode("auto_edit"), mode("yolo")],
+            },
+        });
+        s.apply_event(&AcpEvent::SessionConfigOptions {
+            config_options: vec![
+                select_option("model", Some("model"), "gemini-3.8-flash"),
+                select_option("mode", Some("mode"), "yolo"),
+            ],
+        });
+        assert_eq!(s.modes.as_ref().unwrap().current_mode_id, "yolo");
+        assert_eq!(s.current_mode.as_deref(), Some("yolo"));
+        let saved = crate::acp::selection::selection_snapshot(&s);
+        assert_eq!(saved.mode_id.as_deref(), Some("yolo"));
+        assert_eq!(
+            saved.config_values.get("mode").map(String::as_str),
+            Some("yolo")
+        );
+
+        // A `mode`-category option whose value is no mode of the session
+        // (Grok's reasoning effort) leaves the mode alone.
+        s.apply_event(&AcpEvent::SessionConfigOptions {
+            config_options: vec![select_option("reasoning_effort", Some("mode"), "high")],
+        });
+        assert_eq!(s.modes.as_ref().unwrap().current_mode_id, "yolo");
+        assert_eq!(s.current_mode.as_deref(), Some("yolo"));
     }
 
     #[test]

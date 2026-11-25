@@ -51,6 +51,7 @@ import {
   acpGetSessionSnapshot,
   acpFindConnectionForConversation,
   openSettingsWindow,
+  type PromptRewindTarget,
 } from "@/lib/api"
 import { denormalizeSnapshot } from "@/lib/snapshot-denormalize"
 import { buildDelegationSeedEnvelopes } from "@/lib/delegation-seed"
@@ -62,10 +63,16 @@ import {
   getConversationIdByExternalIdFromStore,
   useConversationRuntimeStore,
 } from "@/stores/conversation-runtime-store"
+import {
+  delegatesPermission,
+  delegatesPlan,
+  delegatesQuestion,
+} from "@/lib/ask-delegate"
 import type {
   AgentType,
   AcpAgentStatus,
   AcpEvent,
+  AskDelegate,
   ActiveDelegationState,
   AsyncTaskDelta,
   AsyncTaskRecord,
@@ -344,6 +351,9 @@ export interface ConnectionState {
   status: ConnectionStatus
   promptCapabilities: PromptCapabilitiesInfo
   supportsFork: boolean
+  /** Whether a sent message can be edited and resent in place
+   *  (`_session/rewind`; see the `rewind_supported` event). */
+  supportsRewind: boolean
   selectorsReady: boolean
   /**
    * The composer's pending mode pick on this connection (codeg#1179): a mode
@@ -410,6 +420,12 @@ export interface ConnectionState {
    *  blocked on). Set from a `plan_approval_request` event or a snapshot's
    *  `pending_plan_approval`; cleared on `plan_approval_resolved` or turn end. */
   pendingPlanApproval: PendingPlanApprovalState | null
+  /** What the assistant that dispatched this session answers here for the
+   *  owner (personal agent 7.3.1): its questions and plan approvals are not
+   *  notified here — one forwarded to the owner (`ask_forwarded`) is the
+   *  assistant's own notification (1.13). Set from an `ask_delegate` event
+   *  or a snapshot's `ask_delegate`. */
+  askDelegate?: AskDelegate | null
   claudeApiRetry: ClaudeApiRetryState | null
   /** AIR typed session failure table (see `lib/session-failures.ts` for the
    *  merge/settle contract). Retained resolved — entries double as per-id
@@ -817,6 +833,11 @@ type Action =
        *  late `plan_approval_resolved` from wiping a freshly-raised approval). */
       approvalId?: string
     }
+  | {
+      type: "SET_ASK_DELEGATE"
+      contextKey: string
+      askDelegate: AskDelegate | null
+    }
   | { type: "SESSION_STARTED"; contextKey: string; sessionId: string }
   | {
       type: "SESSION_MODES"
@@ -849,6 +870,11 @@ type Action =
     }
   | {
       type: "FORK_SUPPORTED"
+      contextKey: string
+      supported: boolean
+    }
+  | {
+      type: "REWIND_SUPPORTED"
       contextKey: string
       supported: boolean
     }
@@ -1576,6 +1602,58 @@ function sameSelectEntry(
   )
 }
 
+/**
+ * The session modes once they follow the agent's mode selector (a `select`
+ * under the `mode` category or id), when that selector names one of the
+ * session's own modes — the live twin of the backend's `SessionState`
+ * handling of `SessionConfigOptions`. Antigravity 1.5.2 answers a mode pick
+ * made through the selector without a `current_mode_update` (#1309). Grok's
+ * effort list shares the category, but its values are no mode, so it never
+ * moves one. Returns `modes` itself when nothing changes.
+ */
+function isModeOption(option: SessionConfigOptionInfo): boolean {
+  return option.category === "mode" || option.id === "mode"
+}
+
+/**
+ * The options with every mode selector that lists `modeId` pointed at it —
+ * the live twin of `SessionState`'s handling of `ModeChanged`: Antigravity
+ * 1.5.2 answers `session/set_mode` with `{}` and pushes no option list
+ * (#1309). Returns `options` itself when nothing changes.
+ */
+export function modeOptionsPointedAt(
+  options: SessionConfigOptionInfo[],
+  modeId: string
+): SessionConfigOptionInfo[] {
+  let next: SessionConfigOptionInfo[] | null = null
+  options.forEach((option, i) => {
+    if (!isModeOption(option) || option.kind.type !== "select") return
+    const kind = option.kind
+    const listed =
+      kind.options.some((o) => o.value === modeId) ||
+      kind.groups.some((g) => g.options.some((o) => o.value === modeId))
+    if (!listed || kind.current_value === modeId) return
+    next ??= [...options]
+    next[i] = { ...option, kind: { ...kind, current_value: modeId } }
+  })
+  return next ?? options
+}
+
+export function modesFollowingModeOption(
+  modes: SessionModeStateInfo | null,
+  options: SessionConfigOptionInfo[]
+): SessionModeStateInfo | null {
+  if (!modes) return modes
+  for (const option of options) {
+    if (!isModeOption(option) || option.kind.type !== "select") continue
+    const value = option.kind.current_value
+    if (!modes.available_modes.some((mode) => mode.id === value)) continue
+    if (value === modes.current_mode_id) return modes
+    return { ...modes, current_mode_id: value }
+  }
+  return modes
+}
+
 function sameConfigOptions(
   a: SessionConfigOptionInfo[] | null,
   b: SessionConfigOptionInfo[]
@@ -2080,6 +2158,7 @@ function connectionsReducer(
           embedded_context: false,
         },
         supportsFork: false,
+        supportsRewind: false,
         selectorsReady: false,
         sessionId: null,
         modes: null,
@@ -2148,6 +2227,7 @@ function connectionsReducer(
           embedded_context: false,
         },
         supportsFork: false,
+        supportsRewind: false,
         selectorsReady: true,
         sessionId: null,
         modes: null,
@@ -2222,6 +2302,8 @@ function connectionsReducer(
         action.patch.selectorsReady || current.selectorsReady
       const mergedSupportsFork =
         action.patch.supportsFork || current.supportsFork
+      const mergedSupportsRewind =
+        action.patch.supportsRewind || current.supportsRewind
       const mergedModes = current.modes ?? action.patch.modes
       const mergedConfigOptions =
         current.configOptions ?? action.patch.configOptions
@@ -2291,6 +2373,7 @@ function connectionsReducer(
         if (
           mergedSelectorsReady === current.selectorsReady &&
           mergedSupportsFork === current.supportsFork &&
+          mergedSupportsRewind === current.supportsRewind &&
           mergedModes === current.modes &&
           mergedConfigOptions === current.configOptions &&
           mergedAvailableCommands === current.availableCommands &&
@@ -2311,6 +2394,7 @@ function connectionsReducer(
           promptCapabilities: mergedPromptCapabilities,
           selectorsReady: mergedSelectorsReady,
           supportsFork: mergedSupportsFork,
+          supportsRewind: mergedSupportsRewind,
           hasPrompted: mergedHasPrompted,
           sessionFailures: mergedSessionFailures,
           toolApprovals: mergedToolApprovals,
@@ -2366,12 +2450,14 @@ function connectionsReducer(
         pendingPermission: hydratedPendingPermission,
         pendingAskQuestion: action.patch.pendingAskQuestion,
         pendingPlanApproval: action.patch.pendingPlanApproval,
+        askDelegate: action.patch.askDelegate ?? null,
         pendingUserMessage: action.patch.pendingUserMessage,
         promptCapabilities: mergedPromptCapabilities,
         selectorsReady: mergedSelectorsReady,
         // Current state like `status`: the backend's recorded composer pick.
         composerModeId: action.patch.composerModeId,
         supportsFork: mergedSupportsFork,
+        supportsRewind: mergedSupportsRewind,
         hasPrompted: mergedHasPrompted,
         // Staleness is a current-state field (like status): apply the snapshot's
         // value on the fresh path. `configStaleDismissed` is client-local and
@@ -2994,6 +3080,17 @@ function connectionsReducer(
       return next
     }
 
+    case "SET_ASK_DELEGATE": {
+      const conn = state.get(action.contextKey)
+      if (!conn) return state
+      const next = new Map(state)
+      next.set(action.contextKey, {
+        ...conn,
+        askDelegate: action.askDelegate,
+      })
+      return next
+    }
+
     case "CLEAR_PLAN_APPROVAL": {
       const conn = state.get(action.contextKey)
       if (!conn) return state
@@ -3053,12 +3150,17 @@ function connectionsReducer(
     case "SESSION_CONFIG_OPTIONS": {
       const conn = state.get(action.contextKey)
       if (!conn) return state
-      if (sameConfigOptions(conn.configOptions, action.configOptions)) {
+      const modes = modesFollowingModeOption(conn.modes, action.configOptions)
+      if (
+        modes === conn.modes &&
+        sameConfigOptions(conn.configOptions, action.configOptions)
+      ) {
         return state
       }
       const next = new Map(state)
       next.set(action.contextKey, {
         ...conn,
+        modes,
         configOptions: action.configOptions,
       })
       return next
@@ -3141,6 +3243,18 @@ function connectionsReducer(
       return next
     }
 
+    case "REWIND_SUPPORTED": {
+      const conn = state.get(action.contextKey)
+      if (!conn) return state
+      if (conn.supportsRewind === action.supported) return state
+      const next = new Map(state)
+      next.set(action.contextKey, {
+        ...conn,
+        supportsRewind: action.supported,
+      })
+      return next
+    }
+
     case "COMPOSER_MODE_CHANGED": {
       const conn = state.get(action.contextKey)
       if (!conn) return state
@@ -3162,7 +3276,15 @@ function connectionsReducer(
     case "MODE_CHANGED": {
       const conn = state.get(action.contextKey)
       if (!conn?.modes) return state
-      if (conn.modes.current_mode_id === action.modeId) return state
+      const configOptions = conn.configOptions
+        ? modeOptionsPointedAt(conn.configOptions, action.modeId)
+        : conn.configOptions
+      if (
+        conn.modes.current_mode_id === action.modeId &&
+        configOptions === conn.configOptions
+      ) {
+        return state
+      }
       const next = new Map(state)
       next.set(action.contextKey, {
         ...conn,
@@ -3170,6 +3292,7 @@ function connectionsReducer(
           ...conn.modes,
           current_mode_id: action.modeId,
         },
+        configOptions,
       })
       return next
     }
@@ -3673,8 +3796,9 @@ export interface AcpActionsValue {
       folderId?: number | null
       conversationId?: number | null
       clientMessageId?: string | null
+      rewind?: PromptRewindTarget | null
     }
-  ): Promise<void>
+  ): Promise<boolean>
   setMode(contextKey: string, modeId: string): Promise<void>
   /**
    * Apply a config option pick. `saveAsDefault` also records it as the
@@ -5634,12 +5758,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           })
           // A blocked agent is exactly what a notification is for — the sound
           // path had covered this one since it shipped. Body names the agent
-          // only: the question text is the agent's own prose.
+          // only: the question text is the agent's own prose. One the
+          // dispatching assistant answers for the owner waits until it is
+          // forwarded to them (`ask_forwarded`).
           {
             const nc = quiet
               ? null
               : storeRef.current.connections.get(contextKey)
-            if (nc) {
+            if (nc && !delegatesQuestion(nc.askDelegate, e.questions)) {
               void notifyDesktop(
                 "question_request",
                 sessionNotification(contextKey, {
@@ -5681,11 +5807,12 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           // asks under that event's switches rather than a row of its own,
           // and every plan approval reads the same whichever agent raised it.
           // Body names the agent only: the plan is the agent's own prose.
+          // Held back while the dispatching assistant answers it.
           {
             const nc = quiet
               ? null
               : storeRef.current.connections.get(contextKey)
-            if (nc) {
+            if (nc && !delegatesPlan(nc.askDelegate)) {
               void notifyDesktop(
                 "permission_request",
                 sessionNotification(contextKey, {
@@ -5697,6 +5824,20 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
               void requestWindowAttention("permission_request")
             }
           }
+          break
+        case "ask_delegate":
+          dispatch({
+            type: "SET_ASK_DELEGATE",
+            contextKey,
+            askDelegate: e.delegate ?? null,
+          })
+          break
+        case "ask_forwarded":
+          // A question or plan approval the dispatching assistant was
+          // answering is the owner's now. The assistant tells them itself
+          // (1.13): an urgent notification under its own name, routed by
+          // the backend (`personal-agent://notify`) — one here as well
+          // would be the same news twice. The card is already up.
           break
         case "plan_approval_resolved":
           // The approval was answered (this or another window) or canceled.
@@ -5875,12 +6016,16 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             options: e.options,
             queued: e.queued,
           })
-          // Send OS notification when permission approval is needed
+          // Send OS notification when permission approval is needed — except
+          // a plan approval the dispatching assistant answers for the owner.
           {
             const nc = quiet
               ? null
               : storeRef.current.connections.get(contextKey)
-            if (nc) {
+            if (
+              nc &&
+              !delegatesPermission(nc.askDelegate, e.tool_call, e.options)
+            ) {
               const agentLabel = getAgentLabel(nc.agentType)
               // No redacted variant: the body is a fixed localized string
               // plus the agent's name, and names nothing of the user's. (The
@@ -6044,6 +6189,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           flushStreamingQueue(contextKey)
           dispatch({
             type: "FORK_SUPPORTED",
+            contextKey,
+            supported: e.supported,
+          })
+          break
+        case "rewind_supported":
+          flushStreamingQueue(contextKey)
+          dispatch({
+            type: "REWIND_SUPPORTED",
             contextKey,
             supported: e.supported,
           })
@@ -8514,6 +8667,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         folderId?: number | null
         conversationId?: number | null
         clientMessageId?: string | null
+        rewind?: PromptRewindTarget | null
       }
     ) => {
       // Cut-off taken synchronously: only the setters already in flight.
@@ -8524,7 +8678,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         await Promise.allSettled(pendingSetters)
       }
       const conn = storeRef.current.connections.get(contextKey)
-      if (!conn) return
+      // Resolves whether the prompt went out: `false` when there is no
+      // connection to send it on (a reconnect removed it meanwhile).
+      if (!conn) {
+        // An edited message must know it did not go out: its caller would
+        // otherwise cut the view for a rewind that never happened.
+        if (opts?.rewind) throw new Error("The connection is gone; try again")
+        return false
+      }
       lastActivityRef.current.set(contextKey, Date.now())
       try {
         await acpPrompt(
@@ -8532,7 +8693,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           blocks,
           opts?.folderId ?? null,
           opts?.conversationId ?? null,
-          opts?.clientMessageId ?? null
+          opts?.clientMessageId ?? null,
+          opts?.rewind ?? null
         )
       } catch (e) {
         // Same reasoning as `cancel`: the backend disowning this id proves the
@@ -8544,6 +8706,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         }
         throw e
       }
+      return true
     },
     [markConnectionGone]
   )

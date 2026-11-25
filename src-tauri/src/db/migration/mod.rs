@@ -67,6 +67,7 @@ mod m20261116_000001_srn_web;
 mod m20261120_000001_ai_tag_curation;
 mod m20261121_000001_side_question;
 mod m20261123_000001_conversation_selector_state;
+mod m20261125_000001_personal_agent;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -140,6 +141,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261120_000001_ai_tag_curation::Migration),
             Box::new(m20261121_000001_side_question::Migration),
             Box::new(m20261123_000001_conversation_selector_state::Migration),
+            Box::new(m20261125_000001_personal_agent::Migration),
         ]
     }
 }

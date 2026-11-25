@@ -648,6 +648,7 @@ async fn import_one(
         origin_cwd: Set(None),
         assistant_id: Set(None),
         assistant_snapshot: Set(None),
+        bot_uid: Set(None),
         source: Set(None),
         selector_state: Set(None),
     };
@@ -1151,6 +1152,7 @@ mod tests {
             origin_cwd: Set(None),
             assistant_id: Set(None),
             assistant_snapshot: Set(None),
+            bot_uid: Set(None),
             source: Set(None),
             selector_state: Set(None),
         }
@@ -1449,6 +1451,7 @@ mod tests {
             origin_cwd: Set(None),
             assistant_id: Set(None),
             assistant_snapshot: Set(None),
+            bot_uid: Set(None),
             source: Set(None),
             selector_state: Set(None),
         }
