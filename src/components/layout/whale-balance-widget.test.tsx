@@ -353,4 +353,43 @@ describe("WhaleBalanceWidget", () => {
     fireEvent.click(screen.getByRole("button", { name: "小鲸鱼菜单" }))
     expect(screen.getByRole("slider", { name: "挂件大小" })).toHaveValue("72")
   })
+
+  it("shows every enabled balance detail on its own readable line", async () => {
+    vi.mocked(getWhaleBalancePresentation).mockResolvedValueOnce({
+      showBalance: true,
+      showApiUsed: true,
+      showObservedToday: true,
+      showTokenCost: true,
+      widgetSize: 52,
+    })
+    vi.mocked(getWhaleBalanceState).mockResolvedValueOnce({
+      configured: true,
+      enabled: true,
+      accountName: "lk888",
+      balance: 703.13,
+      used: 421.15,
+      observedToday: 28.7,
+      estimatedCostToday: 8.53,
+      currency: "CNY",
+      lastSuccessAt: "2026-11-24T12:00:00Z",
+      lastAttemptAt: "2026-11-24T12:00:00Z",
+      lastError: null,
+      stale: false,
+      refreshing: false,
+      accountGeneration: 1,
+    })
+
+    renderWidget()
+
+    const details = await screen.findByTestId("whale-balance-details")
+    expect(details.children).toHaveLength(3)
+    expect(details).toHaveTextContent("接口已用 421.15")
+    expect(details).toHaveTextContent("今日观测 28.70")
+    expect(details).toHaveTextContent("今日费用 CNY 8.53")
+    expect(details).not.toHaveStyle({ color: "rgb(159, 176, 217)" })
+    for (const row of Array.from(details.children)) {
+      expect(row).not.toHaveStyle({ textOverflow: "ellipsis" })
+      expect(row).not.toHaveStyle({ overflow: "hidden" })
+    }
+  })
 })

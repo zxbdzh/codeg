@@ -530,10 +530,15 @@ export function WhaleBalanceWidget() {
       : hasFailure
         ? t("fetchFailed")
         : null
-  const hintLine = statusLine ?? hintParts.join(" · ")
+  const detailLines = statusLine ? [statusLine] : hintParts
 
   // 原版以 1026 宽的画布为基准，所有字号都按画布单位缩放。
   const u = baseSize / 1026
+  // 明细超过三行时略缩字号，避免把余额和明细挤出气泡。
+  const detailFontSize = Math.max(
+    12,
+    56 * u * (detailLines.length > 3 ? 0.82 : 1)
+  )
   const needsAttention = activeSessions?.sessions.find(
     (session) => session.status === "error" || session.status === "prompting"
   )
@@ -624,20 +629,20 @@ export function WhaleBalanceWidget() {
                 className="absolute flex flex-col items-center justify-center text-center"
                 style={{
                   left: "44.25%",
-                  top: "36%",
+                  top: "34%",
                   width: "66%",
-                  height: "64%",
+                  height: "66%",
                   // 镜像时文字要翻回来才可读，与原版一致。
                   transform: `translate(-50%, -50%)${mirror ? " scaleX(-1)" : ""}`,
                   color: "#536ba9",
                   lineHeight: 1.15,
-                  whiteSpace: "nowrap",
+                  whiteSpace: "normal",
                 }}
               >
                 <div
                   data-testid="whale-balance-label"
                   style={{
-                    fontSize: 66 * u,
+                    fontSize: 66 * u * (detailLines.length > 3 ? 0.9 : 1),
                     fontWeight: 600,
                     letterSpacing: "0.06em",
                   }}
@@ -647,7 +652,7 @@ export function WhaleBalanceWidget() {
                 <div
                   data-testid="whale-balance-summary"
                   style={{
-                    fontSize: 128 * u,
+                    fontSize: 128 * u * (detailLines.length > 3 ? 0.9 : 1),
                     fontWeight: 800,
                     lineHeight: 1.05,
                     fontVariantNumeric: "tabular-nums",
@@ -655,22 +660,33 @@ export function WhaleBalanceWidget() {
                 >
                   {balanceText}
                 </div>
-                {hintLine ? (
+                {detailLines.length > 0 ? (
                   <div
-                    data-testid={
-                      hasFailure ? "whale-balance-stale" : "whale-balance-hint"
-                    }
+                    data-testid="whale-balance-details"
+                    className="mt-1 flex max-w-full flex-col items-center"
                     style={{
-                      fontSize: 56 * u,
-                      color: "#9fb0d9",
-                      marginTop: 9 * u,
-                      letterSpacing: "0.02em",
-                      maxWidth: "100%",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
+                      fontSize: detailFontSize,
+                      lineHeight: 1.15,
+                      gap: Math.max(1, 8 * u),
+                      color: "#536ba9",
                     }}
                   >
-                    {hintLine}
+                    {detailLines.map((line, index) => (
+                      <div
+                        key={`${index}-${line}`}
+                        data-testid={
+                          index === 0
+                            ? statusLine
+                              ? "whale-balance-stale"
+                              : "whale-balance-hint"
+                            : "whale-balance-detail"
+                        }
+                        className="max-w-full text-center"
+                        style={{ overflowWrap: "anywhere" }}
+                      >
+                        {line}
+                      </div>
+                    ))}
                   </div>
                 ) : null}
               </div>
