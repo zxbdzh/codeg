@@ -6678,18 +6678,60 @@ export interface DeepSeekProviderRoutes {
 }
 
 /** 前端展示用的小鲸鱼账户余额快照（仅含显示字段，绝不含凭据）。 */
-export interface WhaleBalanceSnapshot {
-  configured: boolean
-  enabled: boolean
+export interface WhaleBalanceModelSnapshot {
+  id: string
   accountName: string
   balance: number | null
   used: number | null
+  total: number | null
+  unit: string | null
   lastSuccessAt: string | null
   lastAttemptAt: string | null
   lastError: string | null
   stale: boolean
   refreshing: boolean
   accountGeneration: number
+}
+
+export interface WhaleBalanceSnapshot {
+  configured: boolean
+  enabled: boolean
+  accountName: string
+  balance: number | null
+  /** Usage returned by the selected provider API. */
+  used: number | null
+  total?: number | null
+  unit?: string | null
+  modelId?: string
+  accounts?: WhaleBalanceModelSnapshot[]
+  /** Sum of observed balance decreases since today's UTC+8 midnight. */
+  observedToday?: number | null
+  /** Estimated token cost from Codeg's indexed usage and configured price per million tokens. */
+  estimatedCostToday?: number | null
+  currency?: string
+  isPeakPeriod?: boolean
+  currentPrice?: number | null
+  lastSuccessAt: string | null
+  lastAttemptAt: string | null
+  lastError: string | null
+  stale: boolean
+  refreshing: boolean
+  accountGeneration: number
+}
+
+export interface WhaleBalanceModelView {
+  id: string
+  accountName: string
+  url: string
+  method: string
+  authHeader: string
+  hasApiKey: boolean
+  apiKeyHint: string | null
+  remainingPath: string
+  usedPath: string
+  totalPath: string
+  unitPath: string
+  scale: number
 }
 
 /** 设置页脱敏配置视图：仅返回是否存在密钥及脱敏提示。 */
@@ -6703,8 +6745,30 @@ export interface WhaleBalanceSettingsView {
   apiKeyHint: string | null
   remainingPath: string
   usedPath: string
+  totalPath?: string
+  unitPath?: string
   scale: number
   pollIntervalSecs: number
+  models?: WhaleBalanceModelView[]
+  activeModelId?: string
+  peakPrice?: number | null
+  offPeakPrice?: number | null
+  currency?: string
+}
+
+export interface WhaleBalanceModelInput {
+  id: string
+  accountName: string
+  url: string
+  method?: string
+  authHeader?: string
+  apiKey?: string | null
+  clearApiKey?: boolean
+  remainingPath?: string
+  usedPath?: string
+  totalPath?: string
+  unitPath?: string
+  scale?: number
 }
 
 /** 更新配置或测试连接时提交的载荷。 */
@@ -6718,13 +6782,53 @@ export interface UpdateWhaleBalanceSettingsInput {
   clearApiKey?: boolean
   remainingPath?: string
   usedPath?: string
+  totalPath?: string
+  unitPath?: string
   scale?: number
   pollIntervalSecs?: number
+  models?: WhaleBalanceModelInput[]
+  activeModelId?: string
+  peakPrice?: number | null
+  clearPeakPrice?: boolean
+  offPeakPrice?: number | null
+  clearOffPeakPrice?: boolean
+  currency?: string
 }
 
 export interface WhaleBalanceTestResult {
   ok: boolean
   balance: number | null
   used: number | null
+  total?: number | null
+  unit?: string | null
   error: string | null
+}
+
+export interface WhaleBalanceLedgerEntry {
+  modelId: string
+  at: string
+  kind: "consumption" | "balance_increase" | "reconciliation"
+  amount: number
+  note: string | null
+}
+
+export interface WhaleBalanceLedger {
+  balanceAdjustments: Record<string, number>
+  entries: WhaleBalanceLedgerEntry[]
+  /** `modelId → 北京时间日期 → 当日余额下降累计量`。明细被裁剪后仍保留。 */
+  dailyConsumption?: Record<string, Record<string, number>>
+}
+
+export interface WhaleBalancePresentation {
+  showBalance: boolean
+  showApiUsed: boolean
+  showObservedToday: boolean
+  showTokenCost: boolean
+  widgetSize: number
+}
+
+export interface WhaleBalanceReconcileInput {
+  modelId: string
+  amount: number
+  note?: string | null
 }

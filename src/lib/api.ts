@@ -7131,8 +7131,38 @@ export async function testWhaleBalanceSettings(
   return getTransport().call("whale_balance_test_settings", { settings })
 }
 
+export async function getWhaleBalanceLedger(): Promise<
+  import("./types").WhaleBalanceLedger
+> {
+  return getTransport().call("whale_balance_get_ledger")
+}
+
+export async function reconcileWhaleBalance(
+  input: import("./types").WhaleBalanceReconcileInput
+): Promise<import("./types").WhaleBalanceSnapshot> {
+  return getTransport().call("whale_balance_reconcile", { input })
+}
+
+export async function getWhaleBalancePresentation(): Promise<
+  import("./types").WhaleBalancePresentation
+> {
+  return getTransport().call("whale_balance_get_presentation")
+}
+
+export async function saveWhaleBalancePresentation(
+  input: import("./types").WhaleBalancePresentation
+): Promise<import("./types").WhaleBalancePresentation> {
+  return getTransport().call("whale_balance_save_presentation", { input })
+}
+
 export async function subscribeWhaleBalanceUpdated(
   handler: (snapshot: import("./types").WhaleBalanceSnapshot) => void
 ): Promise<() => void> {
   return getTransport().subscribe("whale://balance-updated", handler)
+}
+
+export async function subscribeWhaleBalancePresentation(
+  handler: (presentation: import("./types").WhaleBalancePresentation) => void
+): Promise<() => void> {
+  return getTransport().subscribe("whale://presentation-updated", handler)
 }

@@ -623,6 +623,13 @@ async fn async_main(
         state.emitter.clone(),
         pet_state_handle,
     ));
+    tokio::spawn(codeg_lib::pet_sessions::pet_sessions_subscriber_task(
+        state.acp_event_bus.clone(),
+        state.event_broadcaster.clone(),
+        state.emitter.clone(),
+        state.connection_manager.clone_ref(),
+        state.db.conn.clone(),
+    ));
 
     // Spawn the idle sweep so connections abandoned without an explicit
     // disconnect (e.g. browser tab closed, panic survivors) are reaped.

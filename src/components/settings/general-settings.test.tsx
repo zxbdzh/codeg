@@ -78,6 +78,15 @@ vi.mock("@/lib/api", () => ({
     used: 0,
     error: null,
   })),
+  getWhaleBalancePresentation: vi.fn(async () => ({
+    showBalance: true,
+    showApiUsed: true,
+    showObservedToday: false,
+    showTokenCost: false,
+    widgetSize: 44,
+  })),
+  saveWhaleBalancePresentation: vi.fn(async (input: unknown) => input),
+  reconcileWhaleBalance: vi.fn(async () => ({})),
 }))
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))

@@ -2593,6 +2593,10 @@ mod tauri_app {
                 crate::commands::whale_balance::whale_balance_get_settings,
                 crate::commands::whale_balance::whale_balance_update_settings,
                 crate::commands::whale_balance::whale_balance_test_settings,
+                crate::commands::whale_balance::whale_balance_get_ledger,
+                crate::commands::whale_balance::whale_balance_reconcile,
+                crate::commands::whale_balance::whale_balance_get_presentation,
+                crate::commands::whale_balance::whale_balance_save_presentation,
             ])
             .build(context)
             .expect("error while building tauri application")

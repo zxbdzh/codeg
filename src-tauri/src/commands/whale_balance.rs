@@ -6,8 +6,9 @@ use tauri::State;
 
 use crate::app_error::AppCommandError;
 use crate::whale_balance::{
-    UpdateWhaleBalanceSettingsInput, WhaleBalanceService, WhaleBalanceSettingsView,
-    WhaleBalanceSnapshot, WhaleBalanceTestResult,
+    UpdateWhaleBalanceSettingsInput, WhaleBalanceLedger, WhaleBalancePresentation,
+    WhaleBalancePresentationInput, WhaleBalanceReconcileInput, WhaleBalanceService,
+    WhaleBalanceSettingsView, WhaleBalanceSnapshot, WhaleBalanceTestResult,
 };
 
 pub async fn whale_balance_get_state_core(
@@ -40,6 +41,32 @@ pub async fn whale_balance_test_settings_core(
     settings: UpdateWhaleBalanceSettingsInput,
 ) -> Result<WhaleBalanceTestResult, AppCommandError> {
     service.test_settings(settings).await
+}
+
+pub async fn whale_balance_get_ledger_core(
+    service: &WhaleBalanceService,
+) -> Result<WhaleBalanceLedger, AppCommandError> {
+    service.get_ledger().await
+}
+
+pub async fn whale_balance_reconcile_core(
+    service: &WhaleBalanceService,
+    input: WhaleBalanceReconcileInput,
+) -> Result<WhaleBalanceSnapshot, AppCommandError> {
+    service.reconcile(input).await
+}
+
+pub async fn whale_balance_get_presentation_core(
+    service: &WhaleBalanceService,
+) -> Result<WhaleBalancePresentation, AppCommandError> {
+    service.get_presentation().await
+}
+
+pub async fn whale_balance_save_presentation_core(
+    service: &WhaleBalanceService,
+    input: WhaleBalancePresentationInput,
+) -> Result<WhaleBalancePresentation, AppCommandError> {
+    service.save_presentation(input).await
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -82,4 +109,38 @@ pub async fn whale_balance_test_settings(
     settings: UpdateWhaleBalanceSettingsInput,
 ) -> Result<WhaleBalanceTestResult, AppCommandError> {
     whale_balance_test_settings_core(&service, settings).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn whale_balance_get_ledger(
+    service: State<'_, Arc<WhaleBalanceService>>,
+) -> Result<WhaleBalanceLedger, AppCommandError> {
+    whale_balance_get_ledger_core(&service).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn whale_balance_reconcile(
+    service: State<'_, Arc<WhaleBalanceService>>,
+    input: WhaleBalanceReconcileInput,
+) -> Result<WhaleBalanceSnapshot, AppCommandError> {
+    whale_balance_reconcile_core(&service, input).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn whale_balance_get_presentation(
+    service: State<'_, Arc<WhaleBalanceService>>,
+) -> Result<WhaleBalancePresentation, AppCommandError> {
+    whale_balance_get_presentation_core(&service).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn whale_balance_save_presentation(
+    service: State<'_, Arc<WhaleBalanceService>>,
+    input: WhaleBalancePresentationInput,
+) -> Result<WhaleBalancePresentation, AppCommandError> {
+    whale_balance_save_presentation_core(&service, input).await
 }

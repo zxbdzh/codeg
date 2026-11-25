@@ -2389,6 +2389,22 @@ pub fn build_router_with_srn(
             "/whale_balance_test_settings",
             post(handlers::whale_balance::whale_balance_test_settings),
         )
+        .route(
+            "/whale_balance_get_ledger",
+            post(handlers::whale_balance::whale_balance_get_ledger),
+        )
+        .route(
+            "/whale_balance_reconcile",
+            post(handlers::whale_balance::whale_balance_reconcile),
+        )
+        .route(
+            "/whale_balance_get_presentation",
+            post(handlers::whale_balance::whale_balance_get_presentation),
+        )
+        .route(
+            "/whale_balance_save_presentation",
+            post(handlers::whale_balance::whale_balance_save_presentation),
+        )
         // `codeg-cli` against this runtime with the main token (how CI reaches
         // a remote server); the loopback listener serves the same handlers.
         .merge(crate::cli_run::http::routes(state.cli_runs.clone()))

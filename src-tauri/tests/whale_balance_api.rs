@@ -85,4 +85,31 @@ async fn whale_balance_web_routes_require_auth_and_hide_api_key() {
     assert_eq!(snap["balance"], 1234.5);
     assert_eq!(snap["used"], 67.89);
     assert_eq!(snap["stale"], false);
+    assert_eq!(snap["accounts"][0]["balance"], 1234.5);
+
+    let presentation_resp = server
+        .post("/api/whale_balance_save_presentation")
+        .add_header("authorization", &auth_header)
+        .json(&json!({
+            "input": {
+                "showBalance": true,
+                "showApiUsed": false,
+                "showObservedToday": true,
+                "showTokenCost": false,
+                "widgetSize": 64
+            }
+        }))
+        .await;
+    assert_eq!(presentation_resp.status_code(), 200);
+    let presentation: Value = presentation_resp.json();
+    assert_eq!(presentation["showApiUsed"], false);
+    assert_eq!(presentation["widgetSize"], 64);
+
+    let ledger_resp = server
+        .post("/api/whale_balance_get_ledger")
+        .add_header("authorization", &auth_header)
+        .await;
+    assert_eq!(ledger_resp.status_code(), 200);
+    let ledger: Value = ledger_resp.json();
+    assert!(ledger["entries"].is_array());
 }
