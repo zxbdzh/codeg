@@ -17284,9 +17284,9 @@ mod tests {
         }
 
         let bytes = future_size(
-            |(agent_type, working_dir, session_id, mode, config, manager, db, app, window)| {
+            |(agent_type, working_dir, session_id, mode, config, manager, db, app, window, conversation_id)| {
                 acp_connect(
-                    agent_type, working_dir, session_id, mode, config, manager, db, app, window,
+                    agent_type, working_dir, session_id, mode, config, conversation_id, manager, db, app, window,
                 )
             },
         );

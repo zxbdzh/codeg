@@ -664,7 +664,7 @@ pub async fn emit_with_state_built<F>(
 where
     F: FnOnce(&mut SessionState) -> Option<AcpEvent>,
 {
-    let (envelope_arc, stream, evicted, turn_file_jobs, completed_conversation) = {
+    let (envelope_arc, stream, evicted, turn_file_jobs, completed_conversation, conversation_id) = {
         let mut s = state.write().await;
         let Some(payload) = build(&mut s) else {
             return false;
@@ -693,8 +693,30 @@ where
             evicted,
             turn_file_jobs,
             completed_conversation,
+            s.conversation_id,
         )
     };
+
+    // 挂件不需要订阅所有会话正文，只广播提醒类型和定位所需的 ID。
+    let notice = match &envelope_arc.payload {
+        AcpEvent::UserMessage { .. } => Some(("start", None)),
+        AcpEvent::TurnComplete { stop_reason, .. } if stop_reason == "end_turn" => {
+            Some(("complete", None))
+        }
+        AcpEvent::QuestionRequest { question_id, .. } => Some(("question", Some(question_id))),
+        AcpEvent::PermissionRequest { request_id, .. } => Some(("permission", Some(request_id))),
+        _ => None,
+    };
+    if let Some((kind, id)) = notice {
+        emit_event(emitter, "whale://session-notice", serde_json::json!({
+            "kind": kind,
+            "id": id,
+            "connectionId": envelope_arc.connection_id,
+            "conversationId": conversation_id,
+            "seq": envelope_arc.seq,
+            "at": chrono::Utc::now().timestamp_millis(),
+        }));
+    }
 
     if let Some((conversation_id, finished)) = completed_conversation {
         if let Some(bus) = emitter.acp_event_bus() {
