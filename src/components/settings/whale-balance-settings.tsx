@@ -51,6 +51,96 @@ const DEFAULT_REMAINING_PATH = "balance"
 const DEFAULT_USED_PATH = "api_key_quota.used"
 const DEFAULT_SCALE = "1"
 const DEFAULT_POLL_INTERVAL = "60"
+const PROVIDER_TEMPLATES = [
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    accountName: "DeepSeek",
+    url: "https://api.deepseek.com/user/balance",
+    remainingPath: "balance_infos[0].total_balance",
+    usedPath: "",
+    totalPath: "",
+    unitPath: "balance_infos[0].currency",
+    scale: "1",
+  },
+  {
+    id: "openai-compat",
+    name: "OpenAI 兼容中转站",
+    accountName: "OpenAI 兼容",
+    url: "{base}/v1/dashboard/billing/subscription",
+    remainingPath: "hard_limit_usd",
+    usedPath: "total_usage",
+    totalPath: "",
+    unitPath: "",
+    scale: "0.01",
+  },
+  {
+    id: "zhipu",
+    name: "智谱 GLM Coding Plan",
+    accountName: "智谱 GLM",
+    url: "https://open.bigmodel.cn/api/monitor/usage/quota/limit",
+    remainingPath: "",
+    usedPath: "percentage",
+    totalPath: "",
+    unitPath: "",
+    scale: "1",
+  },
+  {
+    id: "kimi-coding",
+    name: "Kimi Coding",
+    accountName: "Kimi Coding",
+    url: "https://api.kimi.com/coding/v1/usages",
+    remainingPath: "usage.remaining",
+    usedPath: "",
+    totalPath: "usage.limit",
+    unitPath: "",
+    scale: "1",
+  },
+  {
+    id: "minimax-coding",
+    name: "MiniMax Coding",
+    accountName: "MiniMax Coding",
+    url: "https://api.minimaxi.com/v1/api/openplatform/coding_plan/remains",
+    remainingPath: "model_remains[0].current_interval_remaining_percent",
+    usedPath: "",
+    totalPath: "",
+    unitPath: "",
+    scale: "1",
+  },
+  {
+    id: "opencode-go",
+    name: "OpenCode Go",
+    accountName: "OpenCode Go",
+    url: "https://opencode.ai/zen/go/v1/usage",
+    remainingPath: "usage.rolling.percent",
+    usedPath: "",
+    totalPath: "",
+    unitPath: "",
+    scale: "1",
+  },
+  {
+    id: "openai",
+    name: "OpenAI",
+    accountName: "OpenAI",
+    url: "https://api.openai.com/v1/models",
+    remainingPath: "",
+    usedPath: "",
+    totalPath: "",
+    unitPath: "",
+    scale: "1",
+  },
+  {
+    id: "anthropic",
+    name: "Anthropic Claude",
+    accountName: "Anthropic",
+    url: "https://api.anthropic.com/v1/models",
+    remainingPath: "",
+    usedPath: "",
+    totalPath: "",
+    unitPath: "",
+    scale: "1",
+  },
+] as const
 const EMPTY_PRESENTATION: WhaleBalancePresentation = {
   showBalance: true,
   showApiUsed: true,
@@ -378,6 +468,22 @@ export function WhaleBalanceSettingsSection() {
 
   const hasSavedKey = Boolean(savedView?.hasApiKey) && !clearApiKey
 
+  const applyProviderTemplate = (templateId: string) => {
+    const template = PROVIDER_TEMPLATES.find((item) => item.id === templateId)
+    if (!template) return
+    // 模板只改当前表单，不自动写密钥或多模型配置，避免覆盖用户已有独立配置。
+    setAccountName(accountName || template.accountName)
+    setUrl(template.url)
+    setRemainingPath(template.remainingPath)
+    setUsedPath(template.usedPath)
+    setTotalPath(template.totalPath)
+    setUnitPath(template.unitPath)
+    setScale(template.scale)
+    if (template.id === "anthropic")
+      setAuthHeader("x-api-key:{key};anthropic-version:2023-06-01")
+    else setAuthHeader(DEFAULT_AUTH_HEADER)
+  }
+
   const selectModel = (modelId: string) => {
     const model = models.find((entry) => entry.id === modelId)
     if (!model) return
@@ -614,29 +720,31 @@ export function WhaleBalanceSettingsSection() {
             </div>
           </SettingRow>
           <SettingRow
-            title={t("deepSeekTemplateLabel")}
-            description={t("deepSeekTemplateDescription")}
-            htmlFor="whale-deepseek-template"
+            title={t("providerTemplateLabel")}
+            description={t("providerTemplateDescription")}
+            htmlFor="whale-provider-template"
           >
-            <Button
-              id="whale-deepseek-template"
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={saving}
-              onClick={() => {
-                // 模板只填当前模型的表单，任何模型都可以用 DeepSeek 的字段路径作起点。
-                setAccountName(accountName || "DeepSeek")
-                setUrl("https://api.deepseek.com/user/balance")
-                setRemainingPath("balance_infos[0].total_balance")
-                setUsedPath("")
-                setTotalPath("")
-                setUnitPath("balance_infos[0].currency")
-                setScale("1")
+            <Select
+              value=""
+              onValueChange={(value) => {
+                if (value) applyProviderTemplate(value)
               }}
+              disabled={saving}
             >
-              DeepSeek
-            </Button>
+              <SelectTrigger
+                id="whale-provider-template"
+                className="w-56 bg-background text-xs"
+              >
+                <SelectValue placeholder={t("providerTemplatePlaceholder")} />
+              </SelectTrigger>
+              <SelectContent>
+                {PROVIDER_TEMPLATES.map((template) => (
+                  <SelectItem key={template.id} value={template.id}>
+                    {template.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </SettingRow>
           <SettingRow
             title={t("accountNameLabel")}

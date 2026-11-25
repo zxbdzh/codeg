@@ -33,6 +33,19 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { useTabActions } from "@/stores/tab-store"
 import { cn } from "@/lib/utils"
 import type { PetSessionsPayload } from "@/lib/pet/types"
+import {
+  DEFAULT_SNAP,
+  snapWhalePosition,
+  weightedIndex,
+} from "@/lib/whale-widget"
+import { useWhaleOptions } from "./use-whale-options"
+import {
+  WhaleOptionsDialog,
+  useWhaleLabel,
+  whaleEventLabel,
+} from "./whale-options-dialog"
+import { WhaleBubbleContent, playWhaleSound } from "./whale-bubbles"
+import { WhaleUsageDialog, useWhaleQuota } from "./whale-usage-dialog"
 
 const LEGACY_WIDGET_COORD_PREF = "codeg-whale-coord-v1"
 const WIDGET_COORD_PREF = "codeg-whale-coord-v2"
@@ -114,29 +127,6 @@ function loadSavedPosition(snapEnabled: boolean): WidgetPlacement {
   return { x: null, y: null }
 }
 
-/**
- * 按可拖动范围的四分之一吸边，横纵独立可组合角落。
- * 吸附到左侧时同时要求镜像气泡，和原版“贴左翻转”一致。
- */
-function snapPosition(
-  pos: WidgetPosition,
-  limits: WidgetPosition
-): { position: WidgetPlacement; mirror: boolean } {
-  const left = limits.x > 0 && pos.x < limits.x / 4
-  return {
-    position: {
-      x: left ? 0 : pos.x >= limits.x * 0.75 ? null : pos.x,
-      y:
-        limits.y > 0 && pos.y < limits.y / 4
-          ? 0
-          : pos.y >= limits.y * 0.75
-            ? null
-            : pos.y,
-    },
-    mirror: left,
-  }
-}
-
 function savePosition(pos: WidgetPlacement): void {
   if (typeof window === "undefined") return
   try {
@@ -211,6 +201,25 @@ export function WhaleBalanceWidget() {
   const [activeSessions, setActiveSessions] =
     useState<PetSessionsPayload | null>(null)
   const [refreshingLocal, setRefreshingLocal] = useState(false)
+  const label = useWhaleLabel()
+  const { options, loaded, notice, dismiss, save } = useWhaleOptions(
+    snapshot,
+    activeSessions
+  )
+  const [dialog, setDialog] = useState<"options" | "usage" | null>(null)
+  const [bubbleIndex, setBubbleIndex] = useState(-1)
+  const [variant, setVariant] = useState(0)
+  const [bubbleRevision, setBubbleRevision] = useState(0)
+  const lastVariant = useRef<Record<number, number>>({})
+  const longPress = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const clearLongPress = () => clearTimeout(longPress.current)
+  useEffect(() => () => clearTimeout(longPress.current), [])
+  const quota = useWhaleQuota(
+    snapshot?.enabled
+      ? options.quotas?.[snapshot.modelId ?? "default"]
+      : undefined,
+    snapshot?.lastSuccessAt
+  )
 
   const [expandedByMode, setExpandedByMode] = useState({
     desktop: true,
@@ -372,8 +381,18 @@ export function WhaleBalanceWidget() {
       }
       event.currentTarget.setPointerCapture?.(pointerId)
       setPressed(true)
+      const press = options.events?.press
+      if (press?.enabled)
+        playWhaleSound(options, press.sound, press.volume ?? 100)
+      if (options.hideMenu && event.pointerType !== "mouse") {
+        clearLongPress()
+        longPress.current = setTimeout(() => {
+          suppressNextClickRef.current = true
+          setMenuOpen(true)
+        }, 1500)
+      }
     },
-    [baseSize, position]
+    [baseSize, options, position]
   )
 
   const handleAvatarPointerMove = useCallback(
@@ -384,6 +403,7 @@ export function WhaleBalanceWidget() {
       const dx = event.clientX - state.startX
       const dy = event.clientY - state.startY
       if (!state.moved && Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
+        clearLongPress()
         state.moved = true
         setDragging(true)
       }
@@ -407,6 +427,10 @@ export function WhaleBalanceWidget() {
       const state = dragStateRef.current
       const pointerId = event.pointerId ?? 0
       if (!state || state.pointerId !== pointerId) return
+      clearLongPress()
+      const press = options.events?.press
+      if (press?.enabled)
+        playWhaleSound(options, press.release, press.volume ?? 100)
       dragStateRef.current = null
       setDragging(false)
       setPressed(false)
@@ -420,12 +444,17 @@ export function WhaleBalanceWidget() {
           state.limits
         )
         const snapped = snapEnabled
-          ? snapPosition(released, state.limits)
+          ? snapWhalePosition(
+              released,
+              state.limits,
+              baseSize,
+              options.snap ?? DEFAULT_SNAP
+            )
           : { position: released, mirror }
         setPosition(snapped.position)
         savePosition(snapped.position)
         // 贴左侧时自动镜像，贴右侧时取消镜像。
-        if (snapped.mirror !== mirror) {
+        if (snapped.mirror !== undefined && snapped.mirror !== mirror) {
           setMirror(snapped.mirror)
           writeBoolPref(WIDGET_MIRROR_PREF, snapped.mirror)
         }
@@ -435,10 +464,11 @@ export function WhaleBalanceWidget() {
         }, 0)
       }
     },
-    [mirror, snapEnabled]
+    [baseSize, mirror, options, snapEnabled]
   )
 
   const handleAvatarPointerCancel = useCallback(() => {
+    clearLongPress()
     dragStateRef.current = null
     setDragging(false)
     setPressed(false)
@@ -460,13 +490,38 @@ export function WhaleBalanceWidget() {
     })
   }, [])
 
-  const handleAvatarClick = useCallback(() => {
+  const moveBubble = (index: number) => {
+    const choices = options.sequence?.[index]
+    if (!choices) {
+      setBubbleIndex(-1)
+      return
+    }
+    const selected = weightedIndex(
+      choices.map((item) => item.weight),
+      Math.random(),
+      lastVariant.current[index]
+    )
+    lastVariant.current[index] = selected
+    setVariant(selected)
+    setBubbleIndex(index)
+    setBubbleRevision((revision) => revision + 1)
+  }
+
+  const handleAvatarClick = () => {
     if (suppressNextClickRef.current) {
       suppressNextClickRef.current = false
       return
     }
+    if (notice) {
+      dismiss()
+      return
+    }
+    if (options.sequence?.length) {
+      moveBubble(options.advanceOnAvatar ? bubbleIndex + 1 : 0)
+      return
+    }
     toggleExpanded()
-  }, [toggleExpanded])
+  }
 
   const handleRefresh = useCallback(async () => {
     if (refreshInProgressRef.current) return
@@ -509,6 +564,47 @@ export function WhaleBalanceWidget() {
 
   const balanceText =
     snapshot.balance !== null ? formatAmount(snapshot.balance) : "—"
+  const customRows = options.sequence?.[bubbleIndex]?.[variant]?.rows
+  const role = options.assets?.find(
+    (asset) => asset.id === options.role && asset.data.startsWith("data:image/")
+  )
+  const activeModelId = snapshot.modelId ?? "default"
+  const amount = (value?: number | null) =>
+    value == null ? "—" : formatAmount(value)
+  const values = {
+    account: snapshot.accountName,
+    balance: balanceText,
+    balance_ds: balanceText,
+    used: amount(snapshot.used),
+    total:
+      snapshot.total === 0
+        ? label("不限", "Unlimited")
+        : amount(snapshot.total),
+    unit: snapshot.unit ?? "",
+    today: amount(snapshot.observedToday),
+    cost: amount(snapshot.estimatedCostToday),
+    peak: snapshot.isPeakPeriod
+      ? label("高峰", "Peak")
+      : label("低谷", "Off-peak"),
+    bonus: "—",
+    bonus_ds: "—",
+    recharge: "—",
+    recharge_ds: "—",
+    quota:
+      quota?.used == null
+        ? "—"
+        : `${quota.used.toLocaleString()} / ${quota.total.toLocaleString()}`,
+    quota_used: quota?.used?.toLocaleString() ?? "—",
+    quota_left:
+      quota?.used == null
+        ? "—"
+        : Math.max(0, quota.total - quota.used).toLocaleString(),
+    quota_total: quota?.total.toLocaleString() ?? "—",
+    quota_reset: quota?.reset ?? "—",
+    session:
+      activeSessions?.sessions[0]?.title ??
+      label("当前对话", "Current conversation"),
+  }
 
   // 气泡第三行：按用户勾选的字段拼接，缺数据就留空而不是补零。
   const hintParts: string[] = []
@@ -534,6 +630,8 @@ export function WhaleBalanceWidget() {
   if (sessionTotal > 0) {
     hintParts.push(t("sessionCount", { count: sessionTotal }))
   }
+  if (quota?.used != null)
+    hintParts.push(`${label("额度", "Quota")} ${values.quota}`)
 
   const isSpinning = refreshingLocal || snapshot.refreshing
   const hasFailure = Boolean(snapshot.lastError) || snapshot.stale
@@ -567,7 +665,10 @@ export function WhaleBalanceWidget() {
 
   return (
     // 状态栏高 2rem，底边停在状态栏上沿，不挡住状态栏的操作。
-    <div className="pointer-events-none absolute inset-x-0 top-[env(safe-area-inset-top)] bottom-[calc(2rem+env(safe-area-inset-bottom))] z-40">
+    <div
+      className="pointer-events-none absolute inset-x-0 top-[env(safe-area-inset-top)] bottom-[calc(2rem+env(safe-area-inset-bottom))] z-40"
+      style={options.avoidScrollbar ? { right: 12 } : undefined}
+    >
       <div
         ref={rootRef}
         data-testid="whale-balance-widget"
@@ -598,7 +699,7 @@ export function WhaleBalanceWidget() {
                 : "none",
           }}
         >
-          {expanded && (
+          {expanded && !options.hideBubble && !customRows && !notice && (
             <div
               role="status"
               data-testid="whale-balance-bubble"
@@ -654,27 +755,31 @@ export function WhaleBalanceWidget() {
                   whiteSpace: "normal",
                 }}
               >
-                <div
-                  data-testid="whale-balance-label"
-                  style={{
-                    fontSize: 66 * u * (detailLines.length > 3 ? 0.9 : 1),
-                    fontWeight: 600,
-                    letterSpacing: "0.06em",
-                  }}
-                >
-                  {accountTitle}
-                </div>
-                <div
-                  data-testid="whale-balance-summary"
-                  style={{
-                    fontSize: 128 * u * (detailLines.length > 3 ? 0.9 : 1),
-                    fontWeight: 800,
-                    lineHeight: 1.05,
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
-                  {balanceText}
-                </div>
+                {presentation.showBalance && (
+                  <>
+                    <div
+                      data-testid="whale-balance-label"
+                      style={{
+                        fontSize: 66 * u * (detailLines.length > 3 ? 0.9 : 1),
+                        fontWeight: 600,
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      {accountTitle}
+                    </div>
+                    <div
+                      data-testid="whale-balance-summary"
+                      style={{
+                        fontSize: 128 * u * (detailLines.length > 3 ? 0.9 : 1),
+                        fontWeight: 800,
+                        lineHeight: 1.05,
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {balanceText}
+                    </div>
+                  </>
+                )}
                 {detailLines.length > 0 ? (
                   <div
                     data-testid="whale-balance-details"
@@ -711,8 +816,13 @@ export function WhaleBalanceWidget() {
           <button
             type="button"
             aria-label={t("toggleAriaLabel")}
-            aria-expanded={expanded}
+            aria-expanded={!options.hideBubble && (expanded || !!customRows)}
             onClick={handleAvatarClick}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              clearLongPress()
+              setMenuOpen(true)
+            }}
             onPointerDown={handleAvatarPointerDown}
             onPointerMove={handleAvatarPointerMove}
             onPointerUp={handleAvatarPointerUp}
@@ -724,7 +834,7 @@ export function WhaleBalanceWidget() {
             style={{ width: "59.45%", height: "59.45%" }}
           >
             <img
-              src="/images/whale-widget.png"
+              src={role?.data ?? "/images/whale-widget.png"}
               alt={t("avatarAlt")}
               draggable={false}
               className="h-full w-full object-contain object-right-bottom"
@@ -758,37 +868,143 @@ export function WhaleBalanceWidget() {
           )}
         </div>
 
-        {/* 主菜单入口：常驻可见，和小鲸鱼一起贴在右下角。 */}
-        <button
-          type="button"
-          aria-label={t("menuAria")}
-          aria-expanded={menuOpen}
-          title={t("menuAria")}
-          onClick={(event) => {
-            event.stopPropagation()
-            setMenuOpen((previous) => !previous)
-          }}
-          className="absolute flex h-6 w-6 items-center justify-center rounded-md text-white shadow-md transition-colors"
-          style={{
-            top: "30%",
-            [mirror ? "left" : "right"]: 0,
-            background: "rgba(32,49,112,0.85)",
-          }}
-        >
-          {menuOpen ? (
-            <X className="size-3.5" />
-          ) : (
-            <MenuIcon className="size-3.5" />
-          )}
-        </button>
+        {(notice || (customRows && !options.hideBubble)) && (
+          <div
+            role="status"
+            className={cn(
+              "z-10 grid w-60 max-w-[calc(100vw-1rem)] gap-2 rounded-lg border bg-background p-3 text-sm text-foreground shadow-lg",
+              notice && options.hideBubble
+                ? "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+                : "absolute bottom-[60%]"
+            )}
+            style={
+              notice && options.hideBubble
+                ? undefined
+                : { [mirror ? "left" : "right"]: 0 }
+            }
+          >
+            <div className="flex items-start justify-between gap-2">
+              <strong>
+                {notice ? whaleEventLabel(notice.kind, label) : accountTitle}
+              </strong>
+              <button
+                type="button"
+                aria-label={label("关闭泡泡", "Close bubble")}
+                onClick={() => (notice ? dismiss() : setBubbleIndex(-1))}
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            {notice ? (
+              options.events?.[notice.kind]?.bubble?.length ? (
+                <WhaleBubbleContent
+                  rows={options.events[notice.kind]!.bubble!}
+                  options={options}
+                  values={{
+                    ...values,
+                    ...notice.values,
+                    session: notice.values.session ?? values.session,
+                    cost: notice.values.cost ?? "—",
+                  }}
+                />
+              ) : (
+                <div>
+                  {notice.kind === "complete"
+                    ? [
+                        notice.values.session,
+                        notice.values.tokens &&
+                          `${notice.values.tokens} tokens`,
+                        notice.values.cost,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")
+                    : notice.kind === "low"
+                      ? balanceText
+                      : notice.kind === "budget"
+                        ? values.today
+                        : (notice.values.session ?? values.session)}
+                </div>
+              )
+            ) : (
+              customRows && (
+                <WhaleBubbleContent
+                  rows={customRows}
+                  options={options}
+                  values={values}
+                  revision={bubbleRevision}
+                />
+              )
+            )}
+            {!notice && (options.sequence?.length ?? 0) > 1 && (
+              <button
+                type="button"
+                className="justify-self-end text-xs underline"
+                onClick={() => moveBubble(bubbleIndex + 1)}
+              >
+                {label("下一项", "Next")}
+              </button>
+            )}
+            {notice?.conversationId &&
+              activeSessions?.sessions.some(
+                (item) => item.conversationId === notice.conversationId
+              ) && (
+                <button
+                  type="button"
+                  className="justify-self-end text-xs underline"
+                  onClick={() => {
+                    const session = activeSessions.sessions.find(
+                      (item) => item.conversationId === notice.conversationId
+                    )
+                    if (session)
+                      openTab(
+                        session.folderId,
+                        session.conversationId,
+                        session.agentType,
+                        false,
+                        session.title
+                      )
+                    dismiss()
+                  }}
+                >
+                  {label("打开对话", "Open conversation")}
+                </button>
+              )}
+          </div>
+        )}
+        {(!options.hideMenu || menuOpen) && (
+          <button
+            type="button"
+            aria-label={t("menuAria")}
+            aria-expanded={menuOpen}
+            title={t("menuAria")}
+            onClick={(event) => {
+              event.stopPropagation()
+              setMenuOpen((previous) => !previous)
+            }}
+            className="absolute flex h-6 w-6 items-center justify-center rounded-md text-white shadow-md transition-colors"
+            style={{
+              top: "30%",
+              [mirror ? "left" : "right"]: 0,
+              background: "rgba(32,49,112,0.85)",
+            }}
+          >
+            {menuOpen ? (
+              <X className="size-3.5" />
+            ) : (
+              <MenuIcon className="size-3.5" />
+            )}
+          </button>
+        )}
 
         {menuOpen && (
           <div
             data-testid="whale-balance-menu"
             role="menu"
-            className="absolute z-50 w-56 rounded-xl p-3 text-[11px] text-white shadow-xl"
+            className="absolute z-50 max-h-[calc(100dvh-4rem)] w-56 overflow-y-auto rounded-xl p-3 text-[11px] text-white shadow-xl"
             style={{
-              bottom: "calc(100% + 6px)",
+              ...(position.y === null
+                ? { bottom: "calc(100% + 6px)" }
+                : { top: 0 }),
               [mirror ? "left" : "right"]: 0,
               background: "rgba(32,49,112,0.96)",
             }}
@@ -890,6 +1106,28 @@ export function WhaleBalanceWidget() {
               </button>
             </div>
 
+            {loaded && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false)
+                  setDialog("options")
+                }}
+                className="mt-1 w-full rounded-md bg-white/15 py-1 hover:bg-white/25"
+              >
+                {label("挂件设置", "Widget settings")}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false)
+                setDialog("usage")
+              }}
+              className="mt-1 w-full rounded-md bg-white/15 py-1 hover:bg-white/25"
+            >
+              {label("小鲸鱼记账", "Usage records")}
+            </button>
             <button
               type="button"
               onClick={(event) => {
@@ -904,6 +1142,19 @@ export function WhaleBalanceWidget() {
           </div>
         )}
       </div>
+      {dialog === "options" && (
+        <WhaleOptionsDialog
+          key={activeModelId}
+          options={options}
+          onSave={save}
+          onClose={() => setDialog(null)}
+          modelId={activeModelId}
+          balanceLabel={snapshot.accountName || activeModelId}
+        />
+      )}
+      {dialog === "usage" && (
+        <WhaleUsageDialog snapshot={snapshot} onClose={() => setDialog(null)} />
+      )}
     </div>
   )
 }

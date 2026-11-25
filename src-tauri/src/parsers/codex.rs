@@ -382,7 +382,7 @@ impl CodexParser {
     /// records the switch in its SQLite state; codeg reads only the rollouts, so
     /// this is codex's own rule for when that state is unavailable: the newest
     /// file.
-    fn find_current_rollout(&self, thread_id: &str) -> Option<PathBuf> {
+    pub(crate) fn find_current_rollout(&self, thread_id: &str) -> Option<PathBuf> {
         // 活动指针是原生会话的提交点；尚未发布的新文件不能仅凭文件名抢占历史。
         if let Some(home) = self.base_dir.parent() {
             if let Ok(connection) = rusqlite::Connection::open_with_flags(

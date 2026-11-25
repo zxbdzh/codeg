@@ -18,6 +18,8 @@ const CONFIG_KV_KEY: &str = "whale_balance.config";
 const SNAPSHOT_KV_KEY: &str = "whale_balance.snapshot";
 const LEDGER_KV_KEY: &str = "whale_balance.ledger";
 const PRESENTATION_KV_KEY: &str = "whale_balance.presentation";
+const WIDGET_OPTIONS_KV_KEY: &str = "whale_widget.options.v1";
+const MAX_WIDGET_OPTIONS_BYTES: usize = 1_500_000;
 
 pub const WHALE_BALANCE_DASHBOARD_EVENT: &str = "whale://dashboard-updated";
 pub const WHALE_BALANCE_PRESENTATION_EVENT: &str = "whale://presentation-updated";
@@ -557,6 +559,34 @@ impl WhaleBalanceService {
         self.ensure_loaded().await?;
         let guard = self.inner.read().await;
         Ok(settings_view(&guard.config))
+    }
+
+    pub async fn get_widget_options(&self) -> Result<serde_json::Value, AppCommandError> {
+        let raw = app_metadata_service::get_value(&self.db, WIDGET_OPTIONS_KV_KEY)
+            .await
+            .map_err(AppCommandError::db)?;
+        match raw {
+            Some(raw) => serde_json::from_str(&raw).map_err(|error| {
+                AppCommandError::io_error(format!("Stored whale widget options are invalid: {error}"))
+            }),
+            None => Ok(serde_json::json!({})),
+        }
+    }
+
+    pub async fn save_widget_options(
+        &self,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, AppCommandError> {
+        let encoded = serialize(&input, "whale widget options")?;
+        if !input.is_object() || encoded.len() > MAX_WIDGET_OPTIONS_BYTES {
+            return Err(AppCommandError::invalid_input("挂件配置无效，或素材总量超过上限"));
+        }
+        app_metadata_service::upsert_value(&self.db, WIDGET_OPTIONS_KV_KEY, &encoded)
+            .await
+            .map_err(AppCommandError::db)?;
+        // 通知只发失效信号，不把图片和音频复制到所有事件队列里。
+        emit_event(&self.emitter, "whale://options-updated", ());
+        Ok(input)
     }
 
     pub async fn get_presentation(&self) -> Result<WhaleBalancePresentation, AppCommandError> {

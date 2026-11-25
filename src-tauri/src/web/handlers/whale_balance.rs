@@ -105,3 +105,34 @@ pub async fn whale_balance_save_presentation(
     .await?;
     Ok(Json(presentation))
 }
+
+pub async fn whale_widget_get_options(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, AppCommandError> {
+    state.whale_balance.get_widget_options().await.map(Json)
+}
+
+#[derive(Deserialize)]
+pub struct WhaleWidgetOptionsParams {
+    input: serde_json::Value,
+}
+
+pub async fn whale_widget_save_options(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<WhaleWidgetOptionsParams>,
+) -> Result<Json<serde_json::Value>, AppCommandError> {
+    state.whale_balance.save_widget_options(params.input).await.map(Json)
+}
+
+#[derive(Deserialize)]
+pub struct WhaleWidgetCodexUsageParams {
+    input: whale_commands::WhaleWidgetCodexUsageInput,
+}
+
+pub async fn whale_widget_codex_usage(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<WhaleWidgetCodexUsageParams>,
+) -> Result<Json<whale_commands::WhaleWidgetCodexUsage>, AppCommandError> {
+    let usage = whale_commands::whale_widget_codex_usage_core(&state.db.conn, params.input).await?;
+    Ok(Json(usage))
+}

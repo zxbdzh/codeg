@@ -3,13 +3,76 @@ use std::sync::Arc;
 use axum::{routing::get, Json, Router};
 use axum_test::TestServer;
 use codeg_lib::app_state::AppState;
+use codeg_lib::db::entities::agent_setting;
 use codeg_lib::db::test_helpers::fresh_in_memory_db;
 use codeg_lib::web::router::build_router;
 use codeg_lib::web::shutdown::ShutdownSignal;
+use sea_orm::{ActiveModelTrait, Set};
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 
 const TOKEN: &str = "whale-balance-test-token";
+
+#[tokio::test]
+async fn whale_widget_options_are_authenticated_and_independent() {
+    let root = tempfile::tempdir().unwrap();
+    let db = fresh_in_memory_db().await;
+    // 用量接口会按 CODEX_HOME 扫描会话；测试固定到空目录，避免读真实历史。
+    let codex_home = tempfile::tempdir().unwrap();
+    let now = chrono::Utc::now();
+    agent_setting::ActiveModel {
+        id: sea_orm::NotSet,
+        agent_type: Set(serde_json::to_string(&codeg_lib::models::AgentType::Codex).unwrap()),
+        registry_id: Set("codex".to_string()),
+        enabled: Set(true),
+        sort_order: Set(0),
+        installed_version: Set(None),
+        env_json: Set(Some(
+            json!({ "CODEX_HOME": codex_home.path() }).to_string(),
+        )),
+        model_provider_id: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+    }
+    .insert(&db.conn)
+    .await
+    .expect("insert codex agent setting");
+    let state = Arc::new(AppState::new_for_test(db, root.path().to_path_buf()));
+    let server = TestServer::new(build_router(
+        state,
+        TOKEN.to_string(),
+        root.path().to_path_buf(),
+        Arc::new(ShutdownSignal::new()),
+    ))
+    .unwrap();
+    let auth = format!("Bearer {TOKEN}");
+    let get = "/api/whale_widget_get_options";
+    let save = "/api/whale_widget_save_options";
+    assert_eq!(server.post(get).await.status_code(), 401);
+    assert_eq!(server.post(save).json(&json!({"input": {}})).await.status_code(), 401);
+    let initial: Value = server.post(get).add_header("authorization", &auth).await.json();
+    assert_eq!(initial, json!({}));
+    let options = json!({"hideMenu": true, "alerts": {"default": {"budget": 5}}});
+    let saved: Value = server.post(save).add_header("authorization", &auth)
+        .json(&json!({"input": options})).await.json();
+    assert_eq!(saved, options);
+    let loaded: Value = server.post(get).add_header("authorization", &auth).await.json();
+    assert_eq!(loaded, options);
+    let presentation: Value = server.post("/api/whale_balance_get_presentation")
+        .add_header("authorization", &auth).await.json();
+    assert_eq!(presentation["widgetSize"], 44);
+    let invalid = server.post(save).add_header("authorization", &auth)
+        .json(&json!({"input": []})).await;
+    assert_eq!(invalid.status_code(), 400);
+
+    let usage = server.post("/api/whale_widget_codex_usage")
+        .add_header("authorization", &auth)
+        .json(&json!({"input": {"models": []}})).await;
+    assert_eq!(usage.status_code(), 200);
+    let usage: Value = usage.json();
+    assert_eq!(usage["tokens"], 0);
+    assert_eq!(usage["windows"], json!([]));
+}
 
 #[tokio::test]
 async fn whale_balance_web_routes_require_auth_and_hide_api_key() {
