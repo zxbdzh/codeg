@@ -3860,7 +3860,7 @@ mod tests {
         handle_event(&db.conn, &mgr, &EventEnvelope {
             seq: 1, connection_id: "owner".into(),
             payload: AcpEvent::NativeSessionTitle { title: "迟到的同伴标题".into() },
-        }, None).await.unwrap();
+        }, None, None).await.unwrap();
 
         let stored = conversation_service::get_by_id(&db.conn, conv.id).await.unwrap();
         assert_eq!(stored.title.as_deref(), Some("Codeg 已生成的标题"));

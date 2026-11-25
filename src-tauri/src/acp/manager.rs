@@ -896,8 +896,8 @@ impl ConnectionManager {
             state: Arc::new(tokio::sync::RwLock::new(state)),
             emitter,
             prompt_lock: Arc::new(tokio::sync::Mutex::new(())),
-            config_fingerprint: None,
-            last_observed_fingerprint: None,
+            config_fingerprint: String::new(),
+            last_observed_fingerprint: String::new(),
             child_pid: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         };
         let mut map = self.connections.lock().await;
@@ -939,8 +939,8 @@ impl ConnectionManager {
             state: Arc::new(tokio::sync::RwLock::new(state)),
             emitter,
             prompt_lock: Arc::new(tokio::sync::Mutex::new(())),
-            config_fingerprint: None,
-            last_observed_fingerprint: None,
+            config_fingerprint: String::new(),
+            last_observed_fingerprint: String::new(),
             child_pid: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         };
         self.connections.lock().await.insert(id.to_string(), conn);
@@ -6210,8 +6210,8 @@ mod tests {
             state: Arc::new(RwLock::new(state)),
             emitter: EventEmitter::Noop,
             prompt_lock: Arc::new(tokio::sync::Mutex::new(())),
-            config_fingerprint: None,
-            last_observed_fingerprint: None,
+            config_fingerprint: String::new(),
+            last_observed_fingerprint: String::new(),
             child_pid: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         }
     }
@@ -6800,8 +6800,8 @@ mod tests {
             state: Arc::new(RwLock::new(state)),
             emitter: EventEmitter::Noop,
             prompt_lock: Arc::new(tokio::sync::Mutex::new(())),
-            config_fingerprint: None,
-            last_observed_fingerprint: None,
+            config_fingerprint: String::new(),
+            last_observed_fingerprint: String::new(),
             child_pid: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         };
         mgr.connections
@@ -7977,8 +7977,8 @@ mod tests {
             state: Arc::new(RwLock::new(state)),
             emitter: EventEmitter::Noop,
             prompt_lock: Arc::new(tokio::sync::Mutex::new(())),
-            config_fingerprint: None,
-            last_observed_fingerprint: None,
+            config_fingerprint: String::new(),
+            last_observed_fingerprint: String::new(),
             child_pid: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         };
         let mgr = ConnectionManager::new();
@@ -9814,8 +9814,8 @@ mod tests {
             state: Arc::new(RwLock::new(state)),
             emitter: EventEmitter::Noop,
             prompt_lock: Arc::new(tokio::sync::Mutex::new(())),
-            config_fingerprint: None,
-            last_observed_fingerprint: None,
+            config_fingerprint: String::new(),
+            last_observed_fingerprint: String::new(),
             child_pid: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         };
         let mgr = Arc::new(ConnectionManager::new());
@@ -10628,8 +10628,8 @@ mod tests {
             state: Arc::new(RwLock::new(state)),
             emitter: EventEmitter::Noop,
             prompt_lock: Arc::new(tokio::sync::Mutex::new(())),
-            config_fingerprint: None,
-            last_observed_fingerprint: None,
+            config_fingerprint: String::new(),
+            last_observed_fingerprint: String::new(),
             child_pid: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         };
         let mgr = ConnectionManager::new();
