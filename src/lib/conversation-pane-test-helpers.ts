@@ -15,6 +15,7 @@ export function makePaneTestConnection(
       embedded_context: false,
     },
     supportsFork: false,
+    supportsRewind: false,
     selectorsReady: false,
     sessionId: null,
     modes: null,
