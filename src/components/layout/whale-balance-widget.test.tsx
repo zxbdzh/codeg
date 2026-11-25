@@ -1,6 +1,14 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { NextIntlClientProvider } from "next-intl"
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 // jsdom 默认未实现 PointerEvent，测试中轻量补齐坐标与 pointerId 字段。
 beforeAll(() => {
@@ -78,6 +86,10 @@ describe("WhaleBalanceWidget", () => {
     mobileState.current = false
     subscribedHandler.fn = null
     window.localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it("renders nothing when disabled", async () => {
@@ -391,5 +403,56 @@ describe("WhaleBalanceWidget", () => {
       expect(row).not.toHaveStyle({ textOverflow: "ellipsis" })
       expect(row).not.toHaveStyle({ overflow: "hidden" })
     }
+  })
+
+  it("automatically refreshes every 30 seconds and clears the interval", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] })
+    vi.mocked(getWhaleBalanceState).mockResolvedValueOnce({
+      configured: true,
+      enabled: true,
+      accountName: "lk888",
+      balance: 1,
+      used: null,
+      lastSuccessAt: null,
+      lastAttemptAt: null,
+      lastError: null,
+      stale: false,
+      refreshing: false,
+      accountGeneration: 1,
+    })
+    vi.mocked(refreshWhaleBalance).mockResolvedValue({
+      configured: true,
+      enabled: true,
+      accountName: "lk888",
+      balance: 2,
+      used: null,
+      lastSuccessAt: null,
+      lastAttemptAt: null,
+      lastError: null,
+      stale: false,
+      refreshing: false,
+      accountGeneration: 1,
+    })
+
+    const { unmount } = renderWidget()
+    const summary = await screen.findByTestId("whale-balance-summary")
+    expect(summary).toHaveTextContent("1.00")
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29_999)
+    })
+    expect(refreshWhaleBalance).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(refreshWhaleBalance).toHaveBeenCalledTimes(1)
+    expect(summary).toHaveTextContent("2.00")
+
+    unmount()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000)
+    })
+    expect(refreshWhaleBalance).toHaveBeenCalledTimes(1)
   })
 })

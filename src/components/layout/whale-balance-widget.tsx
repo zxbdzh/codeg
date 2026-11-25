@@ -45,6 +45,7 @@ const AVATAR_SIZE = 44
 const MIN_AVATAR_SIZE = 32
 const MAX_AVATAR_SIZE = 96
 const DRAG_THRESHOLD_PX = 5
+const BALANCE_REFRESH_INTERVAL_MS = 30_000
 
 interface WidgetPosition {
   x: number
@@ -234,6 +235,7 @@ export function WhaleBalanceWidget() {
   } | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const suppressNextClickRef = useRef(false)
+  const refreshInProgressRef = useRef(false)
 
   const expanded = isMobile ? expandedByMode.mobile : expandedByMode.desktop
   const toggleExpanded = useCallback(() => {
@@ -467,15 +469,28 @@ export function WhaleBalanceWidget() {
   }, [toggleExpanded])
 
   const handleRefresh = useCallback(async () => {
+    if (refreshInProgressRef.current) return
+    refreshInProgressRef.current = true
     setRefreshingLocal(true)
     try {
       const next = await refreshWhaleBalance()
       setSnapshot(next)
     } catch {
     } finally {
+      refreshInProgressRef.current = false
       setRefreshingLocal(false)
     }
   }, [])
+
+  useEffect(() => {
+    if (!snapshot?.enabled || !snapshot.configured) return
+    // 仅在余额已启用且账户已配置时轮询，避免无效请求。
+    const interval = window.setInterval(
+      () => void handleRefresh(),
+      BALANCE_REFRESH_INTERVAL_MS
+    )
+    return () => window.clearInterval(interval)
+  }, [handleRefresh, snapshot?.configured, snapshot?.enabled])
 
   const handleOpenSettings = useCallback(() => {
     setMenuOpen(false)
