@@ -112,6 +112,29 @@ describe("browser tab persistence", () => {
     expect(readPersistedBrowserTabs("main")).toEqual([])
   })
 
+  it("restores saved pages with legacy Ego metadata as built-in browser tabs", () => {
+    const page: PersistedBrowserTab = {
+      url: "https://example.com/previous-page",
+      title: "Previous page",
+      folderId: 2,
+      profile: "p-work",
+    }
+    const saved = JSON.stringify({
+      version: BROWSER_TABS_STORAGE_VERSION,
+      tabs: [
+        {
+          ...page,
+          viewId: "browser:00000000-0000-4000-8000-000000000001",
+          conversationId: 7,
+        },
+      ],
+    })
+    localStorage.setItem(KEY, saved)
+
+    expect(readPersistedBrowserTabs("main")).toEqual([page])
+    expect(localStorage.getItem(KEY)).toBe(saved)
+  })
+
   // A stored list is user data from a previous run: it must never throw, and
   // one bad entry must not lose the good ones.
   it("drops unusable entries instead of the whole list", () => {

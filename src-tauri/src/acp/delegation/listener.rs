@@ -28,8 +28,8 @@ use crate::acp::computer_tools::{
 use crate::acp::delegation::transport::{
     read_frame, write_frame, BrokerAskRequest, BrokerBrowserActRequest,
     BrokerBrowserCaptureRequest, BrokerBrowserConsoleRequest, BrokerBrowserEvalRequest,
-    BrokerBrowserSnapshotRequest, BrokerBrowserTabOpRequest, BrokerBrowserTabsRequest,
-    BrokerCancelRequest, BrokerCancelTaskRequest, BrokerComputerActRequest,
+    BrokerBrowserEgoImportRequest, BrokerBrowserSnapshotRequest, BrokerBrowserTabOpRequest,
+    BrokerBrowserTabsRequest, BrokerCancelRequest, BrokerCancelTaskRequest, BrokerComputerActRequest,
     BrokerComputerAppsRequest, BrokerComputerCaptureRequest, BrokerComputerLaunchRequest,
     BrokerComputerSnapshotRequest,
     BrokerComputerVerifyRequest, BrokerComputerWindowsRequest, BrokerCommitFeedbackRequest,
@@ -52,6 +52,7 @@ use crate::acp::chat_authoring::{AuthoringContext, AuthoringOutcome, ChatAuthori
 use crate::acp::result_tool::ResultToolAccess;
 use crate::acp::session_info::{SessionInfo, SessionInfoAccess};
 use crate::acp::work_task_tools::{TaskReportAck, WorkTaskToolAccess};
+use crate::browser::session_import::EgoImportOutcome;
 use serde_json::Value;
 
 /// Hard ceiling on a *positive* `get_delegation_status` long-poll, so a single
@@ -650,6 +651,10 @@ impl DelegationListener {
                 // SessionInfo: it cannot block on anything.
                 browser_tabs_response(self.process_browser_tabs(req).await)?
             }
+            BrokerMessage::BrowserEgoImport(req) => {
+                // 本地恢复一旦开始须完成或回滚；MCP 断开不能把写入停在半途。
+                browser_ego_import_response(self.process_browser_ego_import(req).await)?
+            }
             BrokerMessage::BrowserSnapshot(req) => {
                 // This one CAN take a moment — it evaluates in the page's
                 // isolated world and waits for the answer — but it is bounded
@@ -969,6 +974,23 @@ impl DelegationListener {
             return BrowserTabsOutcome::default();
         }
         self.browser.list_tabs().await
+    }
+
+    /// 先校验本次启动令牌，再允许生产实现访问 Ego 或浏览器标签。
+    async fn process_browser_ego_import(
+        &self,
+        req: BrokerBrowserEgoImportRequest,
+    ) -> EgoImportOutcome {
+        if self.tokens.lookup(&req.token).await.is_none() {
+            return EgoImportOutcome::refused(
+                &req.tab_id,
+                ERROR_NO_SUCH_TAB,
+                format!("No browser tab {} is open.", req.tab_id),
+            );
+        }
+        self.browser
+            .import_ego_session(&req.tab_id, &req.reason)
+            .await
     }
 
     /// Validate the token and read one shared page.
@@ -1482,6 +1504,14 @@ fn browser_tabs_response(outcome: BrowserTabsOutcome) -> std::io::Result<BrokerR
     })
 }
 
+fn browser_ego_import_response(outcome: EgoImportOutcome) -> std::io::Result<BrokerResponse> {
+    Ok(BrokerResponse {
+        outcome: serde_json::to_value(&outcome).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {e}"))
+        })?,
+    })
+}
+
 /// Serialize a [`BrowserSnapshotOutcome`] into a [`BrokerResponse`] for the
 /// `BrowserSnapshot` arm — the companion renders it into the `browser_snapshot`
 /// tool result.
@@ -1983,6 +2013,25 @@ mod tests {
                     level: crate::browser::agent::GrantLevel::Read,
                     title: Some("Example".into()),
                 }],
+                note: None,
+            }
+        }
+        async fn import_ego_session(
+            &self,
+            tab_id: &str,
+            reason: &str,
+        ) -> EgoImportOutcome {
+            self.calls
+                .lock()
+                .await
+                .push(format!("ego_import {tab_id} {reason}"));
+            EgoImportOutcome {
+                tab_id: tab_id.to_string(),
+                status: "imported".into(),
+                cookies_imported: 2,
+                storage_imported: 1,
+                skipped_expired: 0,
+                error: None,
                 note: None,
             }
         }
@@ -3728,6 +3777,43 @@ mod tests {
         assert_eq!(
             browser.calls.lock().await.as_slice(),
             &["list".to_string(), "snapshot t9 Some(1234)".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn ego_import_checks_the_token_and_returns_only_counts() {
+        let browser = Arc::new(StubBrowser::default());
+        let listener = make_browser_listener(browser_tokens().await, browser.clone());
+        let imported = browser_round_trip(
+            listener.clone(),
+            BrokerMessage::BrowserEgoImport(BrokerBrowserEgoImportRequest {
+                token: "tok".into(),
+                tab_id: "t9".into(),
+                reason: "Need access to the dashboard".into(),
+            }),
+        )
+        .await;
+        assert_eq!(imported.outcome["status"], "imported");
+        assert_eq!(imported.outcome["tabId"], "t9");
+        assert_eq!(imported.outcome["cookiesImported"], 2);
+        assert_eq!(imported.outcome["storageImported"], 1);
+        assert!(imported.outcome.get("cookieValues").is_none());
+        assert!(imported.outcome.get("storageValues").is_none());
+
+        let refused = browser_round_trip(
+            listener,
+            BrokerMessage::BrowserEgoImport(BrokerBrowserEgoImportRequest {
+                token: "not-a-token".into(),
+                tab_id: "t9".into(),
+                reason: "Need access".into(),
+            }),
+        )
+        .await;
+        assert_eq!(refused.outcome["status"], "refused");
+        assert_eq!(refused.outcome["error"], ERROR_NO_SUCH_TAB);
+        assert_eq!(
+            browser.calls.lock().await.as_slice(),
+            &["ego_import t9 Need access to the dashboard".to_string()]
         );
     }
 

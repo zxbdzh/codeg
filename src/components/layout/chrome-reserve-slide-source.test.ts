@@ -82,9 +82,13 @@ describe("corner reserve slide", () => {
     expect(layout).toContain(
       'const conversationFillsArea = mode === "conversation" || conversationMaximized'
     )
-    expect(layout).toContain("const convHoldsRight = conversationFillsArea")
+    expect(layout).toContain(
+      "const convHoldsRight = conversationFillsArea || conversationFocused"
+    )
     expect(layout).toContain('const fileHoldsRight = mode === "fusion"')
-    expect(layout).toContain("const fileHoldsLeft = filesMaximized")
+    expect(layout).toContain(
+      "const fileHoldsLeft = filesMaximized || fileFocused"
+    )
 
     // Every conditionally mounted reserve, whatever its guard looks like — so a
     // reserve mounted on sidebar/aux state again shows up here.
@@ -110,11 +114,74 @@ describe("corner reserve slide", () => {
     expect(start).toBeGreaterThan(-1)
     const body = panel.slice(start, panel.indexOf("\n}\n", start))
     expect(body).toContain(
-      'const holdsRight = mode === "conversation" || conversationMaximized'
+      "const { mode, conversationMaximized, focusedTabPane } = useWorkspaceView()"
+    )
+    expect(body).not.toContain("if (focusedTabId !== null) return null")
+    expect(body).toContain('focusedTabPane === "conversation"')
+    expect(body).toMatch(
+      /const holdsRight =\s*mode === "conversation" \|\|\s*conversationMaximized \|\|\s*focusedTabPane === "conversation"/
     )
     expect(body).toContain('if (side === "right" && !holdsRight) return null')
     expect(body).not.toContain("width <= 0")
     expect(body).toMatch(/:\s*auxOpen\s*\?\s*0\s*:\s*rightChromeReserve\(/)
     expect(body).toContain("return <ChromeReserve width={width} />")
+  })
+
+  // 文件标签原地聚焦要像文件列最大化一样覆盖整个工作区；只隐藏会话列会
+  // 留下左侧空白，视觉上像一列窄文件编辑器飘在右边。
+  it("covers the workspace when a file tab is focused", () => {
+    expect(layout).toMatch(
+      /fileFocused &&\s*"absolute inset-0 z-30 w-full bg-background ws-transparent-bg/
+    )
+    expect(layout).toContain(
+      'filesMaximized || fileFocused ? "absolute" : "relative"'
+    )
+  })
+
+  // 单标签聚焦只改变中间内容列；左右侧栏、辅助面板、状态栏和窗口 chrome
+  // 继续保留，用户可以在聚焦会话时切换项目或打开旁问。
+  it("keeps the surrounding workspace chrome visible while focused", () => {
+    expect(layout).toContain("const focusActive = focusedTabId !== null")
+    expect(layout).toContain("const sidebarOpen = baseSidebarOpen")
+    expect(layout).toContain("const auxOpen = auxOpenRequested")
+    expect(layout).toContain("const terminalOpen = terminalOpenRequested")
+    expect(layout).toContain("<StatusBar />")
+    expect(layout).toContain("{!isMobile && (")
+    expect(layout).not.toContain("FocusHideSurface")
+    expect(layout).toMatch(/const leftReserve = leftChromeReserve\(/)
+    expect(layout).toMatch(/const rightReserve = rightChromeReserve\(/)
+  })
+
+  // 顶层灵动岛只占顶部 40px，并始终按窗口 chrome 的较大预留居中；否则
+  // 本地拖动版会把安全区放大到整窗，胶囊可压住右上角的终端/设置按钮。
+  it("keeps the desktop pane switcher inside the top chrome safe area", () => {
+    expect(layout).toContain(
+      "const paneSwitcherInset = Math.max(\n    leftChromeReserve(isMac && isDesktop(), zoomLevel),\n    rightChromeReserve(winLinuxControls, zoomLevel)\n  )"
+    )
+    expect(layout).toContain(
+      'className="pointer-events-none absolute top-0 z-40 h-10"'
+    )
+  })
+
+  // 只把内容 section 设成 absolute 时，ResizablePanelGroup 仍保留 56/44 的
+  // 列宽；标签条和退出按钮会停在旧列右缘。聚焦期间要同步把面板组改为
+  // 100/0 或 0/100，退出后用原 fusion 比例恢复。
+  it("fills the panel group while a tab is focused", () => {
+    expect(layout).toContain(
+      'const conversationFocused = focusedTabPane === "conversation"'
+    )
+    expect(layout).toContain('const fileFocused = focusedTabPane === "files"')
+    expect(layout).toContain("conversationFillsArea || conversationFocused")
+    expect(layout).toContain("filesMaximized || fileFocused")
+  })
+
+  // 外层 shell 用固定 px 锁定侧栏/辅助面板宽度；聚焦时只重排中间内容，
+  // 不能把两侧面板压成 0，否则用户会失去导航和旁问入口。
+  it("keeps outer shell side panels while focused", () => {
+    expect(layout).toContain("const requestedLeft = sidebarOpen")
+    expect(layout).toContain("const requestedRight = auxOpen")
+    expect(layout).not.toContain(
+      "return { left: 0, right: 0, totalWidth: shellPanelsWidth }"
+    )
   })
 })

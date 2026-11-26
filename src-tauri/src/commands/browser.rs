@@ -1652,7 +1652,7 @@ async fn probe_listener(origin: &str) -> Option<agent::ProbedListener> {
 /// ordinary one for a tab with no grant, raised by the check that was already
 /// there. A second refusal path for this case would be a second place to keep
 /// the activity strip's accounting right.
-async fn revoke_if_listener_replaced(app: &AppHandle, registry: &BrowserRegistry, tab_id: &str) {
+pub(crate) async fn revoke_if_listener_replaced(app: &AppHandle, registry: &BrowserRegistry, tab_id: &str) {
     // Only a pinned grant has anything to check, and reading that costs a
     // lock rather than a process scan — so the common case (a real site, or
     // an unpinned loopback one) never reaches the probe at all.
@@ -3359,6 +3359,22 @@ impl crate::acp::browser_tools::BrowserToolAccess for McpBrowserTools {
             tabs: agent_list_tabs_core(&registry),
             note: None,
         }
+    }
+
+    async fn import_ego_session(
+        &self,
+        tab_id: &str,
+        reason: &str,
+    ) -> crate::browser::session_import::EgoImportOutcome {
+        use crate::acp::browser_tools::{ERROR_UNAVAILABLE, NO_BROWSER_NOTE};
+        if !self.config.is_enabled().await {
+            return crate::browser::session_import::EgoImportOutcome::refused(
+                tab_id,
+                ERROR_UNAVAILABLE,
+                NO_BROWSER_NOTE,
+            );
+        }
+        crate::commands::browser_ego_import::import_for_agent(&self.app, tab_id, reason).await
     }
 
     async fn snapshot(

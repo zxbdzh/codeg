@@ -64,7 +64,8 @@
       "browser": "ブラウザ操作",
       "computer_use": "コンピューター操作",
       "quick_messages": "クイックメッセージ",
-      "logs": "実行ログ"
+      "logs": "実行ログ",
+      "prompt_stash": "入力スタッシュ"
     }
   },
   "AppearanceSettings": {
@@ -551,6 +552,10 @@
       "newline_in_message": {
         "title": "メッセージ内で改行",
         "description": "入力欄で改行を挿入する"
+      },
+      "prompt_stash": {
+        "title": "Collect or restore prompt",
+        "description": "Collect nonempty input, or restore a template into empty input"
       },
       "toggle_custom_style": {
         "title": "カスタムスタイルの停止/再開",
@@ -2687,6 +2692,13 @@
       "closeWindow": "ウィンドウを閉じる",
       "close": "閉じる"
     },
+    "mobileTabs": {
+      "title": "開いているタブ",
+      "open": "タブを切り替える（{count}）",
+      "conversations": "会話",
+      "files": "ファイルとプレビュー",
+      "empty": "開いているタブはありません"
+    },
     "tabs": {
       "closeConversationTab": "会話タブを閉じる",
       "close": "閉じる",
@@ -2703,6 +2715,8 @@
       "unsplitAll": "すべての分割を解除",
       "closeAll": "すべて閉じる",
       "tileDisplay": "タイル表示",
+      "focusTab": "タブにフォーカス",
+      "exitFocus": "フォーカスを解除",
       "untileDisplay": "タイル解除"
     },
     "fileWorkspace": {
@@ -2723,7 +2737,9 @@
       "more": "その他",
       "maximize": "最大化",
       "restore": "元に戻す",
-      "emptyDirectory": "空のフォルダー"
+      "emptyDirectory": "空のフォルダー",
+      "focusTab": "タブにフォーカス",
+      "exitFocus": "フォーカスを解除"
     },
     "terminal": {
       "rename": "名前を変更",
@@ -4596,6 +4612,25 @@
       "commandFailed": "プロジェクト作成コマンドが失敗しました。"
     }
   },
+  "WebAppInstall": {
+    "title": "Codegをインストール",
+    "description": "ホーム画面やデスクトップから独立したウィンドウで開きます。",
+    "install": "アプリをインストール",
+    "installing": "ブラウザの確認待ち…",
+    "standalone": "アプリモードで実行中",
+    "installed": "インストール済みです。ホーム画面やアプリ一覧からCodegを開けます。",
+    "accepted": "ブラウザでインストールを完了し、ホーム画面やアプリ一覧からCodegを開いてください。",
+    "httpHint": "現在はHTTP接続です。ブラウザのメニューからホーム画面への追加やショートカットの作成をお試しください。ページ内からのインストールとオフラインキャッシュには通常HTTPSが必要です。起動方法はブラウザによって異なります。",
+    "androidMenu": "ブラウザのメニュー（⋮ または ≡）を開きます。",
+    "androidAdd": "「ホーム画面に追加」「端末に追加」または「インストールとショートカットの作成」を選びます。",
+    "androidConfirm": "ブラウザの案内に従って確認します。「ショートカットを作成」のみ表示される場合も、ホーム画面からCodegを開けます。",
+    "iosOpen": "このページをSafariで開きます。",
+    "iosShare": "共有メニューから「ホーム画面に追加」を選びます。",
+    "iosAdd": "「Webアプリとして開く」が表示されたらオンにして、「追加」をタップします。",
+    "browserMenu": "ブラウザのメニューで「アプリをインストール」または「ホーム画面に追加」を探してください。見つからない場合は、ChromeやEdgeなど対応ブラウザをお試しください。",
+    "failed": "インストール画面を開けませんでした。ブラウザのインストールメニューを使うか、ページを再読み込みしてください。",
+    "connection": "会話やタスクにはオンラインのPCまたはサーバーへの接続が必要です。インストールしてもエージェントやプロジェクトファイルはスマートフォンに移動しません。"
+  },
   "WebServiceSettings": {
     "addressSwitchHint": "切り替えても、ここに表示され開くアドレスが変わるだけです。サービスはすべてのインターフェースで待ち受けており、どのアドレスからもアクセスできます。",
     "sectionTitle": "Webサービス",
@@ -5807,6 +5842,16 @@
     "toneDescend": "下降音"
   },
   "BrowserSettings": {
+    "egoImportTitle": "Ego からログイン状態をインポート",
+    "egoImportHint": "手動インポートに使う Ego プロファイルを選択します。AI によるインポートは有効にするまでオフです。",
+    "egoImportSource": "Ego のソースプロファイル",
+    "egoImportChooseSource": "Ego プロファイルを選択",
+    "egoImportMissingName": "利用できない Ego プロファイル",
+    "egoImportSourceMissing": "保存済みの Ego プロファイル「{name}」は利用できません。別のプロファイルを選択してください。",
+    "egoImportNoProfiles": "利用できる Ego プロファイルがありません。",
+    "egoImportAllowAgent": "AI にログイン状態のインポートを許可",
+    "egoImportAllowAgentHint": "必要に応じてエージェントがこのプロファイルからインポートできます。ページへのアクセス権は付与されません。",
+    "egoImportSaveFailed": "Ego インポート設定を読み込めないか保存できませんでした。",
     "title": "内蔵ブラウザ",
     "description": "会話、ツールの結果、ターミナルから開いたウェブページを、アプリを離れずにファイルの隣のタブとして表示できます。",
     "descriptionWeb": "ブラウザセッションでは、ウェブページは今使っているブラウザで開きます。例外は codeg ホストで動いているサーバーで、ここのタブに転送されます。以下は、その場合でも効く設定です。",
@@ -9911,6 +9956,46 @@
   },
   "Browser": {
     "toolbar": {
+      "importEgoLogin": "Ego からログイン状態をインポート",
+      "egoImportDesktopOnly": "デスクトップ版のみ",
+      "muteWebsite": "サイトをミュート",
+      "unmuteWebsite": "サイトのミュートを解除",
+      "showKeyboard": "キーボードを表示",
+      "hideKeyboard": "キーボードを隠す",
+      "remoteControls": "ブラウザーのタッチ操作",
+      "enterLandscape": "横向きデスクトップ",
+      "exitLandscape": "横向きを終了",
+      "trackpadMode": "トラックパッド",
+      "directTouch": "直接タッチ",
+      "leftClick": "左クリック",
+      "rightClick": "右クリック",
+      "dragPointer": "ドラッグ",
+      "specialKeys": "特殊キー",
+      "egoImportDialogTitle": "Ego からログイン状態をインポート",
+      "egoImportTarget": "{site} のログイン状態をブラウザプロファイル「{profile}」にインポートします。",
+      "egoImportSource": "Ego のソースプロファイル",
+      "egoImportChooseSource": "Ego プロファイルを選択",
+      "egoImportSourceMissing": "保存済みの Ego プロファイル「{name}」は利用できません。別のプロファイルを選択してください。",
+      "egoImportNoProfiles": "利用できる Ego プロファイルがありません。",
+      "egoImportLoading": "Ego プロファイルを読み込み中…",
+      "egoImportBoundSource": "Ego プロファイル: {name}",
+      "egoImportUnknownSite": "このページ",
+      "egoImportImport": "インポート",
+      "egoImportImporting": "インポート中…",
+      "egoImportCancel": "キャンセル",
+      "egoImportClose": "閉じる",
+      "egoImportResultImported": "Cookie {cookies} 件とサイトストレージ {storage} 件をインポートしました（期限切れ Cookie {skipped} 件をスキップ）。{site} にログインできているか確認してください。",
+      "egoImportResultUnchanged": "{site} のデータは変更されませんでした。ページでログイン状態を確認してください。",
+      "egoImportErrorUnavailable": "現在 Ego を利用できません。後でもう一度お試しください。",
+      "egoImportErrorSourceRequired": "続行するには Ego プロファイルを選択してください。",
+      "egoImportErrorSourceMissing": "選択した Ego プロファイルは利用できなくなりました。別のプロファイルを選択してください。",
+      "egoImportErrorDisabled": "設定で AI によるインポートがオフになっています。",
+      "egoImportErrorConflict": "このサイトの既存のログインデータは変更されていません。",
+      "egoImportErrorUnsupported": "このサイトのログイン状態はインポートできません。",
+      "egoImportErrorFailed": "ログイン状態をインポートできませんでした。",
+      "egoImportErrorGrant": "このページにはインポート権限がありません。",
+      "egoImportErrorTab": "このブラウザータブは利用できなくなりました。",
+      "egoImportErrorBlocked": "ブラウザー設定により、このサイトのインポートができません。",
       "back": "戻る",
       "forward": "進む",
       "reload": "再読み込み",
@@ -9992,6 +10077,9 @@
     "bridge": {
       "frameTitle": "開発サーバーのプレビュー",
       "opening": "サーバー経由で接続しています…",
+      "address": "プレビューアドレス",
+      "addressPlaceholder": "サイトまたは localhost:ポートを入力",
+      "blankHint": "サイトまたはローカルサービスのアドレスを入力して Enter を押してください",
       "reload": "再読み込み",
       "openExternal": "新しいタブで開く",
       "copyAddress": "アドレスをコピー",
@@ -10212,6 +10300,65 @@
         "probeFailed": "内蔵ブラウザーがトンネル経由でリモートホストに届くことを確認できませんでした。しばらくしてからもう一度お試しください。"
       }
     }
+  },
+  "PromptStashSettings": {
+    "title": "入力スタッシュ",
+    "description": "保存された入力テンプレートの一覧。旧バージョンの帰属不明の記録はここでのみ管理できます。",
+    "loading": "収藏を読み込み中",
+    "retry": "再試行",
+    "empty": "保存された収藏はありません。会話でインプットを保存するとここに表示されます。",
+    "noResults": "現在の検索とフィルターに一致する収藏がありません。",
+    "refresh": "更新",
+    "search": "プレビュー、会話、プロジェクトを検索",
+    "filter": "収藏をフィルター",
+    "clearFilters": "フィルターをクリア",
+    "clearSelection": "選択を解除",
+    "selectFiltered": "フィルター済みの収藏をすべて選択",
+    "deleteSelected": "選択した収藏を削除",
+    "deleting": "削除中…",
+    "unusedHint": "30日間未使用",
+    "unknownTime": "—",
+    "untitledConversation": "タイトルなしの会話",
+    "noProject": "プロジェクトなし",
+    "attachmentOnly": "（添付ファイルのみ）",
+    "legacySource": "旧バージョン",
+    "draftSource": "下書き",
+    "assetBytes": "{bytes}",
+    "selectEntry": "収藏を選択：{preview}",
+    "deleteEntry": "収藏を削除：{preview}",
+    "columns": {
+      "preview": "プレビュー",
+      "source": "ソース",
+      "status": "ステータス",
+      "savedAt": "保存日時",
+      "attachments": "添付",
+      "actions": "操作"
+    },
+    "statuses": {
+      "deleted": "削除済み会話",
+      "in_progress": "進行中",
+      "pending_review": "レビュー待ち",
+      "completed": "完了",
+      "cancelled": "キャンセル",
+      "none": "—"
+    },
+    "filters": {
+      "all": "すべて",
+      "completed": "完了",
+      "unused": "未使用（30日）",
+      "legacy": "旧バージョン",
+      "draft": "新会話下書き"
+    },
+    "confirmDelete": {
+      "title": "{count}件を削除しますか？",
+      "description": "選択した項目とその添付ファイルが完全に削除されます。",
+      "cancel": "キャンセル",
+      "confirm": "収藏を削除"
+    },
+    "deleteFailed": "一部のエントリの削除に失敗：{message}",
+    "results": "{visible} / {total}件",
+    "selected": "{count}件選択中",
+    "loadFailed": "テンプレートの読み込みに失敗：{message}"
   },
   "PersonalAgent": {
     "title": "パーソナルエージェント",
@@ -13286,5 +13433,49 @@
       "rateLimited": "SRN から、しばらく待ってから再試行するよう求められました。",
       "server": "SRN がエラーを返しました。"
     }
+  },
+  "ConversationPanes": {
+    "label": "Pane",
+    "create": "Pane を作成",
+    "rename": "名前を変更",
+    "remove": "Pane を削除",
+    "move": "Pane に移動",
+    "name": "Pane 名",
+    "save": "保存",
+    "cancel": "キャンセル",
+    "resetPosition": "Pane の位置をリセット",
+    "dragHint": "ドラッグして位置を変更",
+    "status": {
+      "running": "実行中",
+      "runningMany": "{count} 件実行中",
+      "waiting": "対応が必要",
+      "waitingMany": "{count} 件対応が必要",
+      "completed": "完了",
+      "completedMany": "{count} 件完了",
+      "error": "エラー",
+      "errorMany": "{count} 件のエラー"
+    },
+    "removeDraftTitle": "未送信の内容がある Pane を削除しますか？",
+    "removeDraftDescription": "この Pane の未送信内容は表示されなくなります。会話履歴は保持され、実行中のタスクは続行します。",
+    "empty": "この Pane に開いている会話はありません",
+    "emptyHint": "サイドバーから会話を開くか、新しい会話を開始してください。"
+  },
+  "PromptStash": {
+    "action": "Collect or restore prompt",
+    "title": "Prompt collection",
+    "loading": "Loading…",
+    "empty": "No collected prompts yet. Write a prompt and collect it first.",
+    "saved": "Prompt collected",
+    "failed": "Could not collect prompt",
+    "inputChanged": "Input changed; nothing was overwritten.",
+    "attachmentOnly": "Attachments",
+    "attachments": "{count} attachments",
+    "retry": "Retry",
+    "delete": "Delete",
+    "deleteTitle": "Delete this collected prompt?",
+    "deleteConfirm": "Delete",
+    "cancel": "Cancel",
+    "deleted": "Collected prompt deleted",
+    "deleteFailed": "Could not delete collected prompt"
   }
 }

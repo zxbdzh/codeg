@@ -26,6 +26,12 @@ vi.mock("@/lib/browser/browser-api", () => ({
   browserClose: api.browserClose,
   browserOpenTab: api.browserOpenTab,
 }))
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    scaleFactor: () => Promise.resolve(1),
+    onScaleChanged: () => Promise.resolve(() => {}),
+  }),
+}))
 vi.mock("@/contexts/workspace-context", () => ({
   useWorkspaceView: () => ({
     mode: "conversation",
@@ -168,6 +174,21 @@ describe("DocGuestPreview", () => {
   })
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it("fits the native HTML preview to its slot under Windows text scaling", async () => {
+    vi.stubGlobal("devicePixelRatio", 1.2)
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(100, 50, 800, 600)
+    )
+    renderPreview()
+    await flush()
+    expect(api.browserDocOpen).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bounds: { x: 120, y: 60, width: 960, height: 720 },
+      })
+    )
   })
 
   it("opens the file through a guest confined to the given root and titles it", async () => {

@@ -64,7 +64,8 @@
       "browser": "Uso del navegador",
       "computer_use": "Uso del ordenador",
       "quick_messages": "Mensajes rápidos",
-      "logs": "Registros de ejecución"
+      "logs": "Registros de ejecución",
+      "prompt_stash": "Entradas guardadas"
     }
   },
   "AppearanceSettings": {
@@ -551,6 +552,10 @@
       "newline_in_message": {
         "title": "Nueva línea en mensaje",
         "description": "Insertar una nueva línea en el cuadro de entrada"
+      },
+      "prompt_stash": {
+        "title": "Collect or restore prompt",
+        "description": "Collect nonempty input, or restore a template into empty input"
       },
       "toggle_custom_style": {
         "title": "Suspender/reanudar estilo personalizado",
@@ -2687,6 +2692,13 @@
       "closeWindow": "Cerrar ventana",
       "close": "Cerrar"
     },
+    "mobileTabs": {
+      "title": "Pestañas abiertas",
+      "open": "Cambiar de pestaña ({count})",
+      "conversations": "Conversaciones",
+      "files": "Archivos y vistas previas",
+      "empty": "No hay pestañas abiertas"
+    },
     "tabs": {
       "closeConversationTab": "Cerrar pestaña de conversación",
       "close": "Cerrar",
@@ -2703,6 +2715,8 @@
       "unsplitAll": "Deshacer todas las divisiones",
       "closeAll": "Cerrar todo",
       "tileDisplay": "Vista en mosaico",
+      "focusTab": "Enfocar pestaña",
+      "exitFocus": "Salir del enfoque",
       "untileDisplay": "Salir de mosaico"
     },
     "fileWorkspace": {
@@ -2723,7 +2737,9 @@
       "more": "Más",
       "maximize": "Maximizar",
       "restore": "Restaurar",
-      "emptyDirectory": "Carpeta vacía"
+      "emptyDirectory": "Carpeta vacía",
+      "focusTab": "Enfocar pestaña",
+      "exitFocus": "Salir del enfoque"
     },
     "terminal": {
       "rename": "Renombrar",
@@ -4596,6 +4612,25 @@
       "commandFailed": "El comando de creación del proyecto falló."
     }
   },
+  "WebAppInstall": {
+    "title": "Instalar Codeg",
+    "description": "Abre Codeg desde la pantalla de inicio o el escritorio en su propia ventana.",
+    "install": "Instalar aplicación",
+    "installing": "Esperando al navegador…",
+    "standalone": "Abierto como aplicación",
+    "installed": "Instalado. Abre Codeg desde la pantalla de inicio o la lista de aplicaciones.",
+    "accepted": "Completa la instalación en el navegador y abre Codeg desde la pantalla de inicio o la lista de aplicaciones.",
+    "httpHint": "Esta conexión usa HTTP. Prueba a añadir el sitio a la pantalla de inicio o crear un acceso directo desde el menú del navegador. La instalación desde la página y la caché sin conexión normalmente requieren HTTPS; el navegador determina cómo se abre.",
+    "androidMenu": "Abre el menú del navegador (⋮ o ≡).",
+    "androidAdd": "Elige Añadir a la pantalla de inicio, Añadir al teléfono o Instalar y crear acceso directo.",
+    "androidConfirm": "Sigue las instrucciones del navegador. Si solo aparece Crear acceso directo, también permite abrir Codeg desde la pantalla de inicio.",
+    "iosOpen": "Abre esta página en Safari.",
+    "iosShare": "Abre Compartir y selecciona Añadir a la pantalla de inicio.",
+    "iosAdd": "Si aparece Abrir como app web, actívalo y pulsa Añadir.",
+    "browserMenu": "Busca Instalar aplicación o Añadir a la pantalla de inicio en el menú del navegador. Si no aparecen, prueba un navegador compatible como Chrome o Edge.",
+    "failed": "No se pudo abrir la instalación. Usa el menú del navegador o recarga la página.",
+    "connection": "Tu ordenador o servidor debe seguir conectado para las conversaciones y tareas. La instalación no traslada los agentes ni los archivos del proyecto al teléfono."
+  },
   "WebServiceSettings": {
     "addressSwitchHint": "Cambiar solo modifica la dirección que se muestra y se abre aquí; el servicio escucha en todas las interfaces y sigue accesible en cada dirección.",
     "sectionTitle": "Servicio Web",
@@ -5807,6 +5842,16 @@
     "toneDescend": "Descendente"
   },
   "BrowserSettings": {
+    "egoImportTitle": "Importar el inicio de sesión desde Ego",
+    "egoImportHint": "Elige el perfil de Ego para las importaciones manuales. Las importaciones de IA están desactivadas hasta que las actives.",
+    "egoImportSource": "Perfil de origen de Ego",
+    "egoImportChooseSource": "Elige un perfil de Ego",
+    "egoImportMissingName": "Perfil de Ego no disponible",
+    "egoImportSourceMissing": "El perfil de Ego guardado «{name}» no está disponible. Elige otro.",
+    "egoImportNoProfiles": "No hay perfiles de Ego disponibles.",
+    "egoImportAllowAgent": "Permitir que la IA importe el inicio de sesión",
+    "egoImportAllowAgentHint": "Los agentes pueden importar desde este perfil cuando lo necesiten. Esto no les da acceso a la página.",
+    "egoImportSaveFailed": "No se pudieron cargar ni guardar los ajustes de importación de Ego.",
     "title": "Navegador integrado",
     "description": "Las páginas web abiertas desde conversaciones, resultados de herramientas y la terminal pueden mostrarse como pestañas junto a tus archivos, sin salir de la aplicación.",
     "descriptionWeb": "En una sesión de navegador, las páginas se abren en el navegador que ya estás usando. La excepción es un servidor que se ejecuta en el host de codeg: se reenvía a una pestaña aquí. Estos son los ajustes que siguen decidiendo algo.",
@@ -9911,6 +9956,46 @@
   },
   "Browser": {
     "toolbar": {
+      "importEgoLogin": "Importar el inicio de sesión desde Ego",
+      "egoImportDesktopOnly": "Solo en escritorio",
+      "muteWebsite": "Silenciar sitio",
+      "unmuteWebsite": "Activar sonido del sitio",
+      "showKeyboard": "Mostrar teclado",
+      "hideKeyboard": "Ocultar teclado",
+      "remoteControls": "Controles táctiles del navegador",
+      "enterLandscape": "Escritorio horizontal",
+      "exitLandscape": "Salir de horizontal",
+      "trackpadMode": "Panel táctil",
+      "directTouch": "Toque directo",
+      "leftClick": "Clic izquierdo",
+      "rightClick": "Clic derecho",
+      "dragPointer": "Arrastrar",
+      "specialKeys": "Teclas especiales",
+      "egoImportDialogTitle": "Importar el inicio de sesión desde Ego",
+      "egoImportTarget": "Se importará el inicio de sesión de {site} al perfil de navegador {profile}.",
+      "egoImportSource": "Perfil de origen de Ego",
+      "egoImportChooseSource": "Elige un perfil de Ego",
+      "egoImportSourceMissing": "El perfil de Ego guardado «{name}» no está disponible. Elige otro.",
+      "egoImportNoProfiles": "No hay perfiles de Ego disponibles.",
+      "egoImportLoading": "Cargando perfiles de Ego…",
+      "egoImportBoundSource": "Perfil de Ego: {name}",
+      "egoImportUnknownSite": "esta página",
+      "egoImportImport": "Importar",
+      "egoImportImporting": "Importando…",
+      "egoImportCancel": "Cancelar",
+      "egoImportClose": "Cerrar",
+      "egoImportResultImported": "Se importaron {cookies} cookies y {storage} elementos de almacenamiento del sitio (se omitieron {skipped} cookies caducadas). Comprueba si has iniciado sesión en {site}.",
+      "egoImportResultUnchanged": "No se realizaron cambios en {site}. Comprueba el inicio de sesión en esa página.",
+      "egoImportErrorUnavailable": "Ego no está disponible ahora. Inténtalo más tarde.",
+      "egoImportErrorSourceRequired": "Elige un perfil de Ego para continuar.",
+      "egoImportErrorSourceMissing": "El perfil de Ego seleccionado ya no está disponible. Elige otro.",
+      "egoImportErrorDisabled": "Las importaciones de IA están desactivadas en los ajustes.",
+      "egoImportErrorConflict": "No se modificaron los datos de inicio de sesión existentes de este sitio.",
+      "egoImportErrorUnsupported": "No se puede importar el inicio de sesión de este sitio.",
+      "egoImportErrorFailed": "No se pudo importar el inicio de sesión.",
+      "egoImportErrorGrant": "Esta página no tiene autorización para importar.",
+      "egoImportErrorTab": "Esta pestaña del navegador ya no está disponible.",
+      "egoImportErrorBlocked": "Un ajuste del navegador impide importar este sitio.",
       "back": "Atrás",
       "forward": "Adelante",
       "reload": "Recargar",
@@ -9992,6 +10077,9 @@
     "bridge": {
       "frameTitle": "Vista previa del servidor de desarrollo",
       "opening": "Conectando a través del servidor…",
+      "address": "Dirección de vista previa",
+      "addressPlaceholder": "Introduce un sitio o localhost:puerto",
+      "blankHint": "Introduce la dirección de un sitio o servicio local y pulsa Enter",
       "reload": "Recargar",
       "openExternal": "Abrir en una pestaña nueva",
       "copyAddress": "Copiar dirección",
@@ -10212,6 +10300,65 @@
         "probeFailed": "El navegador integrado no pudo confirmar que llega al host remoto a través del túnel. Vuelve a intentarlo en un momento."
       }
     }
+  },
+  "PromptStashSettings": {
+    "title": "Entradas guardadas",
+    "description": "Todas las plantillas guardadas. Los registros heredados sin conversación solo se gestionan aquí.",
+    "loading": "Cargando favoritos",
+    "retry": "Reintentar",
+    "empty": "No hay favoritos guardados. Guarda la entrada de una conversación para verla aquí.",
+    "noResults": "Ningún favorito coincide con la búsqueda y el filtro actuales.",
+    "refresh": "Actualizar",
+    "search": "Buscar vista previa, conversación o proyecto",
+    "filter": "Filtrar favoritos",
+    "clearFilters": "Limpiar filtros",
+    "clearSelection": "Deseleccionar",
+    "selectFiltered": "Seleccionar todos los favoritos filtrados",
+    "deleteSelected": "Eliminar seleccionados",
+    "deleting": "Eliminando…",
+    "unusedHint": "Sin usar 30+ días",
+    "unknownTime": "—",
+    "untitledConversation": "Conversación sin título",
+    "noProject": "Sin proyecto",
+    "attachmentOnly": "(solo adjunto)",
+    "legacySource": "Heredado",
+    "draftSource": "Borrador",
+    "assetBytes": "{bytes}",
+    "selectEntry": "Seleccionar favorito: {preview}",
+    "deleteEntry": "Eliminar favorito: {preview}",
+    "columns": {
+      "preview": "Vista previa",
+      "source": "Origen",
+      "status": "Estado",
+      "savedAt": "Guardado",
+      "attachments": "Archivos",
+      "actions": "Acciones"
+    },
+    "statuses": {
+      "deleted": "Conversación eliminada",
+      "in_progress": "En progreso",
+      "pending_review": "Revisión pendiente",
+      "completed": "Completado",
+      "cancelled": "Cancelado",
+      "none": "—"
+    },
+    "filters": {
+      "all": "Todos",
+      "completed": "Completados",
+      "unused": "Sin usar (30d)",
+      "legacy": "Heredados",
+      "draft": "Borradores nuevos"
+    },
+    "confirmDelete": {
+      "title": "¿Eliminar {count} entradas?",
+      "description": "Se eliminarán permanentemente las entradas seleccionadas y sus adjuntos.",
+      "cancel": "Cancelar",
+      "confirm": "Eliminar favoritos"
+    },
+    "deleteFailed": "No se pudieron eliminar algunas entradas: {message}",
+    "results": "{visible} / {total}",
+    "selected": "{count} seleccionadas",
+    "loadFailed": "Error al cargar plantillas: {message}"
   },
   "PersonalAgent": {
     "title": "Agente personal",
@@ -13286,5 +13433,49 @@
       "rateLimited": "SRN pidió a Codeg esperar antes de reintentar.",
       "server": "SRN respondió con un error."
     }
+  },
+  "ConversationPanes": {
+    "label": "Pane",
+    "create": "Nuevo Pane",
+    "rename": "Cambiar nombre",
+    "remove": "Eliminar Pane",
+    "move": "Mover a Pane",
+    "name": "Nombre del Pane",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "resetPosition": "Restablecer posición de Pane",
+    "dragHint": "Arrastra para cambiar la posición",
+    "status": {
+      "running": "En ejecución",
+      "runningMany": "{count} en ejecución",
+      "waiting": "Requiere atención",
+      "waitingMany": "{count} requieren atención",
+      "completed": "Completado",
+      "completedMany": "{count} completados",
+      "error": "Error",
+      "errorMany": "{count} errores"
+    },
+    "removeDraftTitle": "¿Eliminar un Pane con contenido sin enviar?",
+    "removeDraftDescription": "El contenido sin enviar dejará de mostrarse. Se conserva el historial y las tareas en curso continúan.",
+    "empty": "No hay conversaciones abiertas en este Pane",
+    "emptyHint": "Abre una conversación en la barra lateral o inicia una nueva."
+  },
+  "PromptStash": {
+    "action": "Collect or restore prompt",
+    "title": "Prompt collection",
+    "loading": "Loading…",
+    "empty": "No collected prompts yet. Write a prompt and collect it first.",
+    "saved": "Prompt collected",
+    "failed": "Could not collect prompt",
+    "inputChanged": "Input changed; nothing was overwritten.",
+    "attachmentOnly": "Attachments",
+    "attachments": "{count} attachments",
+    "retry": "Retry",
+    "delete": "Delete",
+    "deleteTitle": "Delete this collected prompt?",
+    "deleteConfirm": "Delete",
+    "cancel": "Cancel",
+    "deleted": "Collected prompt deleted",
+    "deleteFailed": "Could not delete collected prompt"
   }
 }

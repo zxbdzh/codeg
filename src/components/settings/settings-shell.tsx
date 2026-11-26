@@ -9,6 +9,7 @@ import {
 } from "react"
 import {
   Bot,
+  Bookmark,
   Bubbles,
   Compass,
   FileSpreadsheet,
@@ -50,6 +51,7 @@ interface SettingsNavItem {
     | "browser"
     | "computer_use"
     | "quick_messages"
+    | "prompt_stash"
     | "shortcuts"
     | "version_control"
     | "chat_channels"
@@ -89,6 +91,11 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     href: "/settings/quick-messages",
     labelKey: "quick_messages",
     icon: MessageSquareText,
+  },
+  {
+    href: "/settings/prompt-stash",
+    labelKey: "prompt_stash",
+    icon: Bookmark,
   },
   {
     href: "/settings/browser",

@@ -24,11 +24,13 @@ import { WebConnectionGuard } from "@/components/connection/web-connection-guard
 import { WebVersionNotice } from "@/components/connection/web-version-notice"
 import { WindowResizeGrips } from "@/components/layout/window-resize-grips"
 import { CloseRequestDialog } from "@/components/workspace/close-request-dialog"
+import { WebAppInstallProvider } from "@/components/providers/web-app-install-provider"
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  interactiveWidget: "resizes-content",
   colorScheme: "dark light",
   // In-app light/dark overrides of these are applied by the pre-paint script
   // and ThemeProvider, see `@/lib/theme-color`.
@@ -41,6 +43,11 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: "codeg",
   description: "AI Coding Agent Conversation Manager",
+  appleWebApp: {
+    capable: true,
+    title: "codeg",
+    statusBarStyle: "default",
+  },
   icons: {
     icon: [
       { url: "/icon-32x32.png", sizes: "32x32", type: "image/png" },
@@ -124,7 +131,7 @@ export default async function RootLayout({
                     (/workspace, /login, the redirecting /) must be able to
                     answer a close press. */}
                 <CloseRequestDialog />
-                {children}
+                <WebAppInstallProvider>{children}</WebAppInstallProvider>
               </AppearanceProvider>
             </ThemeProvider>
           </AppI18nProvider>

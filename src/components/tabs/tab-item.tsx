@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from "react"
 import { Reorder } from "motion/react"
 import type { PanInfo } from "motion/react"
-import { X } from "lucide-react"
+import { CircleHelp, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { cn, handleMiddleClickClose } from "@/lib/utils"
 import {
@@ -25,6 +25,8 @@ import {
 import { useLongPressDrag } from "@/hooks/use-long-press-drag"
 import type { TabItem as TabItemData } from "@/contexts/tab-context"
 import type { SplitDirection } from "@/lib/tab-group-layout"
+import { useTabStore } from "@/stores/tab-store"
+import { useConnectionActivity } from "@/hooks/use-connection-activity"
 
 /** A group this tab could move to (every group EXCEPT the tab's own), labeled
  *  by its traversal-order number and its selected tab's title. */
@@ -73,6 +75,11 @@ interface TabItemProps {
     info: PanInfo
   ) => void
   onSwitch: (tabId: string) => void
+  /** 单标签 zoom：双击或菜单进入/退出。文案由条上传入，避免多语言键散落。 */
+  onToggleFocus?: () => void
+  isFocused?: boolean
+  focusLabel?: string
+  exitFocusLabel?: string
   onClose: (tabId: string) => void
   onCloseOthers: (tabId: string) => void
   onCloseAll: () => void
@@ -104,6 +111,10 @@ export const TabItem = memo(function TabItem({
   onTabDrag,
   onTabDragEnd,
   onSwitch,
+  onToggleFocus,
+  isFocused = false,
+  focusLabel,
+  exitFocusLabel,
   onClose,
   onCloseOthers,
   onCloseAll,
@@ -120,6 +131,12 @@ export const TabItem = memo(function TabItem({
   onTouchSortingEnd,
 }: TabItemProps) {
   const t = useTranslations("Folder.tabs")
+  const tPanes = useTranslations("ConversationPanes")
+  const paneState = useTabStore((state) => state.paneState)
+  const activity = useConnectionActivity(
+    tab.id,
+    tab.status as ConversationStatus | undefined
+  )
   const itemRef = useRef<HTMLDivElement>(null)
 
   const resolvedFolderName = folderName ?? String(tab.folderId)
@@ -197,11 +214,20 @@ export const TabItem = memo(function TabItem({
     onSwitch(tab.id)
   }, [onSwitch, tab.id])
 
+  const handleToggleFocus = useCallback(() => {
+    onToggleFocus?.()
+  }, [onToggleFocus])
+
+  // 双击本来用于置顶；聚焦标签是显式“这一块放大”的意图，优先级更高。
   const handleDoubleClick = useCallback(() => {
+    if (onToggleFocus) {
+      onToggleFocus()
+      return
+    }
     if (!tab.isPinned) {
       onPin(tab.id)
     }
-  }, [onPin, tab.id, tab.isPinned])
+  }, [onPin, onToggleFocus, tab.id, tab.isPinned])
 
   const handleClose = useCallback(() => {
     onClose(tab.id)
@@ -286,7 +312,7 @@ export const TabItem = memo(function TabItem({
             role="tab"
             aria-selected={isActive}
             onClick={handleClick}
-            onDoubleClick={handleDoubleClick}
+            onDoubleClick={isCoarsePointer ? undefined : handleDoubleClick}
             onMouseDown={(event) => handleMiddleClickClose(event, handleClose)}
             className={cn(
               "group/tab relative flex items-center h-full gap-1.5 text-xs",
@@ -326,9 +352,20 @@ export const TabItem = memo(function TabItem({
                   ]
             )}
           >
-            <ConversationStatusDot
-              status={tab.status as ConversationStatus | undefined}
-            />
+            {activity === "waiting" ? (
+              <span
+                data-conversation-activity="waiting"
+                className="flex size-3.5 shrink-0 items-center justify-center text-orange-700 dark:text-orange-400"
+                title={tPanes("status.waiting")}
+              >
+                <CircleHelp className="size-3.5" aria-hidden />
+                <span className="sr-only">{tPanes("status.waiting")}</span>
+              </span>
+            ) : (
+              <ConversationStatusDot
+                status={tab.status as ConversationStatus | undefined}
+              />
+            )}
             <span
               className={cn(
                 // Embedded: grow + shrink as the tab tightens, but instead of an
@@ -380,7 +417,39 @@ export const TabItem = memo(function TabItem({
           <ContextMenuItem onSelect={handleCloseOthers}>
             {t("closeOthers")}
           </ContextMenuItem>
+          {onToggleFocus && (
+            <ContextMenuItem onSelect={handleToggleFocus}>
+              {isFocused
+                ? (exitFocusLabel ?? "Exit focus")
+                : (focusLabel ?? "Focus")}
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
+          {paneState && paneState.panes.length > 1 && (
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>{tPanes("move")}</ContextMenuSubTrigger>
+              <ContextMenuSubContent>
+                {paneState.panes
+                  .filter(
+                    (pane) =>
+                      !Object.prototype.hasOwnProperty.call(
+                        pane.assignments,
+                        tab.id
+                      )
+                  )
+                  .map((pane) => (
+                    <ContextMenuItem
+                      key={pane.id}
+                      onSelect={() =>
+                        useTabStore.getState().moveTabToPane(tab.id, pane.id)
+                      }
+                    >
+                      {pane.name}
+                    </ContextMenuItem>
+                  ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+          )}
           {/* IDEA-style split-group vocabulary. Plain "Split" seeds the new
               group with a fresh draft (a conversation can't be open in two
               groups at once), "Split and Move" relocates this tab. */}

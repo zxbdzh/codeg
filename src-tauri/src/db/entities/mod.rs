@@ -46,6 +46,7 @@ pub mod personal_agent_watch;
 pub mod personal_agent_watch_name;
 pub mod personal_agent_signal;
 pub mod prelude;
+pub mod prompt_stash;
 pub mod quick_message;
 pub mod remote_workspace_connection;
 pub mod srn_web_login;

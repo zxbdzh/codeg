@@ -7,9 +7,13 @@ import {
   Bug,
   Copy,
   ExternalLink,
+  KeyRound,
+  Keyboard,
   MoreVertical,
   RotateCw,
   UserRound,
+  Volume2,
+  VolumeX,
   X,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
@@ -30,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
+  browserCapabilities,
   browserGoBack,
   browserGoForward,
   browserNavigate,
@@ -37,6 +42,7 @@ import {
   browserReload,
   browserStop,
 } from "@/lib/browser/browser-api"
+import { BrowserEgoImportDialog } from "./browser-ego-import"
 import {
   toLocalizedErrorMessage,
   type AppErrorTranslator,
@@ -46,13 +52,21 @@ import {
   useBrowserPrefs,
 } from "@/lib/browser/browser-prefs"
 import { clearBrowserAgentActivity } from "@/lib/browser/browser-tab-store"
-import { isBlankPageUrl } from "@/lib/browser/browser-url"
+import {
+  isBlankPageUrl,
+  normalizeTypedAddress,
+} from "@/lib/browser/browser-url"
 import {
   isRemoteHostAddress,
   remoteHostAddress,
 } from "@/lib/browser/remote-host"
-import type { BrowserTabState } from "@/lib/browser/types"
+import type {
+  BrowserTabState,
+  GrantLevel,
+  PageHandoff,
+} from "@/lib/browser/types"
 import { browserTabBackendId } from "@/lib/file-tab-id"
+import { openExternalTab } from "@/lib/link-open"
 import { openUrl } from "@/lib/platform"
 import { cn, copyTextToClipboard } from "@/lib/utils"
 
@@ -63,46 +77,11 @@ import {
 import { BrowserDeviceMenu } from "./browser-device-menu"
 import { BrowserSendToChatControl } from "./browser-page-handoff"
 import { ICON_BTN } from "./browser-toolbar-buttons"
+import { BrowserTouchButton } from "./browser-touch-button"
 
 /** How far the pointer may travel between press and release and still count
  *  as a click rather than a drag. The usual few pixels of hand tremor. */
 const DRAG_SLOP_PX = 3
-
-/**
- * Turn what a user typed into something the tab can load: a full URL as is,
- * a bare host / host:port / IP with an https (or http for loopback) prefix.
- * No search-engine fallback — the address bar is an address bar.
- */
-export function normalizeTypedAddress(raw: string): string | null {
-  const text = raw.trim()
-  if (!text) return null
-  if (/^https?:\/\//i.test(text)) {
-    try {
-      return new URL(text).toString()
-    } catch {
-      return null
-    }
-  }
-  // A scheme other than http(s) is refused — but `localhost:3000/app` is a
-  // host with a port, not a scheme, so a colon followed by digits is fine.
-  if (/^[a-z][a-z\d+\-.]*:(?!\d)/i.test(text)) return null
-  if (/\s/.test(text)) return null
-  const hostPart = text.split(/[/?#]/)[0]
-  if (
-    !hostPart.includes(".") &&
-    !/^(localhost|\[?[\d:.]+\]?)(:\d+)?$/i.test(hostPart)
-  ) {
-    return null
-  }
-  const isLocal = /^(localhost|127\.|\[::1\]|0\.0\.0\.0|10\.|192\.168\.)/i.test(
-    hostPart
-  )
-  try {
-    return new URL(`${isLocal ? "http" : "https"}://${text}`).toString()
-  } catch {
-    return null
-  }
-}
 
 /**
  * The profile chip: which cookie jar this tab lives in, and a menu to open
@@ -176,40 +155,73 @@ function ProfileMenu({
   )
 }
 
+interface WebToolbarControls {
+  url: string
+  externalUrl: string | null
+  navigate: (url: string) => void
+  reload?: () => void
+  back?: () => void
+  forward?: () => void
+  inspect?: () => Promise<void>
+  share?: (level: GrantLevel) => void
+  capture?: (() => Promise<PageHandoff>) | null
+  audio?: { on: boolean; toggle: () => void }
+  keyboard?: { open: boolean; toggle: () => void }
+}
+
 export function BrowserToolbar({
   tab,
   state,
+  web,
 }: {
   tab: BrowserWorkspaceTab
   state: BrowserTabState | null
+  web?: WebToolbarControls
 }) {
   const t = useTranslations("Browser.toolbar")
   // Root translator alongside it, for the keys the BACKEND stamps on its
   // errors (`browser.inspector.error.*`); unknown keys fall back to the
   // English message the error already carries.
   const tRoot = useTranslations()
-  const inspectorEnabled = useBrowserPrefs().devtools
+  const browserPrefs = useBrowserPrefs()
+  const inspectorEnabled = browserPrefs.devtools
+  const isWeb = Boolean(web)
   const openBrowserTab = useOptionalWorkspaceActions()?.openBrowserTab ?? null
   const backendId = browserTabBackendId(tab.id)
-  const currentUrl = state?.url || state?.requestedUrl || tab.browser.initialUrl
+  const currentUrl =
+    web?.url ?? (state?.url || state?.requestedUrl || tab.browser.initialUrl)
+  const [egoImportSupported, setEgoImportSupported] = useState(false)
+  const [egoImportOpen, setEgoImportOpen] = useState(false)
+  useEffect(() => {
+    if (isWeb) return
+    let cancelled = false
+    browserCapabilities().then((caps) => {
+      if (!cancelled) {
+        setEgoImportSupported(
+          caps.available &&
+            caps.platform === "windows" &&
+            caps.surface === "child"
+        )
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [isWeb])
+  const targetProfileName =
+    tab.browser.profile === DEFAULT_BROWSER_PROFILE_ID
+      ? t("profileDefault")
+      : (browserPrefs.profiles.find(
+          (profile) => profile.id === tab.browser.profile
+        )?.name ?? tab.browser.profile)
   // The blank page is the absence of an address, so the bar shows its
   // placeholder rather than the literal `about:blank` — which nobody types,
   // and which would be selected-and-overtyped on every visit anyway. The
   // buttons that act on an address go quiet for the same reason.
   const blank = isBlankPageUrl(currentUrl)
   const address = blank ? "" : currentUrl
-  const [draft, setDraft] = useState(address)
-  const [editing, setEditing] = useState(false)
-  const [mirroredUrl, setMirroredUrl] = useState(currentUrl)
+  const [draft, setDraft] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
-
-  // Mirror the live URL unless the user is typing. Adjusted during render
-  // (the "state from previous renders" pattern) rather than in an effect, so
-  // the address bar never paints a stale URL for a frame.
-  if (mirroredUrl !== currentUrl) {
-    setMirroredUrl(currentUrl)
-    if (!editing) setDraft(address)
-  }
 
   // An empty tab is opened in order to type an address, so the caret starts
   // in the bar. Captured at mount: once the tab has a page, focus is the
@@ -239,19 +251,35 @@ export function BrowserToolbar({
   // the same click from one engine to the next. The distance does not.
   const pressRef = useRef<{ x: number; y: number } | null>(null)
 
-  const loading = state?.loading ?? true
+  const loading = web ? false : (state?.loading ?? true)
+  const share = web?.share
+  const capture = web?.capture
+  const audio = web?.audio
+  const egoImportReady =
+    !!backendId &&
+    state?.kind === "page" &&
+    state.surface === "child" &&
+    !loading &&
+    !state.error &&
+    /^https?:\/\//i.test(state.url)
 
   const submit = () => {
-    if (!backendId) return
+    if (!backendId && !web) return
     // Enter on an empty bar (a fresh tab) is not a mistake worth a toast.
-    if (!draft.trim()) return
-    const url = normalizeTypedAddress(draft)
+    const text = draft ?? address
+    if (!text.trim()) return
+    const url = normalizeTypedAddress(text)
     if (!url) {
       toast.error(t("invalidUrl"))
       return
     }
-    setEditing(false)
     inputRef.current?.blur()
+    setDraft(null)
+    if (web) {
+      web.navigate(url)
+      return
+    }
+    if (!backendId) return
     // Seen from a window bound to a remote codeg-server, a loopback or
     // private address is that host's — and a tab of THIS computer reaches
     // this machine at the same address instead. It opens as a tab of the
@@ -259,7 +287,6 @@ export function BrowserToolbar({
     // open one, it goes nowhere rather than here. A tab of the remote host
     // goes there itself: everything it loads comes from that host.
     if (tab.browser.remote !== true && isRemoteHostAddress(url)) {
-      setDraft(address)
       openBrowserTab?.(url, { remote: true, openerTabId: tab.id })
       return
     }
@@ -283,8 +310,7 @@ export function BrowserToolbar({
       submit()
     } else if (event.key === "Escape") {
       event.preventDefault()
-      setDraft(address)
-      setEditing(false)
+      setDraft(null)
       inputRef.current?.blur()
     }
   }
@@ -301,8 +327,11 @@ export function BrowserToolbar({
         className={ICON_BTN}
         title={t("back")}
         aria-label={t("back")}
-        disabled={!backendId || !state?.canGoBack}
-        onClick={() => backendId && void browserGoBack(backendId)}
+        disabled={web ? !web.back : !backendId || !state?.canGoBack}
+        onClick={() => {
+          if (web) web.back?.()
+          else if (backendId) void browserGoBack(backendId)
+        }}
       >
         <ArrowLeft className="h-4 w-4" />
       </button>
@@ -311,8 +340,11 @@ export function BrowserToolbar({
         className={ICON_BTN}
         title={t("forward")}
         aria-label={t("forward")}
-        disabled={!backendId || !state?.canGoForward}
-        onClick={() => backendId && void browserGoForward(backendId)}
+        disabled={web ? !web.forward : !backendId || !state?.canGoForward}
+        onClick={() => {
+          if (web) web.forward?.()
+          else if (backendId) void browserGoForward(backendId)
+        }}
       >
         <ArrowRight className="h-4 w-4" />
       </button>
@@ -321,8 +353,12 @@ export function BrowserToolbar({
         className={ICON_BTN}
         title={loading ? t("stop") : t("reload")}
         aria-label={loading ? t("stop") : t("reload")}
-        disabled={!backendId}
+        disabled={web ? !web.reload : !backendId}
         onClick={() => {
+          if (web) {
+            web.reload?.()
+            return
+          }
           if (!backendId) return
           if (loading) {
             // Stopping a load is not asking for the page again — the document
@@ -364,13 +400,14 @@ export function BrowserToolbar({
           "focus-within:border-ring/50 focus-within:ring-2 focus-within:ring-ring/20"
         )}
       >
-        <BrowserAgentShareControl tab={tab} state={state} />
+        {(!web || share) && (
+          <BrowserAgentShareControl tab={tab} state={state} onShare={share} />
+        )}
         <input
           ref={inputRef}
-          value={draft}
+          value={draft ?? address}
           onChange={(event) => setDraft(event.target.value)}
           onFocus={(event) => {
-            setEditing(true)
             event.currentTarget.select()
           }}
           onMouseDown={(event) => {
@@ -398,7 +435,7 @@ export function BrowserToolbar({
             event.preventDefault()
             event.currentTarget.select()
           }}
-          onBlur={() => setEditing(false)}
+          onBlur={() => setDraft(null)}
           onKeyDown={onKeyDown}
           spellCheck={false}
           autoComplete="off"
@@ -406,17 +443,32 @@ export function BrowserToolbar({
           autoCapitalize="off"
           placeholder={t("addressPlaceholder")}
           aria-label={t("addressPlaceholder")}
+          title={web && !blank ? currentUrl : undefined}
           className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-xs text-foreground outline-none"
         />
-        <BrowserAgentActivityControl tab={tab} />
-        <BrowserSendToChatControl tab={tab} state={state} />
+        {!web && <BrowserAgentActivityControl tab={tab} />}
+        {(!web || capture !== undefined) && (
+          <BrowserSendToChatControl tab={tab} state={state} capture={capture} />
+        )}
       </div>
       {/* Right of the field: it changes how the page in it is laid out, not
           which page it is, so it is the first thing after the address. */}
       <BrowserDeviceMenu tab={tab} />
+      {web?.keyboard && (
+        <BrowserTouchButton
+          type="button"
+          className={cn(ICON_BTN, "h-9 w-9 touch-manipulation")}
+          title={t(web.keyboard.open ? "hideKeyboard" : "showKeyboard")}
+          aria-label={t(web.keyboard.open ? "hideKeyboard" : "showKeyboard")}
+          aria-pressed={web.keyboard.open}
+          onClick={web.keyboard.toggle}
+        >
+          <Keyboard className="h-4 w-4" />
+        </BrowserTouchButton>
+      )}
       {/* A remote tab lives in its connection's profile, which is no
           choice of the person's and no place to open the page in another. */}
-      {tab.browser.remote === true ? null : (
+      {web || tab.browser.remote === true ? null : (
         <ProfileMenu tab={tab} currentUrl={currentUrl} />
       )}
       {/* This page's own actions, folded into one control. They act on the
@@ -456,7 +508,17 @@ export function BrowserToolbar({
           </DropdownMenuItem>
           {/* The system browser is this computer's: a remote tab's address
               would reach this machine there, not the remote host. */}
-          {tab.browser.remote === true ? null : (
+          {web ? (
+            <DropdownMenuItem
+              disabled={!web.externalUrl}
+              onSelect={() => {
+                if (web.externalUrl) openExternalTab(web.externalUrl)
+              }}
+            >
+              <ExternalLink />
+              {t("openInSystem")}
+            </DropdownMenuItem>
+          ) : tab.browser.remote === true ? null : (
             <DropdownMenuItem onSelect={() => void openUrl(currentUrl)}>
               <ExternalLink />
               {t("openInSystem")}
@@ -465,17 +527,16 @@ export function BrowserToolbar({
           {/* Hidden, not disabled, when the person switched the inspector
               off: they said they do not want it, and a greyed row saying so
               every time they open this menu is the wrong way to agree. */}
-          {inspectorEnabled ? (
+          {(inspectorEnabled || Boolean(web?.inspect)) &&
+          (!web || web.inspect) ? (
             <DropdownMenuItem
               disabled={!backendId}
               onSelect={() => {
-                if (!backendId) return
-                // Nothing to do on the way back: the inspector opens in a
-                // window of its own and this page keeps its slot. A tab opened
-                // while the switch was off has no inspector to show and the
-                // engine cannot be told otherwise now, so the backend refuses
-                // rather than doing nothing — say which.
-                void browserOpenDevtools(backendId).catch((error: unknown) => {
+                const opening = web
+                  ? web.inspect?.()
+                  : backendId && browserOpenDevtools(backendId)
+                if (!opening) return
+                void opening.catch((error: unknown) => {
                   toast.error(t("inspectorFailed"), {
                     description: toLocalizedErrorMessage(
                       error,
@@ -489,8 +550,47 @@ export function BrowserToolbar({
               {t("openInspector")}
             </DropdownMenuItem>
           ) : null}
+          {audio && (
+            <DropdownMenuItem onSelect={audio.toggle}>
+              {audio.on ? <Volume2 /> : <VolumeX />}
+              {t(audio.on ? "muteWebsite" : "unmuteWebsite")}
+            </DropdownMenuItem>
+          )}
+          {web ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem disabled>
+                <KeyRound />
+                <span>{t("importEgoLogin")}</span>
+                <span className="ms-auto text-xs">
+                  {t("egoImportDesktopOnly")}
+                </span>
+              </DropdownMenuItem>
+            </>
+          ) : egoImportSupported && tab.browser.remote !== true ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={!egoImportReady}
+                onSelect={() => setEgoImportOpen(true)}
+              >
+                <KeyRound />
+                {t("importEgoLogin")}
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+      {egoImportSupported && tab.browser.remote !== true && egoImportOpen ? (
+        <BrowserEgoImportDialog
+          open={egoImportOpen}
+          onOpenChange={setEgoImportOpen}
+          tabId={backendId ?? ""}
+          url={currentUrl}
+          targetProfileName={targetProfileName}
+          targetReady={egoImportReady}
+        />
+      ) : null}
       {loading ? (
         <div
           aria-hidden

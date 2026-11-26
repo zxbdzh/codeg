@@ -745,6 +745,7 @@ mod tauri_app {
             ))
             .manage(ConnectionManager::new())
             .manage(crate::browser::BrowserRegistry::default())
+            .manage(crate::commands::browser_ego_import::EgoImportRuntime::default(),)
             .manage(crate::browser::egress::EgressRegistry::default())
             .manage(crate::browser::BrowserDownloads::default())
             .manage(crate::browser::DocGuests::default())
@@ -1871,6 +1872,14 @@ mod tauri_app {
             .invoke_handler(tauri::generate_handler![
                 browser_commands::browser_capabilities,
                 browser_commands::browser_open_tab,
+                crate::commands::browser_ego_import::browser_ego_import_profiles,
+                crate::commands::browser_ego_import::browser_ego_import_settings,
+                crate::commands::browser_ego_import::browser_set_ego_import_settings,
+                crate::commands::browser_ego_import::browser_import_ego_session,
+                crate::commands::prompt_stash::save_prompt_stash,
+                crate::commands::prompt_stash::list_prompt_stash,
+                crate::commands::prompt_stash::restore_prompt_stash,
+                crate::commands::prompt_stash::remove_prompt_stash,
                 browser_commands::browser_close,
                 browser_commands::browser_set_bounds,
                 browser_commands::browser_set_window_viewport,

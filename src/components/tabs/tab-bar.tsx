@@ -52,8 +52,11 @@ interface TabBarProps {
 // and navigates tabs from the sidebar.
 export function TabBar({ groupId, maximizeControl = false }: TabBarProps) {
   const t = useTranslations("Folder.conversationCard")
-  const { mode, conversationMaximized } = useWorkspaceView()
-  const { toggleConversationMaximized } = useWorkspaceActions()
+  const tTabs = useTranslations("Folder.tabs")
+  const { mode, conversationMaximized, focusedTabId, focusedTabPane } =
+    useWorkspaceView()
+  const { focusTab, exitFocusedTab, toggleConversationMaximized } =
+    useWorkspaceActions()
   const isMobile = useIsMobile()
   // Maximizing means covering the file column, so it is offered only while
   // there is one (fusion) — the file strip's own button follows the same rule.
@@ -62,6 +65,7 @@ export function TabBar({ groupId, maximizeControl = false }: TabBarProps) {
   const tabsFollowFolder = useFolderTabsStore((s) => s.enabled)
   const tabs = useVisibleConversationTabs()
   const activeTabId = useTabStore((s) => s.activeTabId)
+  const hasPanes = useTabStore((s) => s.paneState != null)
   const groupOf = useTabStore((s) => s.groupOf)
   const groupLayout = useTabStore((s) => s.groupLayout)
   const groupSelection = useTabStore((s) => s.groupSelection)
@@ -113,6 +117,15 @@ export function TabBar({ groupId, maximizeControl = false }: TabBarProps) {
   const handleToggleTile = useCallback(
     () => toggleGroupTile(stripGroupId),
     [toggleGroupTile, stripGroupId]
+  )
+  // 双击或右键进入单标签 zoom；再次操作当前标签就是退出，避免多套状态口。
+  const handleFocusTab = useCallback(
+    (tabId: string) => {
+      if (isMobile) return
+      if (focusedTabId === tabId) exitFocusedTab()
+      else focusTab(tabId)
+    },
+    [exitFocusedTab, focusTab, focusedTabId, isMobile]
   )
 
   // Split-group context-menu wiring, shared by every tab in this strip: the
@@ -311,7 +324,10 @@ export function TabBar({ groupId, maximizeControl = false }: TabBarProps) {
 
   // While tabs follow the folder, the unsplit strip stays up for a folder with
   // nothing open: its "+" is how that folder gets its first conversation.
-  if (groupTabs.length === 0 && (groupId != null || !tabsFollowFolder)) {
+  if (
+    groupTabs.length === 0 &&
+    (groupId != null || (!tabsFollowFolder && !hasPanes))
+  ) {
     return null
   }
 
@@ -386,6 +402,10 @@ export function TabBar({ groupId, maximizeControl = false }: TabBarProps) {
               crossDragEnabled && !isDraft ? handleTabDragEnd : undefined
             }
             onSwitch={switchTab}
+            onToggleFocus={() => handleFocusTab(tab.id)}
+            isFocused={focusedTabId === tab.id}
+            focusLabel={tTabs("focusTab")}
+            exitFocusLabel={tTabs("exitFocus")}
             onClose={closeTab}
             onCloseOthers={closeOtherTabs}
             onCloseAll={closeAllTabs}
@@ -477,6 +497,17 @@ export function TabBar({ groupId, maximizeControl = false }: TabBarProps) {
             ) : (
               <Maximize2 className="h-3.5 w-3.5" />
             )}
+          </button>
+        )}
+        {focusedTabPane === "conversation" && focusedTabId != null && (
+          <button
+            type="button"
+            onClick={exitFocusedTab}
+            className={cn(STRIP_ICON_BTN, "mr-1.5")}
+            aria-label={tTabs("exitFocus")}
+            title={tTabs("exitFocus")}
+          >
+            <Minimize2 className="h-3.5 w-3.5" />
           </button>
         )}
       </div>

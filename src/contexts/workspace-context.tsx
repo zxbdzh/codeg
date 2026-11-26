@@ -325,6 +325,9 @@ export interface WorkspaceActionsValue {
   // most one at a time: maximizing one releases the other.
   toggleFilesMaximized: () => void
   toggleConversationMaximized: () => void
+  // 单标签聚焦是“原地 zoom”：不复制 DOM，只隐藏其他表面，退出时恢复布局。
+  focusTab: (tabId: string) => void
+  exitFocusedTab: () => void
   // Open (or re-activate) a built-in browser tab for an http(s) URL. One tab
   // per URL (fragment ignored): a second open activates the existing tab.
   // Returns the tab id, or null when the URL does not parse. The native
@@ -411,6 +414,10 @@ interface WorkspaceViewValue {
   filesMaximized: boolean
   /** The conversation column covers the file column. */
   conversationMaximized: boolean
+  /** 当前聚焦的标签，可能属于会话列或文件列。 */
+  focusedTabId: string | null
+  /** 区分两列中可能同名的 ID；失效的聚焦不会被当作文件聚焦。 */
+  focusedTabPane: "conversation" | "files" | null
 }
 
 interface WorkspaceFileTabsValue {
@@ -642,6 +649,18 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const [activePane, setActivePaneState] =
     useState<WorkspacePane>("conversation")
   const [fileTabs, setFileTabs] = useState<FileWorkspaceTab[]>([])
+  // 聚焦状态在作用域订阅之前声明，供切换项目时同步清理。
+  const [focusedTabId, setFocusedTabId] = useState<string | null>(null)
+  const [focusedTabPane, setFocusedTabPane] = useState<
+    "conversation" | "files" | null
+  >(null)
+  const focusedTabIdRef = useRef<string | null>(null)
+  const exitFocusedTab = useCallback(() => {
+    focusedTabIdRef.current = null
+    setFocusedTabId(null)
+    setFocusedTabPane(null)
+  }, [])
+  const switchFileTabRef = useRef<(tabId: string) => void>(() => {})
   const [normalActiveFileTabId, setNormalActiveFileTabId] = useState<
     string | null
   >(null)
@@ -735,6 +754,12 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   useEffect(
     () =>
       useFolderTabsStore.subscribe((next, previous) => {
+        if (
+          focusedTabIdRef.current !== null &&
+          (next.scope !== previous.scope || next.enabled !== previous.enabled)
+        ) {
+          exitFocusedTab()
+        }
         if (next.enabled === previous.enabled) return
         const current = selectedFileIdRef.current
         if (!next.enabled) {
@@ -745,7 +770,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
           useFolderTabsStore.getState().selectFile(current)
         }
       }),
-    []
+    [exitFocusedTab]
   )
   const [pendingFileReveal, setPendingFileReveal] = useState<{
     requestId: number
@@ -969,6 +994,25 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       prev === "conversation" ? null : "conversation"
     )
   }, [])
+
+  const hasFocusedConversationTab = useTabStore((state) =>
+    focusedTabPane === "conversation" && focusedTabId !== null
+      ? state.rawTabs.some((tab) => tab.id === focusedTabId)
+      : true
+  )
+  const focusedTabExists =
+    focusedTabId !== null &&
+    (focusedTabPane === "conversation"
+      ? hasFocusedConversationTab
+      : focusedTabPane === "files" &&
+        fileTabs.some((tab) => tab.id === focusedTabId))
+
+  // 聚焦态从真实标签派生，关闭标签的同一次渲染就退出；内部状态延后清理，
+  // 避免在 effect 内同步 setState 造成级联渲染。
+  useEffect(() => {
+    if (focusedTabId === null || focusedTabExists) return
+    queueMicrotask(exitFocusedTab)
+  }, [exitFocusedTab, focusedTabExists, focusedTabId])
 
   const setActivePane = useCallback((nextPane: WorkspacePane) => {
     setActivePaneState((prev) => (prev === nextPane ? prev : nextPane))
@@ -3607,6 +3651,24 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   // through refs or functional updaters, never through render-scoped
   // closures, so this memo's inputs only change if a callback identity
   // changes (which none do after mount).
+  const focusTab = useCallback((tabId: string) => {
+    if (!tabId) return
+    const tabs = useTabStore.getState()
+    const pane = tabs.rawTabs.some((tab) => tab.id === tabId)
+      ? "conversation"
+      : fileTabsRef.current.some((tab) => tab.id === tabId)
+        ? "files"
+        : null
+    if (pane === null) return
+    // 聚焦铺满整个工作区，直接释放列最大化，不能用 toggle 反转状态。
+    setMaximizedPane(null)
+    if (pane === "conversation") tabs.switchTab(tabId)
+    else switchFileTabRef.current(tabId)
+    focusedTabIdRef.current = tabId
+    setFocusedTabPane(pane)
+    setFocusedTabId(tabId)
+  }, [])
+
   const actions = useMemo<WorkspaceActionsValue>(
     () => ({
       setActivePane,
@@ -3636,6 +3698,8 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       toggleFileTabPreview,
       toggleFilesMaximized,
       toggleConversationMaximized,
+      focusTab,
+      exitFocusedTab,
       openBrowserTab,
       adoptBrowserTab,
       restoreBrowserTabs,
@@ -3670,6 +3734,8 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       toggleFileTabPreview,
       toggleFilesMaximized,
       toggleConversationMaximized,
+      focusTab,
+      exitFocusedTab,
       openBrowserTab,
       adoptBrowserTab,
       restoreBrowserTabs,
@@ -3684,8 +3750,18 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       activePane,
       filesMaximized: effectiveFilesMaximized,
       conversationMaximized: effectiveConversationMaximized,
+      focusedTabId: focusedTabExists ? focusedTabId : null,
+      focusedTabPane: focusedTabExists ? focusedTabPane : null,
     }),
-    [mode, activePane, effectiveFilesMaximized, effectiveConversationMaximized]
+    [
+      mode,
+      activePane,
+      effectiveFilesMaximized,
+      effectiveConversationMaximized,
+      focusedTabId,
+      focusedTabPane,
+      focusedTabExists,
+    ]
   )
 
   const fileTabsValue = useMemo<WorkspaceFileTabsValue>(

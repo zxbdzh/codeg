@@ -64,7 +64,8 @@
       "browser": "브라우저 사용",
       "computer_use": "컴퓨터 사용",
       "quick_messages": "빠른 메시지",
-      "logs": "실행 로그"
+      "logs": "실행 로그",
+      "prompt_stash": "입력 스태시"
     }
   },
   "AppearanceSettings": {
@@ -551,6 +552,10 @@
       "newline_in_message": {
         "title": "메시지 줄바꿈",
         "description": "입력창에 줄바꿈을 삽입"
+      },
+      "prompt_stash": {
+        "title": "Collect or restore prompt",
+        "description": "Collect nonempty input, or restore a template into empty input"
       },
       "toggle_custom_style": {
         "title": "사용자 지정 스타일 중지/재개",
@@ -2687,6 +2692,13 @@
       "closeWindow": "창 닫기",
       "close": "닫기"
     },
+    "mobileTabs": {
+      "title": "열린 탭",
+      "open": "탭 전환 ({count})",
+      "conversations": "대화",
+      "files": "파일 및 미리보기",
+      "empty": "열린 탭이 없습니다"
+    },
     "tabs": {
       "closeConversationTab": "대화 탭 닫기",
       "close": "닫기",
@@ -2703,6 +2715,8 @@
       "unsplitAll": "모든 분할 해제",
       "closeAll": "모두 닫기",
       "tileDisplay": "타일 표시",
+      "focusTab": "탭에 집중",
+      "exitFocus": "집중 해제",
       "untileDisplay": "타일 해제"
     },
     "fileWorkspace": {
@@ -2723,7 +2737,9 @@
       "more": "더 보기",
       "maximize": "최대화",
       "restore": "복원",
-      "emptyDirectory": "빈 폴더"
+      "emptyDirectory": "빈 폴더",
+      "focusTab": "탭에 집중",
+      "exitFocus": "집중 해제"
     },
     "terminal": {
       "rename": "이름 변경",
@@ -4596,6 +4612,25 @@
       "commandFailed": "프로젝트 생성 명령이 실패했습니다."
     }
   },
+  "WebAppInstall": {
+    "title": "Codeg 설치",
+    "description": "홈 화면이나 바탕 화면에서 독립된 창으로 엽니다.",
+    "install": "앱 설치",
+    "installing": "브라우저 확인 대기 중…",
+    "standalone": "앱 모드로 실행 중",
+    "installed": "설치되었습니다. 홈 화면이나 앱 목록에서 Codeg를 여세요.",
+    "accepted": "브라우저에서 설치를 완료한 뒤 홈 화면이나 앱 목록에서 Codeg를 여세요.",
+    "httpHint": "현재 HTTP 연결입니다. 브라우저 메뉴에서 홈 화면에 추가하거나 바로가기를 만들어 보세요. 페이지 내 설치와 오프라인 캐시는 일반적으로 HTTPS가 필요하며 실행 방식은 브라우저에 따라 다릅니다.",
+    "androidMenu": "브라우저 메뉴(⋮ 또는 ≡)를 여세요.",
+    "androidAdd": "'홈 화면에 추가', '휴대전화에 추가' 또는 '설치 및 바로가기 만들기'를 선택하세요.",
+    "androidConfirm": "브라우저 안내에 따라 확인하세요. '바로가기 만들기'만 있어도 홈 화면에서 Codeg를 열 수 있습니다.",
+    "iosOpen": "Safari에서 현재 페이지를 여세요.",
+    "iosShare": "공유 메뉴에서 '홈 화면에 추가'를 선택하세요.",
+    "iosAdd": "'웹 앱으로 열기'가 표시되면 켜고 '추가'를 누르세요.",
+    "browserMenu": "브라우저 메뉴에서 '앱 설치' 또는 '홈 화면에 추가'를 찾으세요. 없다면 Chrome, Edge 등 설치를 지원하는 브라우저를 사용하세요.",
+    "failed": "설치 안내를 열 수 없습니다. 브라우저의 설치 메뉴를 사용하거나 페이지를 새로고침하세요.",
+    "connection": "대화와 작업을 위해 컴퓨터나 서버가 온라인 상태여야 합니다. 설치해도 에이전트와 프로젝트 파일은 휴대폰으로 이동하지 않습니다."
+  },
   "WebServiceSettings": {
     "addressSwitchHint": "전환해도 여기에 표시되고 열리는 주소만 바뀝니다. 서비스는 모든 인터페이스에서 수신하며 어떤 주소로도 접속할 수 있습니다.",
     "sectionTitle": "웹 서비스",
@@ -5807,6 +5842,16 @@
     "toneDescend": "하강음"
   },
   "BrowserSettings": {
+    "egoImportTitle": "Ego에서 로그인 상태 가져오기",
+    "egoImportHint": "수동 가져오기에 사용할 Ego 프로필을 선택하세요. AI 가져오기는 직접 켜기 전까지 꺼져 있습니다.",
+    "egoImportSource": "Ego 원본 프로필",
+    "egoImportChooseSource": "Ego 프로필 선택",
+    "egoImportMissingName": "사용할 수 없는 Ego 프로필",
+    "egoImportSourceMissing": "저장된 Ego 프로필 “{name}”을(를) 사용할 수 없습니다. 다른 프로필을 선택하세요.",
+    "egoImportNoProfiles": "사용할 수 있는 Ego 프로필이 없습니다.",
+    "egoImportAllowAgent": "AI의 로그인 상태 가져오기 허용",
+    "egoImportAllowAgentHint": "필요할 때 에이전트가 이 프로필에서 가져올 수 있습니다. 페이지 접근 권한은 부여되지 않습니다.",
+    "egoImportSaveFailed": "Ego 가져오기 설정을 불러오거나 저장할 수 없습니다.",
     "title": "내장 브라우저",
     "description": "대화, 도구 결과, 터미널에서 연 웹 페이지를 앱을 벗어나지 않고 파일 옆의 탭으로 표시할 수 있습니다.",
     "descriptionWeb": "브라우저 세션에서는 웹 페이지가 이미 사용 중인 브라우저에서 열립니다. 예외는 codeg 호스트에서 실행 중인 서버로, 여기 탭으로 전달됩니다. 아래는 그때도 적용되는 설정입니다.",
@@ -9911,6 +9956,46 @@
   },
   "Browser": {
     "toolbar": {
+      "importEgoLogin": "Ego에서 로그인 상태 가져오기",
+      "egoImportDesktopOnly": "데스크톱 전용",
+      "muteWebsite": "사이트 음소거",
+      "unmuteWebsite": "사이트 음소거 해제",
+      "showKeyboard": "키보드 표시",
+      "hideKeyboard": "키보드 숨기기",
+      "remoteControls": "브라우저 터치 제어",
+      "enterLandscape": "가로 데스크톱",
+      "exitLandscape": "가로 모드 종료",
+      "trackpadMode": "트랙패드",
+      "directTouch": "직접 터치",
+      "leftClick": "왼쪽 클릭",
+      "rightClick": "오른쪽 클릭",
+      "dragPointer": "드래그",
+      "specialKeys": "특수 키",
+      "egoImportDialogTitle": "Ego에서 로그인 상태 가져오기",
+      "egoImportTarget": "{site}의 로그인 상태를 브라우저 프로필 {profile}(으)로 가져옵니다.",
+      "egoImportSource": "Ego 원본 프로필",
+      "egoImportChooseSource": "Ego 프로필 선택",
+      "egoImportSourceMissing": "저장된 Ego 프로필 “{name}”을(를) 사용할 수 없습니다. 다른 프로필을 선택하세요.",
+      "egoImportNoProfiles": "사용할 수 있는 Ego 프로필이 없습니다.",
+      "egoImportLoading": "Ego 프로필 불러오는 중…",
+      "egoImportBoundSource": "Ego 프로필: {name}",
+      "egoImportUnknownSite": "이 페이지",
+      "egoImportImport": "가져오기",
+      "egoImportImporting": "가져오는 중…",
+      "egoImportCancel": "취소",
+      "egoImportClose": "닫기",
+      "egoImportResultImported": "쿠키 {cookies}개와 사이트 저장 항목 {storage}개를 가져왔습니다(만료된 쿠키 {skipped}개 제외). {site}에 로그인되었는지 확인하세요.",
+      "egoImportResultUnchanged": "{site}의 데이터는 변경되지 않았습니다. 해당 페이지에서 로그인 상태를 확인하세요.",
+      "egoImportErrorUnavailable": "지금은 Ego를 사용할 수 없습니다. 나중에 다시 시도하세요.",
+      "egoImportErrorSourceRequired": "계속하려면 Ego 프로필을 선택하세요.",
+      "egoImportErrorSourceMissing": "선택한 Ego 프로필을 더 이상 사용할 수 없습니다. 다른 프로필을 선택하세요.",
+      "egoImportErrorDisabled": "설정에서 AI 가져오기가 꺼져 있습니다.",
+      "egoImportErrorConflict": "이 사이트의 기존 로그인 데이터는 변경되지 않았습니다.",
+      "egoImportErrorUnsupported": "이 사이트의 로그인 상태는 가져올 수 없습니다.",
+      "egoImportErrorFailed": "로그인 상태를 가져오지 못했습니다.",
+      "egoImportErrorGrant": "이 페이지에는 가져오기 권한이 없습니다.",
+      "egoImportErrorTab": "이 브라우저 탭은 더 이상 사용할 수 없습니다.",
+      "egoImportErrorBlocked": "브라우저 설정으로 인해 이 사이트를 가져올 수 없습니다.",
       "back": "뒤로",
       "forward": "앞으로",
       "reload": "새로 고침",
@@ -9992,6 +10077,9 @@
     "bridge": {
       "frameTitle": "개발 서버 미리보기",
       "opening": "서버를 통해 연결하는 중…",
+      "address": "미리보기 주소",
+      "addressPlaceholder": "사이트 또는 localhost:포트 입력",
+      "blankHint": "사이트 또는 로컬 서비스 주소를 입력하고 Enter를 누르세요",
       "reload": "새로고침",
       "openExternal": "새 탭에서 열기",
       "copyAddress": "주소 복사",
@@ -10212,6 +10300,65 @@
         "probeFailed": "내장 브라우저가 터널을 통해 원격 호스트에 도달하는지 확인할 수 없습니다. 잠시 후 다시 시도하세요."
       }
     }
+  },
+  "PromptStashSettings": {
+    "title": "입력 스태시",
+    "description": "저장된 모든 입력 템플릿. 귀속이 없는 이전 기록은 여기서만 관리할 수 있습니다.",
+    "loading": "즐겨찾기 로딩 중",
+    "retry": "다시 시도",
+    "empty": "저장된 즐겨찾기가 없습니다. 대화에서 입력을 저장하면 여기에 표시됩니다.",
+    "noResults": "현재 검색 및 필터에 맞는 즐겨찾기가 없습니다.",
+    "refresh": "새로 고침",
+    "search": "미리보기, 대화 또는 프로젝트 검색",
+    "filter": "즐겨찾기 필터",
+    "clearFilters": "필터 초기화",
+    "clearSelection": "선택 해제",
+    "selectFiltered": "필터된 즐겨찾기 모두 선택",
+    "deleteSelected": "선택 항목 삭제",
+    "deleting": "삭제 중…",
+    "unusedHint": "30일 이상 미사용",
+    "unknownTime": "—",
+    "untitledConversation": "제목 없는 대화",
+    "noProject": "프로젝트 없음",
+    "attachmentOnly": "（첨부 파일만）",
+    "legacySource": "이전 버전",
+    "draftSource": "초안",
+    "assetBytes": "{bytes}",
+    "selectEntry": "즐겨찾기 선택: {preview}",
+    "deleteEntry": "즐겨찾기 삭제: {preview}",
+    "columns": {
+      "preview": "미리보기",
+      "source": "소스",
+      "status": "상태",
+      "savedAt": "저장 시간",
+      "attachments": "첨부",
+      "actions": "작업"
+    },
+    "statuses": {
+      "deleted": "삭제된 대화",
+      "in_progress": "진행 중",
+      "pending_review": "검토 대기",
+      "completed": "완료",
+      "cancelled": "취소",
+      "none": "—"
+    },
+    "filters": {
+      "all": "전체",
+      "completed": "완료",
+      "unused": "미사용（30일）",
+      "legacy": "이전 버전",
+      "draft": "새 대화 초안"
+    },
+    "confirmDelete": {
+      "title": "{count}개를 삭제할까요？",
+      "description": "선택한 항목과 첨부 파일이 영구적으로 삭제됩니다.",
+      "cancel": "취소",
+      "confirm": "즐겨찾기 삭제"
+    },
+    "deleteFailed": "일부 항목 삭제 실패: {message}",
+    "results": "{visible} / {total}개",
+    "selected": "{count}개 선택됨",
+    "loadFailed": "템플릿 로드 실패: {message}"
   },
   "PersonalAgent": {
     "title": "개인 에이전트",
@@ -13286,5 +13433,49 @@
       "rateLimited": "SRN이 잠시 후 다시 시도하라고 요청했습니다.",
       "server": "SRN이 오류를 반환했습니다."
     }
+  },
+  "ConversationPanes": {
+    "label": "Pane",
+    "create": "새 Pane",
+    "rename": "이름 변경",
+    "remove": "Pane 제거",
+    "move": "Pane으로 이동",
+    "name": "Pane 이름",
+    "save": "저장",
+    "cancel": "취소",
+    "resetPosition": "Pane 위치 초기화",
+    "dragHint": "끌어서 위치 이동",
+    "status": {
+      "running": "실행 중",
+      "runningMany": "{count}개 실행 중",
+      "waiting": "확인 필요",
+      "waitingMany": "{count}개 확인 필요",
+      "completed": "완료됨",
+      "completedMany": "{count}개 완료됨",
+      "error": "오류",
+      "errorMany": "{count}개 오류"
+    },
+    "removeDraftTitle": "보내지 않은 내용이 있는 Pane을 제거할까요?",
+    "removeDraftDescription": "이 Pane의 보내지 않은 내용은 더 이상 표시되지 않습니다. 대화 기록은 유지되며 실행 중인 작업은 계속됩니다.",
+    "empty": "이 Pane에 열린 대화가 없습니다",
+    "emptyHint": "사이드바에서 대화를 열거나 새 대화를 시작하세요."
+  },
+  "PromptStash": {
+    "action": "Collect or restore prompt",
+    "title": "Prompt collection",
+    "loading": "Loading…",
+    "empty": "No collected prompts yet. Write a prompt and collect it first.",
+    "saved": "Prompt collected",
+    "failed": "Could not collect prompt",
+    "inputChanged": "Input changed; nothing was overwritten.",
+    "attachmentOnly": "Attachments",
+    "attachments": "{count} attachments",
+    "retry": "Retry",
+    "delete": "Delete",
+    "deleteTitle": "Delete this collected prompt?",
+    "deleteConfirm": "Delete",
+    "cancel": "Cancel",
+    "deleted": "Collected prompt deleted",
+    "deleteFailed": "Could not delete collected prompt"
   }
 }

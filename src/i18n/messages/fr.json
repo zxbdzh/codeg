@@ -64,7 +64,8 @@
       "browser": "Utilisation du navigateur",
       "computer_use": "Utilisation de l'ordinateur",
       "quick_messages": "Messages rapides",
-      "logs": "Journaux d'exécution"
+      "logs": "Journaux d'exécution",
+      "prompt_stash": "Entrées enregistrées"
     }
   },
   "AppearanceSettings": {
@@ -551,6 +552,10 @@
       "newline_in_message": {
         "title": "Retour à la ligne",
         "description": "Insérer un retour à la ligne dans la zone de saisie"
+      },
+      "prompt_stash": {
+        "title": "Collect or restore prompt",
+        "description": "Collect nonempty input, or restore a template into empty input"
       },
       "toggle_custom_style": {
         "title": "Suspendre/réactiver le style personnalisé",
@@ -2687,6 +2692,13 @@
       "closeWindow": "Fermer la fenêtre",
       "close": "Fermer"
     },
+    "mobileTabs": {
+      "title": "Onglets ouverts",
+      "open": "Changer d’onglet ({count})",
+      "conversations": "Conversations",
+      "files": "Fichiers et aperçus",
+      "empty": "Aucun onglet ouvert"
+    },
     "tabs": {
       "closeConversationTab": "Fermer l’onglet de conversation",
       "close": "Fermer",
@@ -2703,6 +2715,8 @@
       "unsplitAll": "Annuler toutes les divisions",
       "closeAll": "Tout fermer",
       "tileDisplay": "Affichage en mosaïque",
+      "focusTab": "Focus sur l’onglet",
+      "exitFocus": "Quitter le focus",
       "untileDisplay": "Quitter la mosaïque"
     },
     "fileWorkspace": {
@@ -2723,7 +2737,9 @@
       "more": "Plus",
       "maximize": "Agrandir",
       "restore": "Restaurer",
-      "emptyDirectory": "Dossier vide"
+      "emptyDirectory": "Dossier vide",
+      "focusTab": "Focus sur l’onglet",
+      "exitFocus": "Quitter le focus"
     },
     "terminal": {
       "rename": "Renommer",
@@ -4596,6 +4612,25 @@
       "commandFailed": "La commande de création du projet a échoué."
     }
   },
+  "WebAppInstall": {
+    "title": "Installer Codeg",
+    "description": "Ouvrez Codeg depuis l’écran d’accueil ou le bureau dans sa propre fenêtre.",
+    "install": "Installer l’application",
+    "installing": "En attente du navigateur…",
+    "standalone": "Ouvert en mode application",
+    "installed": "Installé. Ouvrez Codeg depuis l’écran d’accueil ou la liste des applications.",
+    "accepted": "Terminez l’installation dans le navigateur, puis ouvrez Codeg depuis l’écran d’accueil ou la liste des applications.",
+    "httpHint": "Cette connexion utilise HTTP. Essayez d’ajouter le site à l’écran d’accueil ou de créer un raccourci depuis le menu du navigateur. L’installation depuis la page et le cache hors connexion nécessitent généralement HTTPS ; le navigateur détermine le mode d’ouverture.",
+    "androidMenu": "Ouvrez le menu du navigateur (⋮ ou ≡).",
+    "androidAdd": "Choisissez Ajouter à l’écran d’accueil, Ajouter au téléphone ou Installer et créer un raccourci.",
+    "androidConfirm": "Suivez les instructions du navigateur. Si seule l’option Créer un raccourci apparaît, elle permet aussi d’ouvrir Codeg depuis l’écran d’accueil.",
+    "iosOpen": "Ouvrez cette page dans Safari.",
+    "iosShare": "Ouvrez le menu Partager et choisissez Sur l’écran d’accueil.",
+    "iosAdd": "Si l’option Ouvrir comme app web apparaît, activez-la, puis touchez Ajouter.",
+    "browserMenu": "Cherchez Installer l’application ou Ajouter à l’écran d’accueil dans le menu du navigateur. Sinon, essayez un navigateur compatible comme Chrome ou Edge.",
+    "failed": "Impossible d’ouvrir l’invite d’installation. Utilisez le menu du navigateur ou rechargez la page.",
+    "connection": "Votre ordinateur ou serveur doit rester connecté pour les conversations et les tâches. L’installation ne déplace pas les agents ni les fichiers du projet sur votre téléphone."
+  },
   "WebServiceSettings": {
     "addressSwitchHint": "Changer ne modifie que l'adresse affichée et ouverte ici ; le service écoute sur toutes les interfaces et reste accessible à chaque adresse.",
     "sectionTitle": "Service Web",
@@ -5807,6 +5842,16 @@
     "toneDescend": "Descendant"
   },
   "BrowserSettings": {
+    "egoImportTitle": "Importer la session depuis Ego",
+    "egoImportHint": "Choisissez le profil Ego des imports manuels. Les imports par l’IA restent désactivés jusqu’à leur activation.",
+    "egoImportSource": "Profil source Ego",
+    "egoImportChooseSource": "Choisir un profil Ego",
+    "egoImportMissingName": "Profil Ego indisponible",
+    "egoImportSourceMissing": "Le profil Ego enregistré « {name} » est indisponible. Choisissez-en un autre.",
+    "egoImportNoProfiles": "Aucun profil Ego n’est disponible.",
+    "egoImportAllowAgent": "Autoriser l’IA à importer la session",
+    "egoImportAllowAgentHint": "Les agents peuvent importer depuis ce profil si nécessaire. Cela ne leur donne pas accès à la page.",
+    "egoImportSaveFailed": "Impossible de charger ou d’enregistrer les paramètres d’import Ego.",
     "title": "Navigateur intégré",
     "description": "Les pages web ouvertes depuis les conversations, les résultats d’outils et le terminal peuvent s’afficher comme onglets à côté de vos fichiers, sans quitter l’application.",
     "descriptionWeb": "Dans une session navigateur, les pages s’ouvrent dans le navigateur que vous utilisez déjà. L’exception : un serveur qui tourne sur l’hôte codeg, relayé ici dans un onglet. Voici les réglages qui décident encore quelque chose.",
@@ -9911,6 +9956,46 @@
   },
   "Browser": {
     "toolbar": {
+      "importEgoLogin": "Importer la session depuis Ego",
+      "egoImportDesktopOnly": "Application de bureau uniquement",
+      "muteWebsite": "Couper le son du site",
+      "unmuteWebsite": "Rétablir le son du site",
+      "showKeyboard": "Afficher le clavier",
+      "hideKeyboard": "Masquer le clavier",
+      "remoteControls": "Commandes tactiles du navigateur",
+      "enterLandscape": "Bureau en paysage",
+      "exitLandscape": "Quitter le paysage",
+      "trackpadMode": "Pavé tactile",
+      "directTouch": "Toucher direct",
+      "leftClick": "Clic gauche",
+      "rightClick": "Clic droit",
+      "dragPointer": "Glisser",
+      "specialKeys": "Touches spéciales",
+      "egoImportDialogTitle": "Importer la session depuis Ego",
+      "egoImportTarget": "La session de {site} sera importée dans le profil de navigateur {profile}.",
+      "egoImportSource": "Profil source Ego",
+      "egoImportChooseSource": "Choisir un profil Ego",
+      "egoImportSourceMissing": "Le profil Ego enregistré « {name} » est indisponible. Choisissez-en un autre.",
+      "egoImportNoProfiles": "Aucun profil Ego n’est disponible.",
+      "egoImportLoading": "Chargement des profils Ego…",
+      "egoImportBoundSource": "Profil Ego : {name}",
+      "egoImportUnknownSite": "cette page",
+      "egoImportImport": "Importer",
+      "egoImportImporting": "Importation…",
+      "egoImportCancel": "Annuler",
+      "egoImportClose": "Fermer",
+      "egoImportResultImported": "{cookies} cookies et {storage} éléments de stockage du site importés ({skipped} cookies expirés ignorés). Vérifiez votre connexion à {site}.",
+      "egoImportResultUnchanged": "Aucune modification n’a été faite pour {site}. Vérifiez la session sur cette page.",
+      "egoImportErrorUnavailable": "Ego est indisponible pour le moment. Réessayez plus tard.",
+      "egoImportErrorSourceRequired": "Choisissez un profil Ego pour continuer.",
+      "egoImportErrorSourceMissing": "Le profil Ego sélectionné n’est plus disponible. Choisissez-en un autre.",
+      "egoImportErrorDisabled": "Les imports par l’IA sont désactivés dans les paramètres.",
+      "egoImportErrorConflict": "Les données de connexion existantes de ce site n’ont pas été modifiées.",
+      "egoImportErrorUnsupported": "La session de ce site ne peut pas être importée.",
+      "egoImportErrorFailed": "Impossible d’importer la session.",
+      "egoImportErrorGrant": "L’import n’est pas autorisé pour cette page.",
+      "egoImportErrorTab": "Cet onglet de navigateur n’est plus disponible.",
+      "egoImportErrorBlocked": "Un paramètre du navigateur empêche l’import de ce site.",
       "back": "Précédent",
       "forward": "Suivant",
       "reload": "Recharger",
@@ -9992,6 +10077,9 @@
     "bridge": {
       "frameTitle": "Aperçu du serveur de développement",
       "opening": "Connexion via le serveur…",
+      "address": "Adresse de l'aperçu",
+      "addressPlaceholder": "Saisir un site ou localhost:port",
+      "blankHint": "Saisissez l'adresse d'un site ou d'un service local, puis appuyez sur Entrée",
       "reload": "Recharger",
       "openExternal": "Ouvrir dans un nouvel onglet",
       "copyAddress": "Copier l'adresse",
@@ -10212,6 +10300,65 @@
         "probeFailed": "Le navigateur intégré n'a pas pu confirmer qu'il atteint l'hôte distant par le tunnel. Réessayez dans un instant."
       }
     }
+  },
+  "PromptStashSettings": {
+    "title": "Entrées enregistrées",
+    "description": "Tous les modèles d'entrée sauvegardés. Les anciens enregistrements sans conversation ne sont gérés qu'ici.",
+    "loading": "Chargement des favoris",
+    "retry": "Réessayer",
+    "empty": "Aucun favori enregistré. Sauvegardez une entrée depuis une conversation pour la voir ici.",
+    "noResults": "Aucun favori ne correspond à la recherche et au filtre actuels.",
+    "refresh": "Actualiser",
+    "search": "Rechercher aperçu, conversation ou projet",
+    "filter": "Filtrer les favoris",
+    "clearFilters": "Effacer les filtres",
+    "clearSelection": "Désélectionner",
+    "selectFiltered": "Sélectionner tous les favoris filtrés",
+    "deleteSelected": "Supprimer la sélection",
+    "deleting": "Suppression…",
+    "unusedHint": "Inutilisé depuis 30+ jours",
+    "unknownTime": "—",
+    "untitledConversation": "Conversation sans titre",
+    "noProject": "Sans projet",
+    "attachmentOnly": "(pièce jointe uniquement)",
+    "legacySource": "Hérité",
+    "draftSource": "Brouillon",
+    "assetBytes": "{bytes}",
+    "selectEntry": "Sélectionner le favori : {preview}",
+    "deleteEntry": "Supprimer le favori : {preview}",
+    "columns": {
+      "preview": "Aperçu",
+      "source": "Source",
+      "status": "Statut",
+      "savedAt": "Enregistré",
+      "attachments": "Fichiers",
+      "actions": "Actions"
+    },
+    "statuses": {
+      "deleted": "Conversation supprimée",
+      "in_progress": "En cours",
+      "pending_review": "En attente de révision",
+      "completed": "Terminé",
+      "cancelled": "Annulé",
+      "none": "—"
+    },
+    "filters": {
+      "all": "Tous",
+      "completed": "Terminés",
+      "unused": "Inutilisés (30j)",
+      "legacy": "Hérités",
+      "draft": "Nouveaux brouillons"
+    },
+    "confirmDelete": {
+      "title": "Supprimer {count} entrées ?",
+      "description": "Les entrées sélectionnées et leurs pièces jointes seront définitivement supprimées.",
+      "cancel": "Annuler",
+      "confirm": "Supprimer les favoris"
+    },
+    "deleteFailed": "Certaines entrées n'ont pas pu être supprimées : {message}",
+    "results": "{visible} / {total}",
+    "selected": "{count} sélectionnées",
+    "loadFailed": "Impossible de charger les modèles : {message}"
   },
   "PersonalAgent": {
     "title": "Agent personnel",
@@ -13286,5 +13433,49 @@
       "rateLimited": "SRN a demandé à Codeg d'attendre avant de réessayer.",
       "server": "SRN a répondu par une erreur."
     }
+  },
+  "ConversationPanes": {
+    "label": "Pane",
+    "create": "Nouveau Pane",
+    "rename": "Renommer",
+    "remove": "Supprimer le Pane",
+    "move": "Déplacer vers un Pane",
+    "name": "Nom du Pane",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "resetPosition": "Réinitialiser la position du Pane",
+    "dragHint": "Faire glisser pour repositionner",
+    "status": {
+      "running": "En cours",
+      "runningMany": "{count} en cours",
+      "waiting": "Action requise",
+      "waitingMany": "{count} actions requises",
+      "completed": "Terminé",
+      "completedMany": "{count} terminés",
+      "error": "Erreur",
+      "errorMany": "{count} erreurs"
+    },
+    "removeDraftTitle": "Supprimer un Pane avec du contenu non envoyé ?",
+    "removeDraftDescription": "Le contenu non envoyé ne sera plus affiché. L’historique est conservé et les tâches en cours continuent.",
+    "empty": "Aucune conversation ouverte dans ce Pane",
+    "emptyHint": "Ouvrez une conversation dans la barre latérale ou commencez-en une."
+  },
+  "PromptStash": {
+    "action": "Collect or restore prompt",
+    "title": "Prompt collection",
+    "loading": "Loading…",
+    "empty": "No collected prompts yet. Write a prompt and collect it first.",
+    "saved": "Prompt collected",
+    "failed": "Could not collect prompt",
+    "inputChanged": "Input changed; nothing was overwritten.",
+    "attachmentOnly": "Attachments",
+    "attachments": "{count} attachments",
+    "retry": "Retry",
+    "delete": "Delete",
+    "deleteTitle": "Delete this collected prompt?",
+    "deleteConfirm": "Delete",
+    "cancel": "Cancel",
+    "deleted": "Collected prompt deleted",
+    "deleteFailed": "Could not delete collected prompt"
   }
 }

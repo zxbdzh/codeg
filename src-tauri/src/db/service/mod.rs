@@ -28,6 +28,7 @@ pub mod personal_agent_plan_service;
 pub mod personal_agent_routine_service;
 pub mod personal_agent_rule_service;
 pub mod personal_agent_watch_service;
+pub mod prompt_stash_service;
 pub mod quick_message_service;
 pub mod remote_workspace_connection_service;
 pub mod sender_context_service;

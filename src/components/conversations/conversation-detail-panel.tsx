@@ -2990,11 +2990,15 @@ function SplitStripCornerReserve({ side }: { side: "left" | "right" }) {
   const isMobile = useIsMobile()
   const { isOpen: sidebarOpen } = useSidebarContext()
   const { isOpen: auxOpen } = useAuxPanelContext()
-  const { mode, conversationMaximized } = useWorkspaceView()
+  const { mode, conversationMaximized, focusedTabPane } = useWorkspaceView()
   const { isMac, isWindows, isLinux } = usePlatform()
   const { zoomLevel } = useZoomLevel()
   if (isMobile) return null
-  const holdsRight = mode === "conversation" || conversationMaximized
+  // 分屏标签聚焦后同样铺满会话区，退出按钮不能落到固定窗口按钮下方。
+  const holdsRight =
+    mode === "conversation" ||
+    conversationMaximized ||
+    focusedTabPane === "conversation"
   if (side === "right" && !holdsRight) return null
   const width =
     side === "left"
@@ -3010,6 +3014,8 @@ function SplitStripCornerReserve({ side }: { side: "left" | "right" }) {
 export function ConversationDetailPanel() {
   const t = useTranslations("Folder.conversation")
   const tDetails = useTranslations("Folder.sessionDetails")
+  const isMobile = useIsMobile()
+  const { focusedTabId, focusedTabPane } = useWorkspaceView()
   const {
     completeTurn: runtimeCompleteTurn,
     removeConversation: runtimeRemoveConversation,
@@ -3018,6 +3024,7 @@ export function ConversationDetailPanel() {
   const conversations = useAppWorkspaceStore((s) => s.conversations)
   const allFolders = useAppWorkspaceStore((s) => s.allFolders)
   const tabs = useTabStore((s) => s.tabs)
+  const paneState = useTabStore((s) => s.paneState)
   const tabsFollowFolder = useFolderTabsStore((s) => s.enabled)
   const visibleTabs = useVisibleConversationTabs()
   const visibleLayout = useVisibleConversationLayout()
@@ -3274,6 +3281,9 @@ export function ConversationDetailPanel() {
   // Ensure no-tab state is immediately bridged to a real new-conversation tab.
   useEffect(() => {
     if (!folder) return
+    // 多 Pane 时不再自动种草稿；单 Pane 保持官方行为（见 tab-context 同处说明）。
+    const panes = useTabStore.getState().paneState
+    if (panes && panes.panes.length > 1) return
 
     if (
       shouldSeedConversation(useFolderTabsStore.getState().enabled, hasNoTabs)
@@ -3296,11 +3306,22 @@ export function ConversationDetailPanel() {
   // stable group id, so splits/merges/orientation flips/divider drags are pure
   // style changes and a tab that stays in its group is never reparented (a
   // reparent would remount the view and tear down a live streaming response).
-  const { groups: groupRects, handles: groupHandles } = useMemo(
-    () => computeRects(visibleLayout),
-    [visibleLayout]
-  )
-  const isSplit = leafIds(visibleLayout).length > 1
+  const { groups: groupRects, handles: groupHandles } = useMemo(() => {
+    const rects = computeRects(visibleLayout)
+    if (!paneState) return rects
+    // 灵动岛的每个 pane 用自己的 group 前缀，避免不同 pane 的同名组相互覆盖。
+    return {
+      ...rects,
+      groups: new Map(
+        [...rects.groups].map(([groupId, rect]) => [
+          `${paneState.activePaneId}/${groupId}`,
+          rect,
+        ])
+      ),
+    }
+  }, [visibleLayout, paneState])
+  // 手机只投影当前会话；共享分屏树仍保留给桌面及其他连接端。
+  const isSplit = !isMobile && leafIds(visibleLayout).length > 1
   // Every tab sits in its own view's group shell (`shellGroupOfTab`): the
   // folder views not on screen keep their shells, hidden, so a folder switch
   // reparents nothing. Shells come in id order — a fixed order whatever view
@@ -3308,12 +3329,24 @@ export function ConversationDetailPanel() {
   // transcript inside it); new shells only ever insert.
   const tabsByGroup = useMemo(() => {
     const byGroup = new Map<string, typeof tabs>()
-    for (const groupId of leafIds(groupLayout)) byGroup.set(groupId, [])
-    const state = { rawTabs: tabs, groupOf, groupLayout, groupViews }
+    for (const groupId of leafIds(groupLayout)) {
+      byGroup.set(
+        paneState ? `${paneState.activePaneId}/${groupId}` : groupId,
+        []
+      )
+    }
+    const state = {
+      rawTabs: tabs,
+      groupOf,
+      groupLayout,
+      groupViews,
+      paneState,
+    }
     for (const tab of tabs) {
-      const groupId = visibleTabIds.has(tab.id)
-        ? groupOfTab(groupOf, groupLayout, tab.id)
-        : shellGroupOfTab(state, tab.id)
+      const groupId =
+        !paneState && visibleTabIds.has(tab.id)
+          ? groupOfTab(groupOf, groupLayout, tab.id)
+          : shellGroupOfTab(state, tab.id)
       const bucket = byGroup.get(groupId)
       if (bucket) {
         bucket.push(tab)
@@ -3322,10 +3355,33 @@ export function ConversationDetailPanel() {
       }
     }
     return byGroup
-  }, [tabs, groupOf, groupLayout, groupViews, visibleTabIds])
+  }, [tabs, groupOf, groupLayout, groupViews, visibleTabIds, paneState])
   const orderedGroupIds = useMemo(
     () => [...tabsByGroup.keys()].sort(),
     [tabsByGroup]
+  )
+  // 单标签 zoom 保留分屏 DOM；未聚焦的组继续挂载但不再显示、不再接收输入。
+  const focusedGroupId =
+    focusedTabPane === "conversation" && focusedTabId != null
+      ? visibleTabIds.has(focusedTabId)
+        ? groupOfTab(groupOf, visibleLayout, focusedTabId)
+        : null
+      : null
+  const focusedShellId =
+    focusedGroupId == null
+      ? null
+      : (orderedGroupIds.find(
+          (shellId) =>
+            shellId === focusedGroupId || shellId.endsWith(`/${focusedGroupId}`)
+        ) ?? null)
+  const focusActive = focusedGroupId != null
+  // 手机同一时刻只投影一个会话，壳层按当前活动标签选。
+  const mobileActiveTabId =
+    visibleTabs.find((tab) => tab.id === activeTabId)?.id ??
+    visibleTabs[0]?.id ??
+    null
+  const mobileActiveShellId = orderedGroupIds.find((shellId) =>
+    (tabsByGroup.get(shellId) ?? []).some((tab) => tab.id === mobileActiveTabId)
   )
 
   const tileTabRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
@@ -3340,20 +3396,38 @@ export function ConversationDetailPanel() {
   const tiledSelectionKey = useMemo(
     () =>
       orderedGroupIds
-        .filter(
-          (groupId) =>
+        .filter((shellId) => {
+          const groupId = paneState
+            ? shellId.slice(paneState.activePaneId.length + 1)
+            : shellId
+          return (
             tileByGroup[groupId] &&
-            (tabsByGroup.get(groupId) ?? []).filter((tab) =>
+            (tabsByGroup.get(shellId) ?? []).filter((tab) =>
               visibleTabIds.has(tab.id)
             ).length > 1 &&
             groupSelection[groupId] != null
+          )
+        })
+        .map(
+          (shellId) =>
+            groupSelection[
+              paneState
+                ? shellId.slice(paneState.activePaneId.length + 1)
+                : shellId
+            ]
         )
-        .map((groupId) => groupSelection[groupId])
         .join("|"),
-    [orderedGroupIds, tileByGroup, tabsByGroup, groupSelection, visibleTabIds]
+    [
+      orderedGroupIds,
+      tileByGroup,
+      tabsByGroup,
+      groupSelection,
+      visibleTabIds,
+      paneState,
+    ]
   )
   useEffect(() => {
-    if (!tiledSelectionKey) return
+    if (isMobile || !tiledSelectionKey) return
     for (const selectedId of tiledSelectionKey.split("|")) {
       tileTabRefs.current.get(selectedId)?.scrollIntoView({
         behavior: "smooth",
@@ -3361,7 +3435,7 @@ export function ConversationDetailPanel() {
         block: "nearest",
       })
     }
-  }, [tiledSelectionKey])
+  }, [isMobile, tiledSelectionKey])
 
   // Safety valve: if the dragged tab vanishes mid-drag (a remote snapshot
   // closing it), the drag-end callback on its unmounted item never fires —
@@ -3374,7 +3448,7 @@ export function ConversationDetailPanel() {
   }, [tabs])
 
   if (hasNoTabs) {
-    return tabsFollowFolder ? <FolderTabsEmptyState /> : null
+    return tabsFollowFolder || paneState ? <FolderTabsEmptyState /> : null
   }
 
   const renderTabWrapper = (
@@ -3384,9 +3458,17 @@ export function ConversationDetailPanel() {
     canTileG: boolean
   ) => {
     const inScope = visibleTabIds.has(tab.id)
-    const active = inScope && tab.id === activeTabId
+    const active =
+      inScope && tab.id === (isMobile ? mobileActiveTabId : activeTabId)
     // Visible = tiled (all group members shown) or the group's selected tab.
-    const visible = inScope && (canTileG || tab.id === groupSelection[groupId])
+    // 灵动岛的壳层 id 带 pane 前缀，读用户选择时要剥回原始 group id。
+    const rawGroupId =
+      paneState && groupId.startsWith(`${paneState.activePaneId}/`)
+        ? groupId.slice(paneState.activePaneId.length + 1)
+        : groupId
+    const visible =
+      inScope &&
+      (isMobile ? active : canTileG || tab.id === groupSelection[rawGroupId])
     const folderPath = allFolders.find((f) => f.id === tab.folderId)?.path
     const view = (
       <ConversationTabView
@@ -3452,14 +3534,28 @@ export function ConversationDetailPanel() {
 
   // Plain function (NOT a component defined in render — that type identity
   // would change every render and remount the whole shell subtree).
-  const renderGroupShell = (groupId: string) => {
-    const inScope = groupRects.has(groupId)
-    const rect = groupRects.get(groupId) ?? { x: 0, y: 0, w: 100, h: 100 }
-    const groupTabs = tabsByGroup.get(groupId) ?? []
+  const renderGroupShell = (shellId: string) => {
+    const inScope =
+      groupRects.has(shellId) &&
+      (!isMobile || shellId === mobileActiveShellId) &&
+      (focusedShellId === null || focusedShellId === shellId)
+    const groupId =
+      paneState && shellId.startsWith(`${paneState.activePaneId}/`)
+        ? shellId.slice(paneState.activePaneId.length + 1)
+        : shellId
+    const rect =
+      (isMobile || focusActive) && inScope
+        ? { x: 0, y: 0, w: 100, h: 100 }
+        : (groupRects.get(shellId) ?? { x: 0, y: 0, w: 100, h: 100 })
+    const groupTabs = tabsByGroup.get(shellId) ?? []
     const visibleGroupTabs = groupTabs.filter((tab) =>
       visibleTabIds.has(tab.id)
     )
-    const canTileG = !!tileByGroup[groupId] && visibleGroupTabs.length > 1
+    const canTileG =
+      !isMobile &&
+      !focusActive &&
+      !!tileByGroup[groupId] &&
+      visibleGroupTabs.length > 1
     // Only the TOP-edge strips sit under the fixed corner overlays (the split
     // layout has no title-bar row above them) — the leftmost/rightmost of that
     // row carry the corner reserves the unsplit strip row normally provides.
@@ -3482,9 +3578,14 @@ export function ConversationDetailPanel() {
     // remount every live view (see group-shell-reconciliation.test.tsx).
     return (
       <div
-        key={groupId}
+        key={shellId}
         data-conv-group-shell={groupId}
-        className="absolute flex min-h-0 flex-col overflow-hidden"
+        aria-hidden={!inScope || undefined}
+        inert={!inScope || undefined}
+        className={cn(
+          "absolute flex min-h-0 flex-col overflow-hidden",
+          focusedShellId !== null && focusedShellId !== shellId && "invisible"
+        )}
         style={{
           left: `${rect.x}%`,
           top: `${rect.y}%`,
@@ -3543,7 +3644,7 @@ export function ConversationDetailPanel() {
                   transcript's scroll offset and blank it (see
                   stableTabViewOrder). */}
               {stableTabViewOrder(groupTabs).map(({ tab, visualIndex }) =>
-                renderTabWrapper(tab, visualIndex, groupId, canTileG)
+                renderTabWrapper(tab, visualIndex, shellId, canTileG)
               )}
             </div>
           </TileScrollContainer>
@@ -3562,7 +3663,10 @@ export function ConversationDetailPanel() {
   // there's no tile row — it's simply the sole conversation's header. While
   // SPLIT, every group shell renders its own header under its strip (the
   // "tabs + title bar" pairing per group), so the global one steps aside.
-  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null
+  const activeTab =
+    tabs.find(
+      (tab) => tab.id === (isMobile ? mobileActiveTabId : activeTabId)
+    ) ?? null
   const activeTabFolder = activeTab
     ? allFolders.find((f) => f.id === activeTab.folderId)
     : undefined
@@ -3600,6 +3704,7 @@ export function ConversationDetailPanel() {
                   folder's, while tabs follow the folder), which the visible
                   one only differs from before the tab set is known. */}
               {isSplit &&
+                !focusActive &&
                 visibleLayout === groupLayout &&
                 groupHandles.map((handle) => (
                   <GroupSplitHandle
@@ -3611,7 +3716,7 @@ export function ConversationDetailPanel() {
                 ))}
               {/* The selected folder has nothing open: every shell above is
                   hidden, other folders' live tabs included. */}
-              {tabsFollowFolder && visibleTabs.length === 0 && (
+              {(tabsFollowFolder || paneState) && visibleTabs.length === 0 && (
                 <div className="absolute inset-0">
                   <FolderTabsEmptyState />
                 </div>

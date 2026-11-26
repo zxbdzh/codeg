@@ -1299,7 +1299,10 @@ export async function acpPiSetProjectTrust(
   workspace: string,
   trusted: boolean | null
 ): Promise<void> {
-  return getTransport().call("acp_pi_set_project_trust", { workspace, trusted })
+  return getTransport().call("acp_pi_set_project_trust", {
+    workspace,
+    trusted,
+  })
 }
 
 /** One decision recorded in pi's `trust.json`. */
@@ -2448,15 +2451,64 @@ export async function listOpenedTabs(): Promise<OpenedTabsSnapshot> {
 export async function saveOpenedTabs(
   items: OpenedTab[],
   expectedVersion: number,
-  origin: string
+  origin: string,
+  paneState?: import("@/lib/conversation-panes").ConversationPaneState
 ): Promise<SaveTabsOutcome> {
   return getTransport().call("save_opened_tabs", {
     items,
     expectedVersion,
     origin,
+    ...(paneState ? { paneState } : {}),
   })
 }
 
+export async function savePromptStash(
+  snapshot: import("./types").PromptStashSnapshot,
+  scopeKey: string,
+  draftScopeKey?: string
+): Promise<{ entry: import("./types").PromptStashEntry; created: boolean }> {
+  return getTransport().call("save_prompt_stash", {
+    snapshot,
+    scopeKey,
+    draftScopeKey: draftScopeKey ?? null,
+  })
+}
+
+/** 输入框必须传对话标识；仅设置管理页无参读取全部元数据。 */
+export async function listPromptStash(
+  scopeKey?: string,
+  draftScopeKey?: string
+): Promise<import("./types").PromptStashEntry[]> {
+  return getTransport().call("list_prompt_stash", {
+    scopeKey: scopeKey ?? null,
+    draftScopeKey: draftScopeKey ?? null,
+  })
+}
+
+export async function restorePromptStash(
+  id: number,
+  scopeKey: string,
+  draftScopeKey?: string
+): Promise<import("./types").PromptStashSnapshot> {
+  return getTransport().call("restore_prompt_stash", {
+    id,
+    scopeKey,
+    draftScopeKey: draftScopeKey ?? null,
+  })
+}
+
+/** 输入框带归属防止跨对话删除；设置页无归属参数时按已确认的 ID 清理。 */
+export async function removePromptStash(
+  id: number,
+  scopeKey?: string,
+  draftScopeKey?: string
+): Promise<void> {
+  return getTransport().call("remove_prompt_stash", {
+    id,
+    scopeKey: scopeKey ?? null,
+    draftScopeKey: draftScopeKey ?? null,
+  })
+}
 export async function listOpenFolderDetails(): Promise<FolderDetail[]> {
   return getTransport().call("list_open_folder_details")
 }
@@ -3043,7 +3095,9 @@ export async function personalAgentResumeAutoCompact(
 export async function personalAgentKeepalive(
   bot?: number | null
 ): Promise<void> {
-  return getTransport().call("personal_agent_keepalive", { botId: bot ?? null })
+  return getTransport().call("personal_agent_keepalive", {
+    botId: bot ?? null,
+  })
 }
 
 export async function personalAgentResend(

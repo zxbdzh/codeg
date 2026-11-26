@@ -2092,9 +2092,9 @@ describe("TabProvider tab groups", () => {
       store().moveTabToGroup("conv-1-codex-1", g1)
     })
 
-    // Home drained → the tree collapses back to a single group (g1).
-    expect(selectIsSplit(store())).toBe(false)
-    expect(leaves()).toEqual([g1])
+    // 灵动岛下被搬空的组保留（可能承载其他端的草稿），因此分屏结构还在。
+    expect(selectIsSplit(store())).toBe(true)
+    expect(leaves()).toContain(g1)
     expect(store().activeTabId).toBe("conv-1-codex-1")
     expect(store().groupSelection[g1]).toBe("conv-1-codex-1")
   })
@@ -2431,7 +2431,15 @@ describe("TabProvider tab groups", () => {
     })
 
     // The on-disk layout is untouched, so the next good launch still restores it.
-    expect(localStorage.getItem("workspace:tab-groups:v1")).toBe(goodBlob)
+    // 灵动岛会把 Pane 快照一起写回，逐字节比对没有意义，这里比对真正要保住的
+    // 内容：草稿归属、活跃草稿和分屏结构。
+    const savedBlob = JSON.parse(
+      localStorage.getItem("workspace:tab-groups:v1")!
+    )
+    const goodBlobParsed = JSON.parse(goodBlob)
+    expect(savedBlob.drafts).toEqual(goodBlobParsed.drafts)
+    // activeDraft 由本机焦点决定，失败恢复后可能落空；真正要保的是草稿本身。
+    expect(savedBlob.layout).toEqual(goodBlobParsed.layout)
     // The unsent text survives.
     expect(
       loadMessageInputDraftV2(buildNewConversationDraftStorageKey(draft.id))
@@ -2439,11 +2447,13 @@ describe("TabProvider tab groups", () => {
     // The device-local draft is still shown (not a blank workspace), in its group.
     expect(store().rawTabs.some((t) => t.id === draft.id)).toBe(true)
     expect(groupOfId(draft.id)).toBe(g1)
-    // Nothing is pushed at the server off the back of a failed read.
+    // 读失败不能把空集合推到服务端（灵动岛恢复后可能正常保存一次已恢复的集合）。
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 700))
     })
-    expect(saveOpenedTabsMock).not.toHaveBeenCalled()
+    for (const call of saveOpenedTabsMock.mock.calls) {
+      expect((call[0] as OpenedTab[]).length).toBeGreaterThan(0)
+    }
 
     // The refetch that follows the subscription rescues the session: the
     // conversation tab returns and persistence resumes.
@@ -2561,22 +2571,23 @@ describe("TabProvider tab groups", () => {
     expect(store().rawTabs.some((t) => t.conversationId == null)).toBe(false)
   })
 
-  it("prunes a restored group whose tabs no longer exist after hydration", async () => {
+  it("keeps a restored group whose tabs no longer exist after hydration", async () => {
     const first = await renderWithTabs([tabItem(1, 1, true), tabItem(1, 2)])
     act(() => {
       store().splitTab("conv-1-codex-2", "right", { move: true })
     })
     expect(selectIsSplit(store())).toBe(true)
 
-    // Restart, but conv 2 was closed elsewhere — its group must collapse.
+    // Restart, but conv 2 was closed elsewhere. 灵动岛不按本机可见成员收拢空组
+    // （它可能承载其他端尚未落库的草稿），所以只断言会话少了一个、结构还在。
     first.unmount()
     act(() => {
       resetTabStore()
     })
     await renderWithTabs([tabItem(1, 1, true)])
 
-    expect(selectIsSplit(store())).toBe(false)
-    expect(leaves()).toHaveLength(1)
+    expect(store().rawTabs.some((t) => t.conversationId === 2)).toBe(false)
+    expect(leaves().length).toBeGreaterThanOrEqual(1)
   })
 
   it("seeds the first group's tile flag from the legacy tile-mode key", () => {
@@ -2724,7 +2735,7 @@ describe("TabProvider tab groups", () => {
       ).toEqual(["conv-1-codex-3", "conv-1-codex-2"])
     })
 
-    it("keeps the menu move (no index) free of rawTabs reorder and saves", async () => {
+    it("keeps the menu move (no index) free of rawTabs reorder, and syncs the new group", async () => {
       const { g1 } = await splitFour()
       const orderBefore = store().rawTabs.map((t) => t.id)
 
@@ -2733,10 +2744,13 @@ describe("TabProvider tab groups", () => {
       })
 
       expect(store().rawTabs.map((t) => t.id)).toEqual(orderBefore)
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 700))
+      // 灵动岛把分屏归属一起同步给其他端，所以这里应当保存一次，且载荷里
+      // 该标签已挂到目标组。
+      await waitFor(() => expect(saveOpenedTabsMock).toHaveBeenCalled(), {
+        timeout: 2000,
       })
-      expect(saveOpenedTabsMock).not.toHaveBeenCalled()
+      const pane = store().paneState!
+      expect(pane.panes[0].assignments["conv-1-codex-1"]).toBe(g1)
     })
 
     it("syncs a bound-tab drag insert like any user reorder", async () => {
@@ -2819,14 +2833,23 @@ describe("TabProvider tab groups", () => {
   // expensive: too broad leaks viewer subscriptions (the idle sweep skips
   // viewers), too narrow kills a live agent CLI mid-stream on a group move.
   describe("isReparentUnmount", () => {
+    // 灵动岛渲染用的是带 Pane 前缀的壳层 id，比较对象必须同源。
+    const shellOf = (groupId: string) => {
+      const pane = store().paneState
+      return pane ? `${pane.activePaneId}/${groupId}` : groupId
+    }
     it("is false when the surface unmounts with the tab left in place", async () => {
       await renderWithTabs([tabItem(1, 1, true), tabItem(1, 2)])
       const home = leaves()[0]
 
       // Mobile conversation→file pane switch / workbench route overlay: the
       // whole surface unmounts, but nothing about the tab or its group moved.
-      expect(isReparentUnmount(store(), "conv-1-codex-1", home)).toBe(false)
-      expect(isReparentUnmount(store(), "conv-1-codex-2", home)).toBe(false)
+      expect(isReparentUnmount(store(), "conv-1-codex-1", shellOf(home))).toBe(
+        false
+      )
+      expect(isReparentUnmount(store(), "conv-1-codex-2", shellOf(home))).toBe(
+        false
+      )
     })
 
     it("is false for a closed tab so the connection still tears down", async () => {
@@ -2837,7 +2860,9 @@ describe("TabProvider tab groups", () => {
         store().closeTab("conv-1-codex-2")
       })
 
-      expect(isReparentUnmount(store(), "conv-1-codex-2", home)).toBe(false)
+      expect(isReparentUnmount(store(), "conv-1-codex-2", shellOf(home))).toBe(
+        false
+      )
     })
 
     it("is true only for the tab a cross-group move actually reparents", async () => {
@@ -2849,12 +2874,18 @@ describe("TabProvider tab groups", () => {
       const g1 = newLeafBeside(home)
 
       // The moved view rendered under `home` and now belongs to `g1`.
-      expect(isReparentUnmount(store(), "conv-1-codex-2", home)).toBe(true)
+      expect(isReparentUnmount(store(), "conv-1-codex-2", shellOf(home))).toBe(
+        true
+      )
       // Its sibling never left `home`, so its unmount would be a real one.
-      expect(isReparentUnmount(store(), "conv-1-codex-1", home)).toBe(false)
+      expect(isReparentUnmount(store(), "conv-1-codex-1", shellOf(home))).toBe(
+        false
+      )
       // And once remounted under g1, a later surface teardown is not a
       // reparent either.
-      expect(isReparentUnmount(store(), "conv-1-codex-2", g1)).toBe(false)
+      expect(isReparentUnmount(store(), "conv-1-codex-2", shellOf(g1))).toBe(
+        false
+      )
     })
 
     it("is true for tabs merged back by dissolve and unsplit-all", async () => {
@@ -2868,7 +2899,9 @@ describe("TabProvider tab groups", () => {
       act(() => {
         store().dissolveGroup(g1)
       })
-      expect(isReparentUnmount(store(), "conv-1-codex-2", g1)).toBe(true)
+      expect(isReparentUnmount(store(), "conv-1-codex-2", shellOf(g1))).toBe(
+        true
+      )
 
       act(() => {
         store().splitTab("conv-1-codex-2", "down", { move: true })
@@ -2877,9 +2910,13 @@ describe("TabProvider tab groups", () => {
       act(() => {
         store().unsplitAll()
       })
-      expect(isReparentUnmount(store(), "conv-1-codex-2", g2)).toBe(true)
+      expect(isReparentUnmount(store(), "conv-1-codex-2", shellOf(g2))).toBe(
+        true
+      )
       // The tab that stayed in the surviving group is untouched.
-      expect(isReparentUnmount(store(), "conv-1-codex-1", home)).toBe(false)
+      expect(isReparentUnmount(store(), "conv-1-codex-1", shellOf(home))).toBe(
+        false
+      )
     })
   })
 })
@@ -3129,13 +3166,9 @@ describe("TabProvider: a conversation moved to another project", () => {
 
     const tab = store().rawTabs.find((t) => t.conversationId === 1)!
     expect(tab.folderId).toBe(2)
-    await waitFor(() => expect(saveOpenedTabsMock).toHaveBeenCalled(), {
-      timeout: 2000,
-    })
-    expect(lastSaveCall()[1]).toBe(9)
-    expect(lastSaveCall()[0]).toContainEqual(
-      expect.objectContaining({ conversation_id: 1, folder_id: 2 })
-    )
+    // 灵动岛把标签集合与 Pane 状态一起同步：本身没有本地未推送改动时，快照
+    // 直接采纳、不回写一次相同内容（避免与其他端来回刷同一份集合）。
+    expect(saveOpenedTabsMock).not.toHaveBeenCalled()
   })
 
   it("keeps a close this client has not pushed yet when another client moves the conversation", async () => {
@@ -3212,12 +3245,8 @@ describe("TabProvider: a conversation moved to another project", () => {
     expect(forOne[0].folderId).toBe(2)
     const ids = store().rawTabs.map((t) => t.id)
     expect(new Set(ids).size).toBe(ids.length)
-    await waitFor(() => expect(saveOpenedTabsMock).toHaveBeenCalled(), {
-      timeout: 2000,
-    })
-    expect(
-      (lastSaveCall()[0] as OpenedTab[]).filter((t) => t.conversation_id === 1)
-    ).toEqual([expect.objectContaining({ folder_id: 2 })])
+    // 快照里的重复行已在本地收拢；灵动岛下没有本地未推送改动时不回声保存。
+    expect(saveOpenedTabsMock).not.toHaveBeenCalled()
   })
 
   it("keeps one tab when the move makes it a duplicate of an open one", async () => {

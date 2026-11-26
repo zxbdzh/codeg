@@ -1,6 +1,7 @@
 "use client"
 
 import type { JSONContent } from "@tiptap/core"
+import type { PromptStashSnapshot } from "./types"
 
 import { sanitizeComposerDraftDoc } from "./composer-draft-sanitize"
 
@@ -12,14 +13,15 @@ interface PersistedDraftState {
  *  which a Markdown round-trip would downgrade to plain links). */
 interface PersistedDraftStateV2 {
   doc: JSONContent
+  assets?: Pick<PromptStashSnapshot, "attachments" | "embeddedPayloads">
 }
 
 const STORAGE_PREFIX = "codeg:message-input-draft:v1"
 const STORAGE_PREFIX_V2 = "codeg:message-input-draft:v2"
 const draftTextCache = new Map<string, string>()
-const draftDocCache = new Map<string, JSONContent>()
+const draftDocCache = new Map<string, PersistedDraftStateV2>()
 const pendingPersistDrafts = new Map<string, string>()
-const pendingPersistDocs = new Map<string, JSONContent>()
+const pendingPersistDocs = new Map<string, PersistedDraftStateV2>()
 let idlePersistHandle: number | null = null
 let persistenceListenersBound = false
 
@@ -29,6 +31,22 @@ function storageKeyForDraftKey(draftKey: string): string {
 
 function storageKeyForDraftKeyV2(draftKey: string): string {
   return `${STORAGE_PREFIX_V2}:${draftKey}`
+}
+
+export function privateDraftImagePath(uri: string | null): string | null {
+  if (!uri) return null
+  try {
+    const url = new URL(uri)
+    if (
+      url.protocol !== "file:" ||
+      url.hostname ||
+      !/\/uploads\/conversation-undo\//i.test(url.pathname)
+    )
+      return null
+    return decodeURIComponent(url.pathname).replace(/^\/([a-z]:\/)/i, "$1")
+  } catch {
+    return null
+  }
 }
 
 /** A persisted v2 payload's `doc` is only trusted when it is a ProseMirror doc
@@ -67,12 +85,28 @@ function flushPendingDraftPersistence(): void {
       // Ignore storage quota/permission failures.
     }
   }
-  for (const [draftKey, doc] of docEntries) {
+  for (const [draftKey, snapshot] of docEntries) {
     let persisted = false
     try {
       localStorage.setItem(
         storageKeyForDraftKeyV2(draftKey),
-        JSON.stringify({ doc } satisfies PersistedDraftStateV2)
+        JSON.stringify({
+          ...snapshot,
+          ...(snapshot.assets
+            ? {
+                assets: {
+                  ...snapshot.assets,
+                  // Undo 私有副本已经持久化；草稿只存路径，避免大图撑满 localStorage 而整份草稿写入失败。
+                  attachments: snapshot.assets.attachments.map((attachment) =>
+                    attachment.type === "image" &&
+                    privateDraftImagePath(attachment.uri)
+                      ? { ...attachment, data: "" }
+                      : attachment
+                  ),
+                },
+              }
+            : {}),
+        })
       )
       persisted = true
     } catch {
@@ -93,15 +127,17 @@ function cancelScheduledDraftPersistence(): void {
   idlePersistHandle = null
 }
 
+export function flushMessageInputDrafts(): void {
+  cancelScheduledDraftPersistence()
+  flushPendingDraftPersistence()
+}
+
 function ensurePersistenceListeners(): void {
   if (typeof window === "undefined") return
   if (persistenceListenersBound) return
   persistenceListenersBound = true
 
-  const flushNow = () => {
-    cancelScheduledDraftPersistence()
-    flushPendingDraftPersistence()
-  }
+  const flushNow = flushMessageInputDrafts
 
   window.addEventListener("pagehide", flushNow)
   document.addEventListener("visibilitychange", () => {
@@ -156,7 +192,7 @@ export function moveMessageInputDraft(fromKey: string, toKey: string): void {
   const loaded = loadMessageInputDraftV2(fromKey)
   if (!loaded) return
   if (loaded.kind === "doc") {
-    saveMessageInputDraftV2(toKey, loaded.doc)
+    saveMessageInputDraftV2(toKey, loaded.doc, loaded.assets)
   } else {
     saveMessageInputDraft(toKey, loaded.markdown)
   }
@@ -286,7 +322,7 @@ export function clearMessageInputDraft(draftKey: string): void {
  * string to hydrate via `setText` (migration), or null when no draft exists.
  */
 export type LoadedDraftV2 =
-  | { kind: "doc"; doc: JSONContent }
+  | ({ kind: "doc" } & PersistedDraftStateV2)
   | { kind: "legacyMarkdown"; markdown: string }
   | null
 
@@ -299,7 +335,7 @@ export type LoadedDraftV2 =
  */
 export function loadMessageInputDraftV2(draftKey: string): LoadedDraftV2 {
   const cached = draftDocCache.get(draftKey)
-  if (cached) return { kind: "doc", doc: cached }
+  if (cached) return { kind: "doc", ...cached }
 
   if (typeof window !== "undefined") {
     try {
@@ -312,8 +348,18 @@ export function loadMessageInputDraftV2(draftKey: string): LoadedDraftV2 {
           // silently discard the WHOLE doc (losing the user's text and badges).
           // A draft already in the plain-text schema passes through untouched.
           const doc = sanitizeComposerDraftDoc(parsed.doc)
-          draftDocCache.set(draftKey, doc)
-          return { kind: "doc", doc }
+          const assets = parsed.assets
+          const snapshot: PersistedDraftStateV2 = {
+            doc,
+            ...(assets &&
+            Array.isArray(assets.attachments) &&
+            assets.embeddedPayloads &&
+            typeof assets.embeddedPayloads === "object"
+              ? { assets }
+              : {}),
+          }
+          draftDocCache.set(draftKey, snapshot)
+          return { kind: "doc", ...snapshot }
         }
       }
     } catch {
@@ -337,12 +383,14 @@ export function loadMessageInputDraftV2(draftKey: string): LoadedDraftV2 {
  */
 export function saveMessageInputDraftV2(
   draftKey: string,
-  doc: JSONContent
+  doc: JSONContent,
+  assets?: PersistedDraftStateV2["assets"]
 ): void {
-  draftDocCache.set(draftKey, doc)
+  const snapshot = { doc, ...(assets ? { assets } : {}) }
+  draftDocCache.set(draftKey, snapshot)
   if (typeof window === "undefined") return
 
-  pendingPersistDocs.set(draftKey, doc)
+  pendingPersistDocs.set(draftKey, snapshot)
   scheduleDraftPersistence()
 }
 

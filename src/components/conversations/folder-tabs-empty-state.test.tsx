@@ -20,6 +20,9 @@ vi.mock("@/contexts/tab-context", () => ({
     openNewConversationTab: h.openNewConversationTab,
     openChatModeTab: h.openChatModeTab,
   }),
+  // 灵动岛的空状态多读一次 Pane 是否存在；这里模拟「没有 Pane」的旧行为。
+  useTabStore: (selector: (state: { paneState: null }) => unknown) =>
+    selector({ paneState: null }),
 }))
 
 function renderEmpty() {

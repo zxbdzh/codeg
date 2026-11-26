@@ -20,6 +20,10 @@ const messageInputSource = readFileSync(
   resolve(process.cwd(), "src/components/chat/message-input.tsx"),
   "utf8"
 )
+const composerSurfaceSource = readFileSync(
+  resolve(process.cwd(), "src/components/chat/composer/composer-surface.tsx"),
+  "utf8"
+)
 const conversationShellSource = readFileSync(
   resolve(process.cwd(), "src/components/chat/conversation-shell.tsx"),
   "utf8"
@@ -130,17 +134,20 @@ describe("ConversationDetailPanel new conversation layout", () => {
       'const conversationFillsArea = mode === "conversation" || conversationMaximized'
     )
     expect(workspaceLayoutSource).toContain(
-      'conversationFillsArea && "conversation-tab-hidden invisible"'
+      "const filesHidden = conversationFillsArea || conversationFocused"
+    )
+    expect(workspaceLayoutSource).toContain(
+      "const conversationHidden = filesMaximized || fileFocused"
+    )
+    expect(workspaceLayoutSource).toContain(
+      'filesHidden && "conversation-tab-hidden invisible"'
     )
     expect(workspaceLayoutSource).toMatch(
       /conversationFillsArea &&\s*"absolute inset-0 z-30 bg-background ws-transparent-bg"/
     )
-    expect(workspaceLayoutSource).toContain(
-      "inert={conversationFillsArea || undefined}"
-    )
     // The conversation column under the files-maximized overlay.
     expect(workspaceLayoutSource).toContain(
-      'filesMaximized && "conversation-tab-hidden invisible"'
+      'conversationHidden && "conversation-tab-hidden invisible"'
     )
   })
 
@@ -157,7 +164,7 @@ describe("ConversationDetailPanel new conversation layout", () => {
       )
     }
     const conversationColumn = span(
-      "<OverlayHostHiddenProvider hidden={filesMaximized}>"
+      "<OverlayHostHiddenProvider hidden={conversationHidden}>"
     )
     expect(conversationColumn).toContain('data-workspace-pane="conversation"')
     expect(conversationColumn).not.toContain('data-workspace-pane="files"')
@@ -166,17 +173,15 @@ describe("ConversationDetailPanel new conversation layout", () => {
     )
     expect(conversationColumn).toContain("<TabBar maximizeControl />")
 
-    const fileColumn = span(
-      "<OverlayHostHiddenProvider hidden={conversationFillsArea}>"
-    )
+    const fileColumn = span("<OverlayHostHiddenProvider hidden={filesHidden}>")
     expect(fileColumn).toContain('data-workspace-pane="files"')
     expect(fileColumn).toContain("<FileWorkspaceTabBar />")
     expect(fileColumn).not.toContain('data-workspace-pane="conversation"')
     expect(fileColumn).toContain(
-      'conversationFillsArea && "conversation-tab-hidden invisible"'
+      'filesHidden && "conversation-tab-hidden invisible"'
     )
-    expect(fileColumn).toContain("aria-hidden={conversationFillsArea}")
-    expect(fileColumn).toContain("inert={conversationFillsArea || undefined}")
+    expect(fileColumn).toContain("aria-hidden={filesHidden}")
+    expect(fileColumn).toContain("inert={filesHidden || undefined}")
   })
 
   /**
@@ -191,7 +196,7 @@ describe("ConversationDetailPanel new conversation layout", () => {
   it("publishes the hidden flag from every conversation-hosting subtree", () => {
     // File column under the conversation overlay.
     expect(workspaceLayoutSource).toContain(
-      "<OverlayHostHiddenProvider hidden={conversationFillsArea}>"
+      "<OverlayHostHiddenProvider hidden={filesHidden}>"
     )
     // Full-page workbench route, both shells.
     expect(workspaceLayoutSource).toContain(
@@ -199,7 +204,7 @@ describe("ConversationDetailPanel new conversation layout", () => {
     )
     // Conversation column under the files-maximized overlay.
     expect(workspaceLayoutSource).toContain(
-      "<OverlayHostHiddenProvider hidden={filesMaximized}>"
+      "<OverlayHostHiddenProvider hidden={conversationHidden}>"
     )
     // A backgrounded conversation tab behind the selected one.
     expect(source).toContain("<OverlayHostHiddenProvider hidden={!visible}>")
@@ -245,10 +250,10 @@ describe("ConversationDetailPanel new conversation layout", () => {
     // `ws-transparent-bg` instead of frosting) + the inset focus ring on top.
     // The resting border is `border-foreground/20` (a touch darker than the
     // near-invisible default `border-input`, and legible over a background image).
-    expect(messageInputSource).toContain(
+    expect(composerSurfaceSource).toContain(
       "rounded-xl border border-foreground/20 bg-transparent transition-colors"
     )
-    expect(messageInputSource).toContain(
+    expect(composerSurfaceSource).toContain(
       '"bg-background ws-transparent-bg focus-within:border-ring focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-ring/50"'
     )
     expect(pickerWrapper).not.toContain("border-t border-input")
@@ -284,7 +289,7 @@ describe("ConversationDetailPanel new conversation layout", () => {
     // input drops the gutter via `flush` (the welcome column already provides
     // px-4) and uses the same pb-1.
     expect(chatInputSource).toContain(
-      'cn("pt-0", flush ? "pb-1" : "px-4 pb-1")'
+      'cn("pt-0", flush ? "pb-1" : "px-2 pb-1 md:px-4")'
     )
     // The composer's ceiling is still the caller's, but its FLOOR travels
     // through `tall` rather than a `min-h-*` smuggled in via `className`: the
@@ -292,7 +297,9 @@ describe("ConversationDetailPanel new conversation layout", () => {
     // only MessageInput knows the action row between them (composer-sizing.ts,
     // #746). A `min-h-*` set from out here would re-open that split.
     expect(chatInputSource).toContain("tall={tall}")
-    expect(chatInputSource).toContain('className="max-h-60"')
+    expect(chatInputSource).toContain(
+      'className="max-h-[min(15rem,40dvh)] md:max-h-60"'
+    )
     expect(chatInputSource).not.toMatch(/className=.*min-h-/)
     expect(chatInputSource).not.toContain("containerClassName")
     expect(source).not.toContain("containerClassName")
@@ -302,21 +309,27 @@ describe("ConversationDetailPanel new conversation layout", () => {
 })
 
 describe("ConversationDetailPanel split-group render model", () => {
+  it("keeps a zoomed tab as one full-width group without split handles", () => {
+    expect(source).toContain("const focusActive = focusedGroupId != null")
+    expect(source).toContain("isSplit &&\n                !focusActive &&")
+    expect(source).toContain("(isMobile || focusActive) && inScope")
+  })
+
   // The split feature's one structural invariant: group shells are FLAT
-  // SIBLINGS keyed by their stable group id, positioned purely by computed
-  // percentage rects. Nesting shells per layout-tree depth would reparent (and
-  // remount) every live conversation view on split/unsplit/orientation
-  // changes.
+  // SIBLINGS keyed by pane and their stable group id, positioned purely by
+  // computed percentage rects. Nesting shells per layout-tree depth would
+  // reparent (and remount) every live conversation view on split changes.
   it("renders group shells as flat keyed siblings from computed rects", () => {
     expect(source).toContain(
       "{orderedGroupIds.map((groupId) => renderGroupShell(groupId))}"
     )
-    expect(source).toContain("const renderGroupShell = (groupId: string)")
+    expect(source).toContain("`${paneState.activePaneId}/${groupId}`")
+    expect(source).toContain("const renderGroupShell = (shellId: string)")
     // A component defined inside render would change type identity every
     // render and remount its subtree — keep these plain function calls.
     expect(source).not.toContain("<RenderGroupShell")
     expect(source).not.toContain("<RenderTabWrapper")
-    expect(source).toContain("key={groupId}")
+    expect(source).toContain("key={shellId}")
     expect(source).toContain("computeRects(visibleLayout)")
   })
 
@@ -330,15 +343,14 @@ describe("ConversationDetailPanel split-group render model", () => {
     expect(source).toContain("[...tabsByGroup.keys()].sort()")
   })
 
-  // A selected folder with nothing open is not a blank column: the panel says
-  // so and offers a first conversation, whether or not other folders have
-  // tabs, and the workspace keeps the strip (and its "+") up for it.
-  it("shows the empty-folder state instead of a blank column", () => {
+  // An empty folder or Pane has a useful empty state instead of a blank
+  // column, and the workspace keeps its conversation strip available.
+  it("shows an empty-folder or Pane state instead of a blank column", () => {
     expect(source).toContain(
-      "return tabsFollowFolder ? <FolderTabsEmptyState /> : null"
+      "return tabsFollowFolder || paneState ? <FolderTabsEmptyState /> : null"
     )
     expect(source).toContain(
-      "{tabsFollowFolder && visibleTabs.length === 0 && ("
+      "{(tabsFollowFolder || paneState) && visibleTabs.length === 0 && ("
     )
     expect(workspaceLayoutSource).toContain(
       "const showConvStrip = hasConvTabs || tabsFollowFolder"
@@ -361,7 +373,7 @@ describe("ConversationDetailPanel split-group render model", () => {
       '"relative h-full min-w-[24rem] flex-1 overflow-hidden"'
     )
     expect(source).toMatch(
-      /<TileScrollContainer canTile=\{canTileG\}>[\s\S]*?renderTabWrapper\(tab, visualIndex, groupId, canTileG\)[\s\S]*?<\/TileScrollContainer>/
+      /<TileScrollContainer canTile=\{canTileG\}>[\s\S]*?renderTabWrapper\(tab, visualIndex, shellId, canTileG\)[\s\S]*?<\/TileScrollContainer>/
     )
   })
 
@@ -378,14 +390,14 @@ describe("ConversationDetailPanel split-group render model", () => {
     expect(workspaceLayoutSource).toContain("<TabBar maximizeControl />")
     const handlesIdx = source.indexOf("groupHandles.map((handle) => (")
     expect(handlesIdx).toBeGreaterThan(-1)
-    expect(source.slice(handlesIdx - 80, handlesIdx)).toContain("{isSplit &&")
+    expect(source.slice(handlesIdx - 120, handlesIdx)).toContain("{isSplit &&")
   })
 
   // Each split group keeps the unsplit layout's "tabs + conversation title
   // bar" pairing: its own header (driven by the GROUP's selected tab) sits
   // under its strip, and the global single header steps aside while split.
   it("pairs every split group with its own title bar and gates the global one", () => {
-    const shellStart = source.indexOf("const renderGroupShell = (groupId")
+    const shellStart = source.indexOf("const renderGroupShell = (shellId")
     const shellBody = source.slice(shellStart, shellStart + 6000)
     expect(shellBody).toContain("{isSplit && selTab && (")
     expect(shellBody).toContain("<ConversationDetailHeader")
@@ -405,7 +417,7 @@ describe("ConversationDetailPanel split-group render model", () => {
     expect(workspaceLayoutSource).not.toContain("hasConvTabs && !isConvSplit")
 
     // Panel: TOP-edge group strips carry the corner reserves themselves.
-    const shellStart = source.indexOf("const renderGroupShell = (groupId")
+    const shellStart = source.indexOf("const renderGroupShell = (shellId")
     const shellBody = source.slice(shellStart, shellStart + 6000)
     expect(shellBody).toContain(
       '{touchesLeft && <SplitStripCornerReserve side="left" />}'

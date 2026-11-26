@@ -64,7 +64,8 @@
       "browser": "Browser Use",
       "computer_use": "Computer Use",
       "quick_messages": "Quick Messages",
-      "logs": "Runtime Logs"
+      "logs": "Runtime Logs",
+      "prompt_stash": "Input Stash"
     }
   },
   "AppearanceSettings": {
@@ -551,6 +552,10 @@
       "newline_in_message": {
         "title": "Newline in Message",
         "description": "Insert a newline in the message input box"
+      },
+      "prompt_stash": {
+        "title": "Collect or restore prompt",
+        "description": "Collect nonempty input, or restore a template into empty input"
       },
       "toggle_custom_style": {
         "title": "Suspend/resume custom style",
@@ -2687,6 +2692,13 @@
       "closeWindow": "Close window",
       "close": "Close"
     },
+    "mobileTabs": {
+      "title": "Open tabs",
+      "open": "Switch tabs ({count})",
+      "conversations": "Conversations",
+      "files": "Files and previews",
+      "empty": "No open tabs"
+    },
     "tabs": {
       "closeConversationTab": "Close conversation tab",
       "close": "Close",
@@ -2703,6 +2715,8 @@
       "unsplitAll": "Unsplit All",
       "closeAll": "Close All",
       "tileDisplay": "Tile Display",
+      "focusTab": "Focus tab",
+      "exitFocus": "Exit focus",
       "untileDisplay": "Exit Tile"
     },
     "fileWorkspace": {
@@ -2723,6 +2737,8 @@
       "more": "More",
       "maximize": "Maximize",
       "restore": "Restore",
+      "focusTab": "Focus tab",
+      "exitFocus": "Exit focus",
       "emptyDirectory": "Empty folder"
     },
     "terminal": {
@@ -4596,6 +4612,25 @@
       "commandFailed": "Project creation command failed."
     }
   },
+  "WebAppInstall": {
+    "title": "Install Codeg",
+    "description": "Open Codeg from your home screen or desktop in its own window.",
+    "install": "Install app",
+    "installing": "Waiting for browser…",
+    "standalone": "Running as an app",
+    "installed": "Installed — open Codeg from your home screen or app list.",
+    "accepted": "Finish the browser's installation steps, then open Codeg from your home screen or app list.",
+    "httpHint": "This is an HTTP connection. Try adding this site to your home screen or creating a shortcut from the browser menu. In-page installation and offline caching generally require HTTPS; the browser determines how the site opens.",
+    "androidMenu": "Open your browser's menu (⋮ or ≡).",
+    "androidAdd": "Choose Add to Home Screen, Add to phone, or Install and create shortcut.",
+    "androidConfirm": "Confirm the browser's instructions. If only Create shortcut is available, use it to open Codeg from your home screen.",
+    "iosOpen": "Open this page in Safari.",
+    "iosShare": "Open Share, then choose Add to Home Screen.",
+    "iosAdd": "If shown, enable Open as Web App, then tap Add.",
+    "browserMenu": "In your browser menu, choose Install app or Add to Home Screen if available. If neither appears, try a supported browser such as Chrome or Edge.",
+    "failed": "The installation prompt could not open. Try the browser's installation menu or reload this page.",
+    "connection": "Your computer or server must stay online for conversations and tasks. Installing the app does not move agents or project files onto your phone."
+  },
   "WebServiceSettings": {
     "addressSwitchHint": "Switching only changes the address shown and opened here — the service listens on all interfaces and stays reachable at every address.",
     "sectionTitle": "Web Service",
@@ -5807,6 +5842,16 @@
     "toneDescend": "Descending"
   },
   "BrowserSettings": {
+    "egoImportTitle": "Import login state from Ego",
+    "egoImportHint": "Choose the Ego profile for manual imports. AI imports stay off until you enable them.",
+    "egoImportSource": "Ego source profile",
+    "egoImportChooseSource": "Select an Ego profile",
+    "egoImportMissingName": "Unavailable Ego profile",
+    "egoImportSourceMissing": "The saved Ego profile “{name}” is unavailable. Choose another profile.",
+    "egoImportNoProfiles": "No Ego profiles are available.",
+    "egoImportAllowAgent": "Allow AI to import login state",
+    "egoImportAllowAgentHint": "Agents can import from this profile when needed. This does not grant page access.",
+    "egoImportSaveFailed": "Could not load or save Ego import settings.",
     "title": "Built-in browser",
     "description": "Web pages opened from conversations, tool results and the terminal can appear as tabs next to your files instead of leaving the app.",
     "descriptionWeb": "In a browser session pages open in the browser you are already in. The exception is a server running on the codeg host, which is forwarded into a tab here. These are the settings that still decide something.",
@@ -9911,6 +9956,46 @@
   },
   "Browser": {
     "toolbar": {
+      "importEgoLogin": "Import login state from Ego",
+      "egoImportDesktopOnly": "Desktop only",
+      "muteWebsite": "Mute site",
+      "unmuteWebsite": "Unmute site",
+      "showKeyboard": "Show keyboard",
+      "hideKeyboard": "Hide keyboard",
+      "remoteControls": "Browser touch controls",
+      "enterLandscape": "Landscape desktop",
+      "exitLandscape": "Exit landscape",
+      "trackpadMode": "Trackpad",
+      "directTouch": "Direct touch",
+      "leftClick": "Left click",
+      "rightClick": "Right click",
+      "dragPointer": "Drag",
+      "specialKeys": "Special keys",
+      "egoImportDialogTitle": "Import login state from Ego",
+      "egoImportTarget": "Import login state for {site} into the {profile} browser profile.",
+      "egoImportSource": "Ego source profile",
+      "egoImportChooseSource": "Select an Ego profile",
+      "egoImportSourceMissing": "The saved Ego profile “{name}” is unavailable. Choose another profile.",
+      "egoImportNoProfiles": "No Ego profiles are available.",
+      "egoImportLoading": "Loading Ego profiles…",
+      "egoImportBoundSource": "Ego profile: {name}",
+      "egoImportUnknownSite": "this page",
+      "egoImportImport": "Import",
+      "egoImportImporting": "Importing…",
+      "egoImportCancel": "Cancel",
+      "egoImportClose": "Close",
+      "egoImportResultImported": "Imported {cookies} cookies and {storage} site-storage items ({skipped} expired cookies skipped). Check whether you are signed in at {site}.",
+      "egoImportResultUnchanged": "No changes were made for {site}. Check the login state on that page.",
+      "egoImportErrorUnavailable": "Ego is unavailable right now. Try again later.",
+      "egoImportErrorSourceRequired": "Choose an Ego profile to continue.",
+      "egoImportErrorSourceMissing": "The selected Ego profile is no longer available. Choose another profile.",
+      "egoImportErrorDisabled": "AI imports are turned off in settings.",
+      "egoImportErrorConflict": "Existing login data for this site was not changed.",
+      "egoImportErrorUnsupported": "Login state cannot be imported from this site.",
+      "egoImportErrorFailed": "Could not import the login state.",
+      "egoImportErrorGrant": "This page has not been authorized for import.",
+      "egoImportErrorTab": "This browser tab is no longer available.",
+      "egoImportErrorBlocked": "A browser setting prevents importing this site.",
       "back": "Back",
       "forward": "Forward",
       "reload": "Reload",
@@ -9992,6 +10077,9 @@
     "bridge": {
       "frameTitle": "Dev server preview",
       "opening": "Connecting through the server…",
+      "address": "Preview address",
+      "addressPlaceholder": "Enter a website or localhost:port",
+      "blankHint": "Enter a website or local service address and press Enter",
       "reload": "Reload",
       "openExternal": "Open in a new tab",
       "copyAddress": "Copy address",
@@ -10212,6 +10300,65 @@
         "probeFailed": "The built-in browser couldn't confirm that it reaches the remote host through the tunnel. Try again in a moment."
       }
     }
+  },
+  "PromptStashSettings": {
+    "title": "Input Stash",
+    "description": "All saved input templates. Old entries without a conversation have null scope and can only be managed here.",
+    "loading": "Loading favorites",
+    "retry": "Retry",
+    "empty": "No saved favorites. Save input from a conversation to see it here.",
+    "noResults": "No favorites match the current search and filter.",
+    "refresh": "Refresh",
+    "search": "Search preview, conversation or project",
+    "filter": "Filter favorites",
+    "clearFilters": "Clear filters",
+    "clearSelection": "Clear selection",
+    "selectFiltered": "Select all filtered favorites",
+    "deleteSelected": "Delete selected",
+    "deleting": "Deleting…",
+    "unusedHint": "Unused for 30+ days",
+    "unknownTime": "—",
+    "untitledConversation": "Untitled conversation",
+    "noProject": "No project",
+    "attachmentOnly": "(attachment only)",
+    "legacySource": "Legacy",
+    "draftSource": "Draft",
+    "assetBytes": "Attachment storage: {bytes} bytes",
+    "selectEntry": "Select favorite: {preview}",
+    "deleteEntry": "Delete favorite: {preview}",
+    "columns": {
+      "preview": "Preview",
+      "source": "Source",
+      "status": "Status",
+      "savedAt": "Saved",
+      "attachments": "Files",
+      "actions": "Actions"
+    },
+    "statuses": {
+      "deleted": "Conversation deleted",
+      "in_progress": "Running",
+      "pending_review": "Reviewing",
+      "completed": "Completed",
+      "cancelled": "Cancelled",
+      "none": "—"
+    },
+    "filters": {
+      "all": "All",
+      "completed": "Completed / cancelled",
+      "unused": "Unused for 30 days",
+      "legacy": "Legacy, unassigned",
+      "draft": "New conversation drafts"
+    },
+    "confirmDelete": {
+      "title": "Delete {count} entries?",
+      "description": "This will permanently delete the selected entries and their attachments.",
+      "cancel": "Cancel",
+      "confirm": "Delete favorites"
+    },
+    "deleteFailed": "Some entries could not be deleted: {message}",
+    "results": "{visible} / {total}",
+    "selected": "{count} selected",
+    "loadFailed": "Could not load saved templates: {message}"
   },
   "PersonalAgent": {
     "title": "Personal agent",
@@ -13286,5 +13433,49 @@
       "rateLimited": "SRN asked Codeg to wait before trying again.",
       "server": "SRN answered with an error."
     }
+  },
+  "ConversationPanes": {
+    "label": "Pane",
+    "create": "New Pane",
+    "rename": "Rename",
+    "remove": "Remove Pane",
+    "move": "Move to Pane",
+    "name": "Pane name",
+    "save": "Save",
+    "cancel": "Cancel",
+    "resetPosition": "Reset Pane position",
+    "dragHint": "Drag to reposition",
+    "status": {
+      "running": "Running",
+      "runningMany": "{count} running",
+      "waiting": "Waiting",
+      "waitingMany": "{count} waiting",
+      "completed": "Completed",
+      "completedMany": "{count} completed",
+      "error": "Error",
+      "errorMany": "{count} errors"
+    },
+    "removeDraftTitle": "Remove a Pane with unsent content?",
+    "removeDraftDescription": "Unsent content in this Pane will no longer be shown. Conversation history is kept and running tasks continue.",
+    "empty": "No conversations open in this Pane",
+    "emptyHint": "Open a conversation from the sidebar or start a new one."
+  },
+  "PromptStash": {
+    "action": "Collect or restore prompt",
+    "title": "Prompt collection",
+    "loading": "Loading…",
+    "empty": "No collected prompts yet. Write a prompt and collect it first.",
+    "saved": "Prompt collected",
+    "failed": "Could not collect prompt",
+    "inputChanged": "Input changed; nothing was overwritten.",
+    "attachmentOnly": "Attachments",
+    "attachments": "{count} attachments",
+    "retry": "Retry",
+    "delete": "Delete",
+    "deleteTitle": "Delete this collected prompt?",
+    "deleteConfirm": "Delete",
+    "cancel": "Cancel",
+    "deleted": "Collected prompt deleted",
+    "deleteFailed": "Could not delete collected prompt"
   }
 }

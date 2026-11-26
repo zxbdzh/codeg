@@ -64,7 +64,8 @@
       "browser": "瀏覽器操作",
       "computer_use": "電腦操作",
       "quick_messages": "快捷訊息",
-      "logs": "執行日誌"
+      "logs": "執行日誌",
+      "prompt_stash": "輸入收藏"
     }
   },
   "AppearanceSettings": {
@@ -551,6 +552,10 @@
       "newline_in_message": {
         "title": "訊息換行",
         "description": "在輸入框中插入換行符"
+      },
+      "prompt_stash": {
+        "title": "收藏或恢复输入框",
+        "description": "有内容时收藏，空白时选择收藏项回填"
       },
       "toggle_custom_style": {
         "title": "停用/恢復自訂樣式",
@@ -2687,6 +2692,13 @@
       "closeWindow": "關閉視窗",
       "close": "關閉"
     },
+    "mobileTabs": {
+      "title": "已開啟的分頁",
+      "open": "切換分頁（{count}）",
+      "conversations": "對話",
+      "files": "檔案與預覽",
+      "empty": "尚未開啟分頁"
+    },
     "tabs": {
       "closeConversationTab": "關閉會話分頁",
       "close": "關閉",
@@ -2703,6 +2715,8 @@
       "unsplitAll": "全部取消拆分",
       "closeAll": "關閉所有",
       "tileDisplay": "平鋪顯示",
+      "focusTab": "聚焦分頁",
+      "exitFocus": "離開聚焦",
       "untileDisplay": "取消平鋪"
     },
     "fileWorkspace": {
@@ -2723,7 +2737,9 @@
       "more": "更多",
       "maximize": "最大化",
       "restore": "還原",
-      "emptyDirectory": "空目錄"
+      "emptyDirectory": "空目錄",
+      "focusTab": "聚焦分頁",
+      "exitFocus": "離開聚焦"
     },
     "terminal": {
       "rename": "重新命名",
@@ -4596,6 +4612,25 @@
       "commandFailed": "專案建立命令執行失敗。"
     }
   },
+  "WebAppInstall": {
+    "title": "安裝 Codeg",
+    "description": "加入手機主畫面或電腦桌面，以獨立視窗開啟。",
+    "install": "安裝應用程式",
+    "installing": "等待瀏覽器確認…",
+    "standalone": "正在以應用程式模式執行",
+    "installed": "已安裝，可從主畫面或應用程式列表開啟 Codeg。",
+    "accepted": "請完成瀏覽器的安裝步驟，再從主畫面或應用程式列表開啟 Codeg。",
+    "httpHint": "目前是 HTTP 連線，可嘗試透過瀏覽器選單加入主畫面或建立捷徑。網頁內一鍵安裝與離線快取通常需要 HTTPS；開啟方式由瀏覽器決定。",
+    "androidMenu": "開啟瀏覽器選單（⋮ 或 ≡）。",
+    "androidAdd": "選擇「加入主畫面」、「新增至手機」或「安裝及建立捷徑」。",
+    "androidConfirm": "依瀏覽器提示確認；若只有「建立捷徑」，選擇後即可從主畫面進入。",
+    "iosOpen": "使用 Safari 開啟目前頁面。",
+    "iosShare": "開啟「分享」，選擇「加入主畫面」。",
+    "iosAdd": "若顯示「以網頁 App 開啟」，請開啟此選項，再點「加入」。",
+    "browserMenu": "在瀏覽器選單中尋找「安裝應用程式」或「加入主畫面」。若沒有這些選項，請嘗試 Chrome、Edge 等支援安裝的瀏覽器。",
+    "failed": "無法開啟安裝提示，請使用瀏覽器選單中的安裝選項，或重新整理後再試。",
+    "connection": "對話和任務仍需連線至在線的電腦或伺服器。安裝不會將智慧體和專案檔案搬到手機上。"
+  },
   "WebServiceSettings": {
     "addressSwitchHint": "切換只會改變這裡顯示與開啟的位址；服務會監聽所有網路介面，每個位址都可存取。",
     "sectionTitle": "Web 服務",
@@ -5807,6 +5842,16 @@
     "toneDescend": "下行音"
   },
   "BrowserSettings": {
+    "egoImportTitle": "從 Ego 匯入登入狀態",
+    "egoImportHint": "選擇手動匯入使用的 Ego 設定檔。AI 匯入預設關閉，需由你開啟。",
+    "egoImportSource": "Ego 來源設定檔",
+    "egoImportChooseSource": "選擇 Ego 設定檔",
+    "egoImportMissingName": "無法使用的 Ego 設定檔",
+    "egoImportSourceMissing": "已儲存的 Ego 設定檔「{name}」無法使用，請重新選擇。",
+    "egoImportNoProfiles": "沒有可用的 Ego 設定檔。",
+    "egoImportAllowAgent": "允許 AI 匯入登入狀態",
+    "egoImportAllowAgentHint": "允許代理程式視需要從此設定檔匯入；這不會授予網頁存取權。",
+    "egoImportSaveFailed": "無法讀取或儲存 Ego 匯入設定。",
     "title": "內建瀏覽器",
     "description": "從對話、工具結果和終端機開啟的網頁可以作為分頁顯示在檔案旁邊，而不必離開應用程式。",
     "descriptionWeb": "在瀏覽器會話裡，網頁都在你正在使用的瀏覽器中開啟；例外是跑在 codeg 主機上的伺服器，它會被轉發成這裡的一個分頁。以下是仍然生效的設定。",
@@ -9911,6 +9956,46 @@
   },
   "Browser": {
     "toolbar": {
+      "importEgoLogin": "從 Ego 匯入登入狀態",
+      "egoImportDesktopOnly": "僅限桌面版",
+      "muteWebsite": "關閉網站聲音",
+      "unmuteWebsite": "播放網站聲音",
+      "showKeyboard": "開啟鍵盤",
+      "hideKeyboard": "收起鍵盤",
+      "remoteControls": "瀏覽器觸控操作",
+      "enterLandscape": "橫向桌面",
+      "exitLandscape": "退出橫向",
+      "trackpadMode": "觸控板",
+      "directTouch": "直接觸控",
+      "leftClick": "左鍵",
+      "rightClick": "右鍵",
+      "dragPointer": "拖曳",
+      "specialKeys": "常用按鍵",
+      "egoImportDialogTitle": "從 Ego 匯入登入狀態",
+      "egoImportTarget": "將 {site} 的登入狀態匯入內建瀏覽器的「{profile}」設定檔。",
+      "egoImportSource": "Ego 來源設定檔",
+      "egoImportChooseSource": "選擇 Ego 設定檔",
+      "egoImportSourceMissing": "已儲存的 Ego 設定檔「{name}」無法使用，請重新選擇。",
+      "egoImportNoProfiles": "沒有可用的 Ego 設定檔。",
+      "egoImportLoading": "正在讀取 Ego 設定檔…",
+      "egoImportBoundSource": "Ego 設定檔：{name}",
+      "egoImportUnknownSite": "目前網頁",
+      "egoImportImport": "匯入",
+      "egoImportImporting": "正在匯入…",
+      "egoImportCancel": "取消",
+      "egoImportClose": "關閉",
+      "egoImportResultImported": "已匯入 {cookies} 個 Cookie 和 {storage} 項網站儲存資料（略過 {skipped} 個過期 Cookie）。請確認是否已登入 {site}。",
+      "egoImportResultUnchanged": "未變更 {site} 的登入資料。請在該網頁確認登入狀態。",
+      "egoImportErrorUnavailable": "Ego 目前無法使用，請稍後再試。",
+      "egoImportErrorSourceRequired": "請選擇 Ego 設定檔以繼續。",
+      "egoImportErrorSourceMissing": "所選 Ego 設定檔已無法使用，請重新選擇。",
+      "egoImportErrorDisabled": "設定中已關閉 AI 匯入。",
+      "egoImportErrorConflict": "未變更此網站現有的登入資料。",
+      "egoImportErrorUnsupported": "無法從此網站匯入登入狀態。",
+      "egoImportErrorFailed": "無法匯入登入狀態。",
+      "egoImportErrorGrant": "此網頁尚未獲准匯入。",
+      "egoImportErrorTab": "此瀏覽器分頁已無法使用。",
+      "egoImportErrorBlocked": "瀏覽器設定禁止匯入此網站。",
       "back": "上一頁",
       "forward": "下一頁",
       "reload": "重新整理",
@@ -9992,6 +10077,9 @@
     "bridge": {
       "frameTitle": "開發伺服器預覽",
       "opening": "正在透過伺服器連線…",
+      "address": "預覽網址",
+      "addressPlaceholder": "輸入網站或 localhost:連接埠",
+      "blankHint": "輸入網站或本機服務網址後按 Enter",
       "reload": "重新載入",
       "openExternal": "在新分頁開啟",
       "copyAddress": "複製網址",
@@ -10212,6 +10300,65 @@
         "probeFailed": "內建瀏覽器無法確認它能透過通道連到遠端主機。請稍後再試。"
       }
     }
+  },
+  "PromptStashSettings": {
+    "title": "輸入收藏",
+    "description": "全部已儲存的輸入範本。舊版無歸屬的記錄僅在此管理。",
+    "loading": "載入收藏中",
+    "retry": "重試",
+    "empty": "尚無收藏。在對話輸入框收藏內容後可在此查看。",
+    "noResults": "沒有收藏符合目前搜尋和篩選條件。",
+    "refresh": "重新整理",
+    "search": "搜尋預覽、對話或專案",
+    "filter": "篩選收藏",
+    "clearFilters": "清除篩選",
+    "clearSelection": "取消選取",
+    "selectFiltered": "選取全部篩選收藏",
+    "deleteSelected": "刪除選取",
+    "deleting": "刪除中…",
+    "unusedHint": "30天未使用",
+    "unknownTime": "—",
+    "untitledConversation": "未命名對話",
+    "noProject": "無專案",
+    "attachmentOnly": "（僅附件）",
+    "legacySource": "舊版",
+    "draftSource": "草稿",
+    "assetBytes": "{bytes}",
+    "selectEntry": "選取收藏：{preview}",
+    "deleteEntry": "刪除收藏：{preview}",
+    "columns": {
+      "preview": "預覽",
+      "source": "來源",
+      "status": "狀態",
+      "savedAt": "儲存時間",
+      "attachments": "附件",
+      "actions": "操作"
+    },
+    "statuses": {
+      "deleted": "已刪除對話",
+      "in_progress": "進行中",
+      "pending_review": "待審閱",
+      "completed": "已完成",
+      "cancelled": "已取消",
+      "none": "—"
+    },
+    "filters": {
+      "all": "全部",
+      "completed": "已完成",
+      "unused": "未使用（30天）",
+      "legacy": "舊版未歸屬",
+      "draft": "新對話草稿"
+    },
+    "confirmDelete": {
+      "title": "刪除 {count} 條收藏？",
+      "description": "這將永久刪除所選條目及其附件。",
+      "cancel": "取消",
+      "confirm": "刪除收藏"
+    },
+    "deleteFailed": "部分項目刪除失敗：{message}",
+    "results": "{visible} / {total} 條",
+    "selected": "已選 {count} 條",
+    "loadFailed": "載入收藏失敗：{message}"
   },
   "PersonalAgent": {
     "title": "個人助手",
@@ -13286,5 +13433,49 @@
       "rateLimited": "SRN 要求 Codeg 稍後再試。",
       "server": "SRN 回傳了錯誤。"
     }
+  },
+  "ConversationPanes": {
+    "label": "Pane",
+    "create": "新增 Pane",
+    "rename": "重新命名",
+    "remove": "移除 Pane",
+    "move": "移動到 Pane",
+    "name": "Pane 名稱",
+    "save": "儲存",
+    "cancel": "取消",
+    "resetPosition": "重設靈動島位置",
+    "dragHint": "拖曳可調整靈動島位置",
+    "status": {
+      "running": "進行中",
+      "runningMany": "{count} 個進行中",
+      "waiting": "待處理",
+      "waitingMany": "{count} 個待處理",
+      "completed": "已完成",
+      "completedMany": "{count} 個已完成",
+      "error": "發生錯誤",
+      "errorMany": "{count} 個錯誤"
+    },
+    "removeDraftTitle": "移除包含未傳送內容的 Pane？",
+    "removeDraftDescription": "此 Pane 中的未傳送內容將不再顯示。歷史對話會保留，執行中的工作繼續執行。",
+    "empty": "此 Pane 尚未開啟對話",
+    "emptyHint": "從左側開啟對話，或新增對話。"
+  },
+  "PromptStash": {
+    "action": "收藏或恢复输入框",
+    "title": "输入框收藏",
+    "loading": "正在加载…",
+    "empty": "还没有收藏。在输入框写好内容后点击收藏。",
+    "saved": "已收藏输入框",
+    "failed": "收藏输入框失败",
+    "inputChanged": "输入框已有新内容，未覆盖。",
+    "attachmentOnly": "附件",
+    "attachments": "{count} 个附件",
+    "retry": "重试",
+    "delete": "删除",
+    "deleteTitle": "删除这条收藏？",
+    "deleteConfirm": "删除",
+    "cancel": "取消",
+    "deleted": "已删除收藏",
+    "deleteFailed": "删除收藏失败"
   }
 }

@@ -28,6 +28,7 @@ pub use super::personal_agent_event::Entity as PersonalAgentEvent;
 pub use super::personal_agent_item::Entity as PersonalAgentItem;
 pub use super::personal_agent_segment::Entity as PersonalAgentSegment;
 pub use super::personal_agent_timeline::Entity as PersonalAgentTimeline;
+pub use super::prompt_stash::Entity as PromptStash;
 pub use super::quick_message::Entity as QuickMessage;
 pub use super::token_usage_sync::Entity as TokenUsageSync;
 pub use super::token_usage_turn::Entity as TokenUsageTurn;

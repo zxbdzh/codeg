@@ -106,10 +106,7 @@ export function useQuickActions() {
   const [cloneOpen, setCloneOpen] = useState(false)
   const [remoteManageOpen, setRemoteManageOpen] = useState(false)
 
-  // Remote connections are only reachable on the desktop runtime (a web client
-  // can't spawn another window bound to a different server), so their whole
-  // submenu — and the window-level extras, whose pet is the desktop's too —
-  // self-hide elsewhere.
+  // Remote connections can only open another workspace window on desktop.
   const {
     desktop,
     connections: remoteConnections,
@@ -208,7 +205,9 @@ export function QuickActionsItems({ actions }: { actions: QuickActions }) {
     setCloneOpen,
     setRemoteManageOpen,
   } = actions
-  const browserRow = browserAvailable && openBrowserTab !== null
+  // Web 端需要先打开空白标签才能显示桥接错误或输入地址，不能因为
+  // 能力探测暂时失败就把唯一入口隐藏掉。
+  const browserRow = openBrowserTab !== null && (!desktop || browserAvailable)
 
   return (
     <>
@@ -349,11 +348,8 @@ export function QuickActionsItems({ actions }: { actions: QuickActions }) {
         />
       )}
 
-      {/* The window-level extras, as rows of their own. Desktop only: the
-          pet is the desktop's, and the browser row is gated on the backend's
-          own answer rather than on the platform — where there is no built-in
-          browser there is nothing to open. */}
-      {desktop && browserRow && (
+      {/* 没有文件标签时也能打开浏览器，Web 端只需后端启用预览桥。 */}
+      {browserRow && (
         <MenuRow
           icon={<Globe />}
           label={t("browserTab")}

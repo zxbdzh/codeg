@@ -28,7 +28,10 @@ import { ChatInput } from "@/components/chat/chat-input"
 import { ChatWidthHandles } from "@/components/chat/chat-width-handles"
 import { chatGutterStyle } from "@/lib/chat-content-width"
 import { cn } from "@/lib/utils"
-import type { ComposerInjectContent } from "@/components/chat/message-input"
+import type {
+  ComposerInjectContent,
+  ComposerHistoryHandle,
+} from "@/components/chat/message-input"
 import { PermissionDialog } from "@/components/chat/permission-dialog"
 import { QuestionDialog } from "@/components/chat/question-dialog"
 import { AskQuestionCard } from "@/components/chat/ask-question-card"
@@ -36,6 +39,7 @@ import { PlanApprovalCard } from "@/components/chat/plan-approval-card"
 import { MarkdownImageProvider } from "@/components/ai-elements/markdown-local-image"
 
 interface ConversationShellProps {
+  historyHandleRef?: React.Ref<ComposerHistoryHandle>
   status: ConnectionStatus | null
   promptCapabilities: PromptCapabilitiesInfo
   defaultPath?: string
@@ -95,6 +99,7 @@ interface ConversationShellProps {
   /** Pass-through: see `MessageInput`. */
   folderPickerOverride?: ConversationFolderPickerOverride
   draftStorageKey?: string | null
+  promptStashScopeKey?: string | null
   /** Pass-through: see `MessageInput.getSentHistory`. */
   getSentHistory?: () => string[]
   hideInput?: boolean
@@ -103,6 +108,8 @@ interface ConversationShellProps {
    *  the agent failed to load this session) without hijacking the message
    *  area above. Renders nothing when omitted. */
   composerBanner?: ReactNode
+  /** 会话恢复等轻量操作贴近输入框，不占用消息区顶部。 */
+  composerActions?: ReactNode
   /** Optional read-only live-feedback notes list rendered just above the
    *  composer (see `FeedbackNotesDisplay`). Renders nothing when there are no
    *  notes for the current turn. */
@@ -196,9 +203,11 @@ export function ConversationShell({
   attachmentTabId,
   folderPickerOverride,
   draftStorageKey,
+  promptStashScopeKey,
   getSentHistory,
   hideInput = false,
   composerBanner,
+  composerActions,
   feedbackList,
   onAddFeedback,
   feedbackAddDisabled,
@@ -221,6 +230,7 @@ export function ConversationShell({
   topBanner,
   injectContent,
   onInjectConsumed,
+  historyHandleRef,
   resizableWidth = false,
 }: ConversationShellProps) {
   return (
@@ -292,6 +302,12 @@ export function ConversationShell({
           </div>
         )}
 
+        {composerActions && (
+          <div className="mx-auto w-full chat-content-w px-4">
+            {composerActions}
+          </div>
+        )}
+
         {composerBanner && (
           <div className="mx-auto w-full chat-content-w px-4 pb-2">
             {composerBanner}
@@ -328,6 +344,7 @@ export function ConversationShell({
               attachmentTabId={attachmentTabId}
               folderPickerOverride={folderPickerOverride}
               draftStorageKey={draftStorageKey}
+              promptStashScopeKey={promptStashScopeKey}
               getSentHistory={getSentHistory}
               isActive={isActive}
               showActiveFlow={showActiveFlow}
@@ -348,6 +365,7 @@ export function ConversationShell({
               onAddFeedback={onAddFeedback}
               feedbackAddDisabled={feedbackAddDisabled}
               injectContent={injectContent}
+              historyHandleRef={historyHandleRef}
               onInjectConsumed={onInjectConsumed}
             />
           </div>

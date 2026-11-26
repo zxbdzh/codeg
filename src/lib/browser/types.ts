@@ -11,7 +11,7 @@ export type TabKind = "page" | "document"
 
 export type ChannelKind = "native" | "degraded" | "legacy"
 
-/** Logical pixels, the unit `getBoundingClientRect()` reports. */
+/** 原生窗口逻辑像素；CSS 坐标须乘 devicePixelRatio，再除以窗口 DPI 缩放。 */
 export interface Bounds {
   x: number
   y: number

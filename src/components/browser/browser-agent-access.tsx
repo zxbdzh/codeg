@@ -89,18 +89,26 @@ function pinnedProgram(grant: AgentGrant | null): string | null {
 export function BrowserAgentShareControl({
   tab,
   state,
+  onShare,
 }: {
   tab: BrowserWorkspaceTab
   state: BrowserTabState | null
+  onShare?: (level: GrantLevel) => void
 }) {
   const t = useTranslations("Browser.agent")
   const backendId = browserTabBackendId(tab.id)
   const grant = state?.agentGrant ?? null
   const origin = shareableOrigin(state)
-  const defaultLevel = useBrowserPrefs().defaultAgentGrant
+  const prefs = useBrowserPrefs()
+  const defaultLevel = onShare ? "none" : prefs.defaultAgentGrant
 
   const share = (level: GrantLevel) => {
     if (!backendId) return
+    // Web 端只发显式授权，徽标等服务端确认后再改变。
+    if (onShare) {
+      onShare(level)
+      return
+    }
     void browserAgentGrant(backendId, level)
       .then(() => {
         if (level === "none" || !origin) return
@@ -119,7 +127,7 @@ export function BrowserAgentShareControl({
     // The agents of a remote workspace run on its host, and their browser
     // tools reach that host's codeg — which has no browser. Sharing a page
     // of this window would hand it to nobody who works here.
-    const remoteWindow = isRemoteDesktopMode()
+    const remoteWindow = !onShare && isRemoteDesktopMode()
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

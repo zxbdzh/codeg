@@ -21,6 +21,17 @@ const api = vi.hoisted(() => ({
   ),
 }))
 vi.mock("@/lib/browser/browser-api", () => api)
+const windowApi = vi.hoisted(() => ({
+  scaleFactor: vi.fn(() => Promise.resolve(1)),
+  onScaleChanged: vi.fn<
+    (
+      handler: (event: { payload: { scaleFactor: number } }) => void
+    ) => Promise<() => void>
+  >(() => Promise.resolve(() => {})),
+}))
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => windowApi,
+}))
 // `releaseBrowserTab` only talks to the backend on the desktop.
 vi.mock("@/lib/transport", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/transport")>()),
@@ -159,6 +170,9 @@ async function flushPaint() {
 
 describe("BrowserSurfaceHost", () => {
   beforeEach(() => {
+    windowApi.scaleFactor.mockReset().mockResolvedValue(1)
+    windowApi.onScaleChanged.mockReset().mockResolvedValue(() => {})
+    vi.stubGlobal("devicePixelRatio", 1)
     api.browserOpenTab.mockReset()
     api.browserSetBounds.mockClear()
     api.browserSetVisible.mockClear()
@@ -181,6 +195,7 @@ describe("BrowserSurfaceHost", () => {
   })
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     routeMock.current = null
     hostHiddenMock.current = false
   })
@@ -619,6 +634,95 @@ describe("BrowserSurfaceHost", () => {
       { x: 100, y: 50, width: 800, height: 600 },
       null
     )
+  })
+
+  it.each([
+    { dpi: 1, pixelRatio: 1.2, factor: 1.2 },
+    { dpi: 1.5, pixelRatio: 1.8, factor: 1.2 },
+    { dpi: 2, pixelRatio: 2, factor: 1 },
+  ])(
+    "fits CSS bounds to native coordinates at DPI $dpi and pixel ratio $pixelRatio",
+    async ({ dpi, pixelRatio, factor }) => {
+      windowApi.scaleFactor.mockResolvedValue(dpi)
+      vi.stubGlobal("devicePixelRatio", pixelRatio)
+      api.browserOpenTab.mockResolvedValue(state("scaled"))
+      render(<BrowserSurfaceHost tab={tab("scaled")} />)
+      await flush()
+
+      const bounds = {
+        x: 100 * factor,
+        y: 50 * factor,
+        width: 800 * factor,
+        height: 600 * factor,
+      }
+      expect(api.browserOpenTab).toHaveBeenCalledWith(
+        expect.objectContaining({ bounds })
+      )
+      expect(api.browserSetBounds).toHaveBeenLastCalledWith(
+        "scaled",
+        bounds,
+        null
+      )
+    }
+  )
+
+  it("updates native coordinates after moving to a monitor with another DPI", async () => {
+    vi.stubGlobal("devicePixelRatio", 1.2)
+    api.browserOpenTab.mockResolvedValue(state("density"))
+    render(<BrowserSurfaceHost tab={tab("density")} />)
+    await flush()
+    api.browserSetBounds.mockClear()
+
+    vi.stubGlobal("devicePixelRatio", 1.8)
+    act(() => {
+      windowApi.onScaleChanged.mock.calls[0]?.[0]({
+        payload: { scaleFactor: 1.5 },
+      })
+    })
+    await flush()
+    expect(api.browserSetBounds).toHaveBeenLastCalledWith(
+      "density",
+      { x: 120, y: 60, width: 960, height: 720 },
+      null
+    )
+    expect(api.browserOpenTab).toHaveBeenCalledTimes(1)
+  })
+
+  it("waits for the native DPI before creating a surface", async () => {
+    let resolveScale: (scale: number) => void = () => {}
+    windowApi.scaleFactor.mockImplementation(
+      () => new Promise((resolve) => (resolveScale = resolve))
+    )
+    vi.stubGlobal("devicePixelRatio", 1.8)
+    api.browserOpenTab.mockResolvedValue(state("pending-scale"))
+    render(<BrowserSurfaceHost tab={tab("pending-scale")} />)
+    await flush()
+    expect(api.browserOpenTab).not.toHaveBeenCalled()
+    expect(api.browserSetBounds).not.toHaveBeenCalled()
+
+    await act(async () => resolveScale(1.5))
+    await flush()
+    expect(api.browserOpenTab).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bounds: { x: 120, y: 60, width: 960, height: 720 },
+      })
+    )
+  })
+
+  it("releases a scale listener whose registration finishes after unmount", async () => {
+    let register: (stop: () => void) => void = () => {}
+    windowApi.onScaleChanged.mockImplementation(
+      () => new Promise((resolve) => (register = resolve))
+    )
+    api.browserOpenTab.mockResolvedValue(state("dispose-scale"))
+    const { unmount } = render(
+      <BrowserSurfaceHost tab={tab("dispose-scale")} />
+    )
+    await flush()
+    unmount()
+    const stop = vi.fn()
+    await act(async () => register(stop))
+    expect(stop).toHaveBeenCalledTimes(1)
   })
 
   // A tab emulating a device in a slot smaller than the device: the page is

@@ -347,7 +347,11 @@ pub fn windows_args_for(profile_id: &str) -> Result<String, String> {
     }
     #[cfg(target_os = "windows")]
     {
-        Ok(windows_browser_args(frozen_proxy().as_ref()))
+        // Windows 上 localhost 优先解析到 ::1，而 Codeg 的 Web 服务只监听 IPv4；
+        // 强制内置浏览器把 localhost 落到 127.0.0.1，避免 ERR_CONNECTION_REFUSED。
+        let mut args = windows_browser_args(frozen_proxy().as_ref());
+        args.push_str(" --host-resolver-rules=MAP localhost 127.0.0.1");
+        Ok(args)
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -1073,6 +1077,14 @@ mod tests {
         set_remote_egress("p-abc", "127.0.0.1:1".parse().unwrap(), "elsewhere");
         assert_eq!(remote_host("p-abc"), None);
         assert!(!windows_args_for(DEFAULT_PROFILE_ID).unwrap().contains("<-loopback>"));
+        // 本地 profile 的 localhost 必须落到 IPv4，否则内置浏览器连不上 Web 服务。
+        #[cfg(target_os = "windows")]
+        assert!(
+            windows_args_for(DEFAULT_PROFILE_ID)
+                .unwrap()
+                .contains(" --host-resolver-rules=MAP localhost 127.0.0.1"),
+            "local profile must map localhost to IPv4"
+        );
     }
 
     #[test]

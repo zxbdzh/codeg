@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -63,6 +64,7 @@ import type {
   PromptCapabilitiesInfo,
   PromptDraft,
   PromptInputBlock,
+  MessageTurn,
   SessionConfigOptionInfo,
   SessionModeInfo,
 } from "@/lib/types"
@@ -94,10 +96,13 @@ import { isPrimaryPointerCoarse } from "@/hooks/use-is-coarse-pointer"
 import { useAgentVocabulary } from "@/hooks/use-agent-vocabulary"
 import {
   clearMessageInputDraftV2,
+  flushMessageInputDrafts,
   loadMessageInputDraftV2,
+  privateDraftImagePath,
   saveMessageInputDraftV2,
   setLiveComposerContent,
 } from "@/lib/message-input-draft"
+import { readFileBase64, UPLOAD_MAX_BYTES } from "@/lib/api"
 import { rankByTextMatch } from "@/lib/fuzzy-text-match"
 import {
   RichComposer,
@@ -119,10 +124,11 @@ import {
   restampSkillPrefixes,
 } from "@/components/chat/composer/composer-commands"
 import { useComposerChromeFocus } from "@/components/chat/composer/use-composer-chrome-focus"
+import { composerEditableMinHeight } from "@/components/chat/composer/composer-sizing"
 import {
-  composerBoxMinHeight,
-  composerEditableMinHeight,
-} from "@/components/chat/composer/composer-sizing"
+  ComposerSurface,
+  ComposerToolbar,
+} from "@/components/chat/composer/composer-surface"
 import {
   buildKnownInvocations,
   commandToReference,
@@ -146,6 +152,8 @@ import type { Editor, JSONContent } from "@tiptap/core"
 import { useReferenceSearch } from "@/components/chat/composer/use-reference-search"
 import { useComposerMentionLabels } from "@/components/chat/composer/use-composer-mention-labels"
 import { ComposerAddMenu } from "@/components/chat/composer/composer-add-menu"
+import { PromptStashControl } from "./prompt-stash-control"
+import type { PromptStashSnapshot } from "@/lib/types"
 import { ComposerImageThumbnails } from "@/components/chat/composer/composer-image-thumbnails"
 import { useComposerAttachments } from "@/components/chat/composer/use-composer-attachments"
 import { useComposerShortcuts } from "@/components/chat/composer/use-composer-shortcuts"
@@ -185,7 +193,14 @@ export type ComposerInjectContent =
       handBack: PromptInputBlock[]
     }
 
+export interface ComposerHistoryHandle {
+  capture: () => PromptStashSnapshot | null
+  restore: (prompt: MessageTurn, input?: PromptInputBlock[]) => boolean
+  setLocked: (locked: boolean) => void
+}
+
 interface MessageInputProps {
+  historyHandleRef?: React.Ref<ComposerHistoryHandle>
   onSend: (draft: PromptDraft, modeId?: string | null) => void
   placeholder?: string
   defaultPath?: string
@@ -225,6 +240,7 @@ interface MessageInputProps {
    *  picker falls back to the workspace's active tab. */
   folderPickerOverride?: ConversationFolderPickerOverride
   draftStorageKey?: string | null
+  promptStashScopeKey?: string | null
   isActive?: boolean
   /** Paint the flowing active-session gradient on the composer border. Set only
    *  for the active tab while tiled across multiple sessions; a lone or
@@ -304,29 +320,6 @@ interface MessageInputProps {
 // sanitize/harden pipeline, so it renders as an inert file badge, not a blocked
 // link — see {@link buildEmbeddedReferenceUri} / {@link isEmbeddedReferenceUri}.
 
-/** Drop embedded-attachment reference badges from a draft document before it is
- *  persisted: their bytes live only in the in-memory `embeddedPayloadsRef` map
- *  (never serialized into the draft), so a restored badge would send nothing.
- *  Identified purely by the unambiguous `codeg://embedded/…` display uri (no map
- *  needed) — a real `file://` attachment is never matched. Stripping at save
- *  keeps the live badge visible this session but matches the pre-existing
- *  behavior where out-of-band pasted bytes don't survive a draft round-trip. */
-function stripEmbeddedReferences(doc: JSONContent): JSONContent {
-  if (!doc.content) return doc
-  const content: JSONContent[] = []
-  for (const child of doc.content) {
-    if (
-      child.type === "reference" &&
-      typeof child.attrs?.uri === "string" &&
-      isEmbeddedReferenceUri(child.attrs.uri)
-    ) {
-      continue
-    }
-    content.push(stripEmbeddedReferences(child))
-  }
-  return { ...doc, content }
-}
-
 /** The notice for a send held while the agent is still responding (see
  *  `handleSend`), under one id: pressing Enter into the hold again updates the
  *  toast on screen instead of stacking another copy of it. */
@@ -366,6 +359,7 @@ export function MessageInput({
   attachmentTabId,
   folderPickerOverride,
   draftStorageKey,
+  promptStashScopeKey,
   isActive = false,
   showActiveFlow = false,
   onEnqueue,
@@ -382,6 +376,7 @@ export function MessageInput({
   injectContent,
   onInjectConsumed,
   getSentHistory,
+  historyHandleRef,
   tall = false,
 }: MessageInputProps) {
   const t = useTranslations("Folder.chat.messageInput")
@@ -442,6 +437,8 @@ export function MessageInput({
     ? t("promptSuggestion", { suggestion: offeredSuggestion })
     : resolvedPlaceholder
   const editorRef = useRef<RichComposerHandle>(null)
+  const [historyLocked, setHistoryLocked] = useState(false)
+  const historyLockedRef = useRef(false)
   // Prompt-history navigation. `historyRef` is seeded from `getSentHistory`
   // lazily, the first time the user steps into history, so a session that never
   // uses it pays nothing.
@@ -506,6 +503,8 @@ export function MessageInput({
   })
   const {
     attachments,
+    setAttachments,
+    beginIntake,
     embeddedPayloadsRef,
     clearAttachments,
     hasUploadingImage,
@@ -581,19 +580,23 @@ export function MessageInput({
   // Markdown) ~300ms after the last change so inline reference badges survive a
   // reload — a Markdown round-trip would downgrade them to plain links.
   const draftSaveTimerRef = useRef<number | null>(null)
+  const draftAttachmentsRef = useRef(attachments)
+  // eslint-disable-next-line react-hooks/refs -- 每次渲染同步最新附件，供事件回调里的 writeDraftNow 立即读取
+  draftAttachmentsRef.current = attachments
   /** Persist (or clear) the draft from the document as it stands right now. */
   const writeDraftNow = useCallback(() => {
     const ed = editorRef.current
     if (!ed || !effectiveDraftStorageKey) return
-    if (ed.isEmpty()) {
+    const currentAttachments = draftAttachmentsRef.current
+    if (ed.isEmpty() && currentAttachments.length === 0) {
       clearMessageInputDraftV2(effectiveDraftStorageKey)
     } else {
-      saveMessageInputDraftV2(
-        effectiveDraftStorageKey,
-        stripEmbeddedReferences(ed.getJSON())
-      )
+      saveMessageInputDraftV2(effectiveDraftStorageKey, ed.getJSON(), {
+        attachments: currentAttachments,
+        embeddedPayloads: Object.fromEntries(embeddedPayloadsRef.current),
+      })
     }
-  }, [effectiveDraftStorageKey])
+  }, [effectiveDraftStorageKey, embeddedPayloadsRef])
   const scheduleDraftSave = useCallback(() => {
     if (typeof window === "undefined") return
     if (!effectiveDraftStorageKey || isEditingQueueItem) return
@@ -618,6 +621,20 @@ export function MessageInput({
     draftSaveTimerRef.current = null
     writeDraftNow()
   }, [writeDraftNow])
+
+  useEffect(() => {
+    const persistBeforeLeaving = () => {
+      // 页面离开可能早于 300ms 防抖；先采集编辑器，再同步落盘，不能等空闲回调。
+      flushDraftSave()
+      flushMessageInputDrafts()
+    }
+    window.addEventListener("pagehide", persistBeforeLeaving)
+    return () => window.removeEventListener("pagehide", persistBeforeLeaving)
+  }, [flushDraftSave])
+
+  useEffect(() => {
+    if (hydratedRef.current) scheduleDraftSave()
+  }, [attachments, scheduleDraftSave])
 
   useEffect(() => {
     return () => {
@@ -667,6 +684,49 @@ export function MessageInput({
       } else if (effectiveDraftStorageKey) {
         const loaded = loadMessageInputDraftV2(effectiveDraftStorageKey)
         if (loaded?.kind === "doc") {
+          if (loaded.assets) {
+            for (const [key, block] of Object.entries(
+              loaded.assets.embeddedPayloads
+            ))
+              embeddedPayloadsRef.current.set(key, block)
+            const restoredAttachments = loaded.assets.attachments
+            setAttachments(restoredAttachments)
+            for (const attachment of restoredAttachments) {
+              if (attachment.type !== "image" || attachment.data) continue
+              const path = privateDraftImagePath(attachment.uri)
+              if (!path) continue
+              const settle = beginIntake()
+              setAttachments((current) =>
+                current.map((item) =>
+                  item.id === attachment.id
+                    ? { ...item, uploading: true }
+                    : item
+                )
+              )
+              void readFileBase64(path, UPLOAD_MAX_BYTES)
+                .then((data) => {
+                  // 只补回同一附件；读取期间的文字编辑或手动移除不能被旧恢复覆盖。
+                  setAttachments((current) =>
+                    current.map((item) =>
+                      item.id === attachment.id
+                        ? { ...item, data, uploading: false }
+                        : item
+                    )
+                  )
+                })
+                .catch((error) => {
+                  setAttachments((current) =>
+                    current.map((item) =>
+                      item.id === attachment.id
+                        ? { ...item, uploading: false }
+                        : item
+                    )
+                  )
+                  toast.error(toErrorMessage(error))
+                })
+                .finally(settle)
+            }
+          }
           ed.setDoc(loaded.doc)
         } else if (loaded?.kind === "legacyMarkdown") {
           ed.setText(loaded.markdown)
@@ -684,6 +744,9 @@ export function MessageInput({
     editingDraftBlocks,
     effectiveDraftStorageKey,
     hydrateFromBlocks,
+    setAttachments,
+    beginIntake,
+    embeddedPayloadsRef,
   ])
 
   // Focus the composer the moment the editor exists and this tab is active, so
@@ -1221,7 +1284,10 @@ export function MessageInput({
       if (match) {
         // Remove the live `/…` / `$…` token before the caret.
         const tokenLen = match[2].length + match[3].length
-        chain = chain.deleteRange({ from: $from.pos - tokenLen, to: $from.pos })
+        chain = chain.deleteRange({
+          from: $from.pos - tokenLen,
+          to: $from.pos,
+        })
       }
       chain = chain.insertReference(ref)
       if (suffix) chain = chain.insertContent(suffix)
@@ -1667,7 +1733,106 @@ export function MessageInput({
     }
   })
 
+  const stashCapture = useCallback((): PromptStashSnapshot | null => {
+    const editor = editorRef.current
+    if (!editor || (editor.isEmpty() && !attachments.length)) return null
+    return {
+      text: editor.getText(),
+      doc: editor.getJSON(),
+      attachments,
+      embeddedPayloads: Object.fromEntries(embeddedPayloadsRef.current),
+    }
+  }, [attachments, embeddedPayloadsRef])
+  const stashCurrent = useRef({
+    stashCapture,
+    draftKey: effectiveDraftStorageKey,
+  })
+  // eslint-disable-next-line react-hooks/refs -- 渲染期快照最新收藏回调，键盘/按钮事件必须拿到同一帧的版本
+  stashCurrent.current = { stashCapture, draftKey: effectiveDraftStorageKey }
+  // eslint-disable-next-line react-hooks/refs -- 编辑器实例由 TipTap 持有，渲染期只做只读探测
+  const stashEditor = editorRef.current?.getEditor()
+  const stashClear = useCallback(
+    (snapshot: PromptStashSnapshot) => {
+      const current = stashCurrent.current
+      if (
+        current.draftKey === effectiveDraftStorageKey &&
+        editorRef.current?.getEditor() === stashEditor &&
+        JSON.stringify(current.stashCapture()) === JSON.stringify(snapshot)
+      )
+        resetComposer()
+    },
+    [effectiveDraftStorageKey, resetComposer, stashEditor]
+  )
+  const stashRestore = useCallback(
+    (snapshot: PromptStashSnapshot) => {
+      const current = stashCurrent.current
+      if (
+        current.draftKey !== effectiveDraftStorageKey ||
+        current.stashCapture() ||
+        attach.intakePending
+      )
+        return false
+      if (!editorRef.current?.getEditor()) return false
+      clearAttachments()
+      for (const [key, block] of Object.entries(snapshot.embeddedPayloads))
+        embeddedPayloadsRef.current.set(key, block)
+      editorRef.current.setDoc(snapshot.doc)
+      attach.setAttachments(snapshot.attachments)
+      syncComposerEmpty()
+      editorRef.current.focus()
+      return true
+    },
+    [
+      effectiveDraftStorageKey,
+      attach,
+      clearAttachments,
+      embeddedPayloadsRef,
+      syncComposerEmpty,
+    ]
+  )
+
+  useImperativeHandle(
+    historyHandleRef,
+    () => ({
+      capture: () => {
+        if (!editorRef.current?.getEditor() || attach.intakePending) {
+          throw new Error(
+            "Wait for the composer and attachments to finish loading"
+          )
+        }
+        return stashCapture()
+      },
+      restore: (prompt, input) => {
+        const editor = editorRef.current?.getEditor()
+        if (!editor) return false
+        const blocks: PromptInputBlock[] = []
+        for (const block of input ? [] : prompt.blocks) {
+          if (block.type === "image") {
+            // 历史路径可能已经被覆盖；恢复的原图必须以历史字节发送，不能重读旧上传缓存。
+            blocks.push({ ...block, uri: null })
+          } else if (block.type === "text") {
+            blocks.push(block)
+          } else {
+            throw new Error("The original input contains unsupported content")
+          }
+        }
+        // 后端准备的输入保留完整资源块及不可变附件副本；老接口仍走文字、图片兼容路径。
+        hydrateFromBlocks(editor, input ?? blocks, knownInvocationsRef.current)
+        syncComposerEmpty()
+        return true
+      },
+      setLocked: (locked) => {
+        // 先同步锁住编辑器，再等待 React 渲染，避免采集后继续输入却被回填覆盖。
+        historyLockedRef.current = locked
+        editorRef.current?.getEditor()?.setEditable(!locked)
+        setHistoryLocked(locked)
+      },
+    }),
+    [attach.intakePending, hydrateFromBlocks, stashCapture, syncComposerEmpty]
+  )
+
   const handleSend = useCallback(() => {
+    if (historyLockedRef.current) return
     // The editor stays editable while `disabled` (the agent is busy) so the user
     // can keep typing, but a plain send is blocked — only enqueue / queue-edit
     // save go through. Mirrors the legacy textarea's keydown guard.
@@ -1747,6 +1912,7 @@ export function MessageInput({
   // hydrate from yet), since the enqueue fallback below bypasses its gate.
   const [steering, setSteering] = useState(false)
   const handleSteerClick = useCallback(async () => {
+    if (historyLockedRef.current) return
     if (!onSteer || steering) return
     if (hasUploadingImage) {
       toast.error(tAttach("attachUploadInProgress"))
@@ -1896,7 +2062,6 @@ export function MessageInput({
   // The box's floor and the editable area's are two halves of one number — see
   // composer-sizing.ts for the arithmetic and for why stating both is what
   // keeps the layout off free-space distribution (#746).
-  const boxMinHeight = composerBoxMinHeight(tall)
   const editableMinHeight = composerEditableMinHeight(tall, hasImageAttachments)
 
   // The agent's settings — its config options, or the legacy mode list for an
@@ -1928,7 +2093,7 @@ export function MessageInput({
 
   const handleUsePromptSuggestion = useCallback(() => {
     const ed = editorRef.current
-    if (!ed || !offeredSuggestion) return
+    if (historyLockedRef.current || !ed?.isEmpty() || !offeredSuggestion) return
     ed.setText(offeredSuggestion)
     ed.focus()
   }, [offeredSuggestion])
@@ -1939,7 +2104,7 @@ export function MessageInput({
         onClick={onCancelQueueEdit}
         variant="ghost"
         size="icon"
-        className="h-8 w-8"
+        className="size-10 touch-manipulation md:size-8"
         title={tQueue("cancelEdit")}
       >
         <X className="size-4" />
@@ -1948,7 +2113,7 @@ export function MessageInput({
         onClick={handleSend}
         disabled={!hasSendableContent}
         size="icon"
-        className="h-8 w-8"
+        className="size-10 touch-manipulation md:size-8"
         title={tQueue("saveEdit")}
       >
         <Check className="size-4" />
@@ -1969,7 +2134,7 @@ export function MessageInput({
           onClick={onCancel}
           variant="destructive"
           size="icon"
-          className="h-8 w-8"
+          className="size-10 touch-manipulation md:size-8"
           title={t("cancel")}
         >
           <Square className="size-4" />
@@ -1979,7 +2144,7 @@ export function MessageInput({
             onClick={handleSend}
             disabled={steering}
             size="icon"
-            className="h-8 w-8 rounded-r-none"
+            className="size-10 touch-manipulation rounded-r-none md:size-8"
             title={t("queueMessage")}
           >
             <Send className="size-4" />
@@ -1989,7 +2154,7 @@ export function MessageInput({
               <Button
                 disabled={steering}
                 size="icon"
-                className="h-8 w-5 rounded-l-none border-l border-primary-foreground/20"
+                className="h-10 w-8 touch-manipulation rounded-l-none border-l border-primary-foreground/20 md:h-8 md:w-5"
                 aria-label={t(
                   steerChannel === "pull" ? "steerAsNote" : "steerIntoTurn"
                 )}
@@ -2021,7 +2186,7 @@ export function MessageInput({
         onClick={onCancel}
         variant="destructive"
         size="icon"
-        className="h-8 w-8"
+        className="size-10 touch-manipulation md:size-8"
         title={t("cancel")}
       >
         <Square className="size-4" />
@@ -2036,6 +2201,7 @@ export function MessageInput({
       {offeredSuggestion && composerEmpty && (
         <Button
           onClick={handleUsePromptSuggestion}
+          disabled={historyLocked}
           variant="ghost"
           size="icon"
           className="h-8 w-8"
@@ -2049,7 +2215,7 @@ export function MessageInput({
         onClick={handleSend}
         disabled={disabled || !hasSendableContent}
         size="icon"
-        className="h-8 w-8"
+        className="size-10 touch-manipulation md:size-8"
         title={t("send")}
       >
         <Send className="size-4" />
@@ -2171,46 +2337,14 @@ export function MessageInput({
               context menu — whose Paste still works over the editor text — is
               not suppressed. Desktop/secure-web get the full custom menu. */}
           <ContextMenuTrigger asChild disabled={!clipboardReadSupported}>
-            <div
+            <ComposerSurface
               {...chromeFocus}
               onContextMenuCapture={handleComposerContextMenu}
-              className={cn(
-                // `codeg-composer-chrome` paints the text I-beam across the box's
-                // blank areas (padding, the dead space below a short message, the
-                // action-bar gaps) so the whole input reads as clickable-to-type;
-                // interactive controls re-assert their own cursor (see globals.css).
-                // Resting border uses `border-foreground/20` (a touch darker than
-                // the default `border-input`, which is near-invisible at rest and
-                // vanishes over a workspace background image); it adapts per theme
-                // (dark ink in light mode, light ink in dark) and stays legible.
-                // Focus still swaps to `border-ring` below.
-                "codeg-composer-chrome @container relative flex flex-col rounded-xl border border-foreground/20 bg-transparent transition-colors",
-                boxMinHeight,
-                // Standard focus ring — always shown when the composer is
-                // focused (the plain default input style). `bg-background
-                // ws-transparent-bg`: opaque surface normally, but with a
-                // workspace-bg image the composer goes transparent to reveal the
-                // real image like the rest of the canvas (no frosted treatment) —
-                // the border stays. Off (no image) it's the plain background,
-                // unchanged. When the folder/branch row is attached below, the
-                // solid surface + an INSET focus ring live here so the shared
-                // rounded box (clipped by the wrapper) reads as one control and
-                // the ring isn't clipped away.
-                folderBranchPickerAttached
-                  ? "bg-background ws-transparent-bg focus-within:border-ring focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-ring/50"
-                  : "focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
-                // Active session, tiled across multiple sessions: a gradient
-                // flows around the border to mark which tile is active — but ONLY
-                // while the composer itself is not focused. Focusing it hides the
-                // flow (globals.css) so the default focus ring above takes over.
-                // A lone/non-tiled session (showActiveFlow=false) and inactive
-                // tiles show the plain default border.
-                showActiveFlow && "codeg-composer-flow",
-                !folderBranchPickerAttached &&
-                  showDragActive &&
-                  "ring-1 ring-primary/40",
-                className
-              )}
+              attached={folderBranchPickerAttached}
+              activeFlow={showActiveFlow}
+              dragActive={showDragActive}
+              tall={tall}
+              className={className}
             >
               <ConversationContextBar
                 hasExtraContent={hasImageAttachments}
@@ -2224,6 +2358,7 @@ export function MessageInput({
               />
               <RichComposer
                 ref={editorRef}
+                disabled={historyLocked}
                 placeholder={shownPlaceholder}
                 ariaLabel={resolvedPlaceholder}
                 promptSuggestion={offeredSuggestion}
@@ -2256,7 +2391,7 @@ export function MessageInput({
                 // (see above); RichComposer explains the basis.
                 className={cn("grow", editableMinHeight)}
               />
-              <div className="flex shrink-0 items-end justify-between gap-1 px-2 pb-2">
+              <ComposerToolbar>
                 <div className="flex min-w-0 items-end gap-1">
                   <ComposerAddMenu
                     disabled={disabled}
@@ -2265,6 +2400,31 @@ export function MessageInput({
                     slashCommands={slashCommands}
                     onAddFeedback={onAddFeedback}
                     feedbackAddDisabled={feedbackAddDisabled}
+                  />
+                  <PromptStashControl
+                    key={
+                      promptStashScopeKey ??
+                      effectiveDraftStorageKey ??
+                      "unbound"
+                    }
+                    scopeKey={promptStashScopeKey ?? effectiveDraftStorageKey}
+                    draftScopeKey={
+                      (
+                        promptStashScopeKey ?? effectiveDraftStorageKey
+                      )?.startsWith("conv:")
+                        ? effectiveDraftStorageKey?.startsWith("canvas-draft:")
+                          ? effectiveDraftStorageKey
+                          : attachmentTabId
+                            ? `draft:${attachmentTabId}`
+                            : undefined
+                        : undefined
+                    }
+                    capture={stashCapture}
+                    clearIfUnchanged={stashClear}
+                    restoreIfEmpty={stashRestore}
+                    anchor={containerRef}
+                    shortcut={shortcuts.prompt_stash}
+                    pending={attach.intakePending || hasUploadingImage}
                   />
                   {hasAnySelector && (
                     <SessionSettingsPicker
@@ -2282,13 +2442,13 @@ export function MessageInput({
                   )}
                 </div>
                 <div className="shrink-0">{actionButtons}</div>
-              </div>
+              </ComposerToolbar>
               {showDragActive && (
                 <div className="pointer-events-none absolute inset-1 z-20 flex items-center justify-center rounded-md border border-dashed border-primary/50 bg-background/80 text-xs text-muted-foreground">
                   {t("dropFilesToAttach")}
                 </div>
               )}
-            </div>
+            </ComposerSurface>
           </ContextMenuTrigger>
           <ContextMenuContent>
             {contextToken && composerTokenOpenTarget(contextToken) !== null && (

@@ -1,6 +1,7 @@
 "use client"
 
 import { Loader2 } from "lucide-react"
+import { getCurrentWindow } from "@tauri-apps/api/window"
 import {
   createContext,
   useCallback,
@@ -54,6 +55,8 @@ import {
 import type { Bounds, BrowserTabState } from "@/lib/browser/types"
 import { browserTabBackendId } from "@/lib/file-tab-id"
 import { cn } from "@/lib/utils"
+import { isDesktop } from "@/lib/transport"
+import { disposeTauriListener } from "@/lib/tauri-listener"
 
 /**
  * True for a host rendered beside the workbench's content region rather than
@@ -125,9 +128,16 @@ function nextPaint(): Promise<void> {
   })
 }
 
-function measure(el: HTMLElement): Bounds {
+function measure(el: HTMLElement, nativeScale: number): Bounds {
   const rect = el.getBoundingClientRect()
-  return { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
+  // Windows 文字缩放也会改变 CSS 像素；原生窗口只按显示器 DPI 换算，须补齐两者差值。
+  const scale = (window.devicePixelRatio || 1) / nativeScale
+  return {
+    x: rect.left * scale,
+    y: rect.top * scale,
+    width: rect.width * scale,
+    height: rect.height * scale,
+  }
 }
 
 function sameBounds(a: Bounds | null, b: Bounds): boolean {
@@ -210,6 +220,36 @@ export function NativeSurfaceHost({
   layoutKey,
 }: NativeSurfaceHostProps) {
   const ref = useRef<HTMLDivElement | null>(null)
+  const [nativeScale, setNativeScale] = useState<number | null>(
+    isDesktop() ? null : 1
+  )
+  useEffect(() => {
+    if (!isDesktop()) return
+    let disposed = false
+    let stop: (() => void) | undefined
+    const currentWindow = getCurrentWindow()
+    void currentWindow
+      .scaleFactor()
+      .then((scale) => {
+        if (!disposed) setNativeScale(scale)
+      })
+      .catch(() => {
+        if (!disposed) setNativeScale(1)
+      })
+    void currentWindow
+      .onScaleChanged(({ payload }) => {
+        if (!disposed) setNativeScale(payload.scaleFactor)
+      })
+      .then((unlisten) => {
+        if (disposed) disposeTauriListener(unlisten)
+        else stop = unlisten
+      })
+      .catch(() => {})
+    return () => {
+      disposed = true
+      disposeTauriListener(stop)
+    }
+  }, [])
   const lastBoundsRef = useRef<Bounds | null>(null)
   // The zoom last pushed with those bounds. `undefined` = unknown: another
   // host may have zoomed the surface since (each fits it to its own slot).
@@ -286,7 +326,7 @@ export function NativeSurfaceHost({
   // flipped. Called from every signal that could change either.
   const sync = useCallback(() => {
     const el = ref.current
-    if (!el) return
+    if (!el || nativeScale === null) return
     // An owned window is not fitted to this element — the placeholder is
     // invisible by design — so only the "is this tab on screen" signals
     // apply, and there are no bounds to push.
@@ -303,7 +343,7 @@ export function NativeSurfaceHost({
       }
       return
     }
-    const bounds = measure(el)
+    const bounds = measure(el, nativeScale)
     const visible =
       shouldShow && bounds.width > 0 && bounds.height > 0 && elementVisible(el)
     if (
@@ -380,6 +420,7 @@ export function NativeSurfaceHost({
   }, [
     backendId,
     handoffFocus,
+    nativeScale,
     overlayHide,
     setLastVisible,
     shouldShow,
@@ -401,7 +442,7 @@ export function NativeSurfaceHost({
   // here, at the URL the record was updated to.
   useEffect(() => {
     const el = ref.current
-    if (!el) return
+    if (!el || nativeScale === null) return
     if (getBrowserTabState(storeKey)) {
       lastBoundsRef.current = null
       lastZoomRef.current = undefined
@@ -414,7 +455,7 @@ export function NativeSurfaceHost({
       sync()
       return
     }
-    const bounds = measure(el)
+    const bounds = measure(el, nativeScale)
     lastBoundsRef.current = bounds
     lastZoomRef.current = zoom
     // The surface is created visible, at these bounds and this zoom.
@@ -466,7 +507,7 @@ export function NativeSurfaceHost({
     // Intentionally not re-run on `sync` identity changes: creation is a
     // one-shot per mount, the effect below handles every later sync.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backendId, storeKey, create, loaded])
+  }, [backendId, storeKey, create, loaded, nativeScale])
 
   // Geometry and visibility tracking for the life of the mount.
   useEffect(() => {

@@ -1,3 +1,5 @@
+import type { ConversationPaneState } from "@/lib/conversation-panes"
+
 /** The built-in agents codeg ships hand-written support for. */
 export type BuiltinAgentType =
   | "claude_code"
@@ -728,6 +730,7 @@ export interface TabsChanged {
   version: number
   origin: string
   tabs: OpenedTab[]
+  pane_state?: ConversationPaneState | null
 }
 
 export const TABS_CHANGED_EVENT = "tabs://changed"
@@ -737,6 +740,7 @@ export const TABS_CHANGED_EVENT = "tabs://changed"
 export interface OpenedTabsSnapshot {
   items: OpenedTab[]
   version: number
+  pane_state?: ConversationPaneState | null
 }
 
 /** Response of the `save_opened_tabs` compare-and-set. When `accepted` is false
@@ -746,6 +750,7 @@ export interface SaveTabsOutcome {
   accepted: boolean
   version: number
   tabs: OpenedTab[]
+  pane_state?: ConversationPaneState | null
 }
 
 export interface ImportResult {
@@ -1555,6 +1560,29 @@ export interface PromptCapabilitiesInfo {
   image: boolean
   audio: boolean
   embedded_context: boolean
+}
+
+/** 收藏保留完整富文本文档与附件，不复用会话草稿的本地存储。 */
+export interface PromptStashSnapshot {
+  text: string
+  doc: import("@tiptap/core").JSONContent
+  attachments: import("@/components/chat/message-input-attachments").InputAttachment[]
+  embeddedPayloads: Record<string, PromptInputBlock>
+}
+
+export interface PromptStashEntry {
+  id: number
+  preview: string
+  updatedAt: string
+  attachmentCount: number
+  /** NULL 表示升级前无法判断归属的收藏，仅供设置管理页清理。 */
+  scopeKey: string | null
+  conversationId: number | null
+  conversationTitle: string | null
+  conversationStatus: ConversationStatus | null
+  conversationDeleted: boolean
+  folderName: string | null
+  assetBytes: number
 }
 
 export type PromptInputBlock =

@@ -1,7 +1,7 @@
 import { StrictMode } from "react"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { NextIntlClientProvider } from "next-intl"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { BrowserWorkspaceTab } from "@/contexts/workspace-context"
 import type { BridgeGrant } from "@/lib/browser/browser-bridge"
@@ -36,6 +36,11 @@ vi.mock("@/lib/transport", async (importOriginal) => ({
 // branch must not need any of it.
 vi.mock("./browser-surface-host", () => ({
   BrowserSurfaceHost: () => <div data-testid="native-surface" />,
+}))
+vi.mock("./browser-web-surface", () => ({
+  BrowserWebSurface: ({ url }: { url: string }) => (
+    <div data-testid="online-browser">{url}</div>
+  ),
 }))
 
 import enMessages from "@/i18n/messages/en.json"
@@ -87,6 +92,7 @@ beforeEach(() => {
   api.copyTextToClipboard.mockClear()
   api.isDesktop.mockReturnValue(false)
 })
+afterEach(() => vi.unstubAllEnvs())
 
 describe("BrowserBridgeView", () => {
   it("mints a grant for the tab and shows the page in a sandboxed frame", async () => {
@@ -255,12 +261,12 @@ describe("BrowserBridgeView", () => {
 
   it("shows the server's refusal", async () => {
     api.bridgeOpen.mockRejectedValue(
-      new Error("192.168.1.9 is not the server's loopback")
+      new Error("loopback bridge is unavailable")
     )
-    renderView(<BrowserBridgeView tab={tab("http://192.168.1.9:3000/")} />)
+    renderView(<BrowserBridgeView tab={tab("http://localhost:3000/")} />)
     await screen.findByText("This page can't be shown here")
     expect(screen.getByRole("status")).toHaveTextContent(
-      "192.168.1.9 is not the server's loopback"
+      "loopback bridge is unavailable"
     )
     expect(
       screen.getByRole("button", { name: "Open in a new tab" })
@@ -422,6 +428,32 @@ describe("BrowserBridgeView", () => {
 })
 
 describe("BrowserTabView in a browser", () => {
+  it("uses the full browser for localhost too when the browser service is deployed", async () => {
+    vi.stubEnv("NEXT_PUBLIC_CODEG_BROWSER_URL", "https://codeg-ego.odn.cc")
+    renderView(<BrowserBridgeView tab={tab("http://localhost:3000/")} />)
+    expect(await screen.findByTestId("online-browser")).toHaveTextContent(
+      "http://localhost:3000/"
+    )
+    expect(api.bridgeOpen).not.toHaveBeenCalled()
+  })
+  it("opens a bare website name using HTTPS from the address bar", async () => {
+    renderView(<BrowserBridgeView tab={tab("about:blank")} />)
+    const address = screen.getByRole("textbox", { name: "Preview address" })
+    fireEvent.change(address, { target: { value: "example.com/docs" } })
+    fireEvent.keyDown(address, { key: "Enter" })
+    expect(await screen.findByTestId("online-browser")).toHaveTextContent(
+      "https://example.com/docs"
+    )
+    expect(api.bridgeOpen).not.toHaveBeenCalled()
+  })
+  it("uses the real browser for HTTPS websites without a localhost grant", async () => {
+    renderView(<BrowserTabView tab={tab("https://example.com/")} />)
+    expect(await screen.findByTestId("online-browser")).toHaveTextContent(
+      "https://example.com/"
+    )
+    expect(api.bridgeOpen).not.toHaveBeenCalled()
+    expect(screen.queryByTitle("Dev server preview")).toBeNull()
+  })
   it("renders the bridge view, never the native surface", async () => {
     api.bridgeOpen.mockResolvedValue(grant)
     renderView(<BrowserTabView tab={tab()} />)

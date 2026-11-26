@@ -25,7 +25,9 @@ describe("settingsNavItemsFor", () => {
     const after = (label: (typeof labels)[number]) =>
       labels[labels.indexOf(label) + 1]
     expect(after("general")).toBe("collaboration")
-    expect(after("quick_messages")).toBe("browser")
+    // 本地扩展把「输入收藏」页插在快速消息与浏览器之间，顺序断言需跟着走。
+    expect(after("quick_messages")).toBe("prompt_stash")
+    expect(after("prompt_stash")).toBe("browser")
     expect(after("browser")).toBe("computer_use")
   })
 

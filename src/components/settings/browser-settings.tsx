@@ -50,6 +50,7 @@ import {
 import { toast } from "sonner"
 
 import { SettingCard, SettingRow } from "@/components/shared/setting-card"
+import { BrowserEgoImportSettings } from "@/components/browser/browser-ego-import"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -550,6 +551,8 @@ export function BrowserSettings() {
   const [signInUaSupported, setSignInUaSupported] = useState<boolean | null>(
     null
   )
+  // 登录态导入只接入本机 Windows 浏览器；网页端和其他平台不显示入口。
+  const [egoImportSupported, setEgoImportSupported] = useState(false)
 
   // Fetched every time the page is opened (not once per app run): the answer
   // follows the proxy setting, which lives on another settings page. Never
@@ -567,6 +570,7 @@ export function BrowserSettings() {
         setDocGuest(caps.docGuest ?? false)
         setProfilesSupported(caps.profiles ?? false)
         setSignInUaSupported(caps.signInUserAgent ?? false)
+        setEgoImportSupported(caps.available && caps.platform === "windows")
       })
       .catch(() => {
         if (cancelled) return
@@ -576,6 +580,7 @@ export function BrowserSettings() {
         setDocGuest(null)
         setProfilesSupported(null)
         setSignInUaSupported(null)
+        setEgoImportSupported(false)
       })
     return () => {
       cancelled = true
@@ -1007,6 +1012,7 @@ export function BrowserSettings() {
             />
           </SettingCard>
         ) : null}
+        {egoImportSupported ? <BrowserEgoImportSettings /> : null}
 
         <AlertDialog
           open={confirmClear !== null}

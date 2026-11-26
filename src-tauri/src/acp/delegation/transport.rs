@@ -305,6 +305,14 @@ pub struct BrokerBrowserTabsRequest {
     pub token: String,
 }
 
+/// 将绑定的 Ego 登录态导入指定 Codeg 标签；MCP 边界只传标签 ID 和简短原因。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrokerBrowserEgoImportRequest {
+    pub token: String,
+    pub tab_id: String,
+    pub reason: String,
+}
+
 /// Read one shared page. Backs the `browser_snapshot` MCP tool; the grant check
 /// and the audit line both happen behind it, in `agent_snapshot_core`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -484,6 +492,7 @@ pub enum BrokerMessage {
     CreateWorkTask(BrokerCreateWorkTaskRequest),
     PersonalAgent(BrokerPersonalAgentRequest),
     BrowserTabs(BrokerBrowserTabsRequest),
+    BrowserEgoImport(BrokerBrowserEgoImportRequest),
     BrowserSnapshot(BrokerBrowserSnapshotRequest),
     BrowserAct(BrokerBrowserActRequest),
     BrowserConsole(BrokerBrowserConsoleRequest),
@@ -605,6 +614,8 @@ const LIVENESS_CHECKS: LivenessChecks = LivenessChecks {
     budget: Duration::from_secs(10),
     misses: 2,
 };
+
+const BROWSER_EGO_IMPORT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// One client round trip — connect, write one [`BrokerMessage`], read the
 /// response, drop the connection — that gives up once the listener stops
@@ -837,6 +848,24 @@ pub async fn client_browser_tabs_round_trip(
     req: &BrokerBrowserTabsRequest,
 ) -> io::Result<BrokerResponse> {
     message_round_trip(socket_path, &BrokerMessage::BrowserTabs(req.clone())).await
+}
+
+/// 导入不是等待用户的交互，因此使用有限时限，避免一次调用无限挂起。
+pub async fn client_browser_import_ego_session_round_trip(
+    socket_path: &str,
+    req: &BrokerBrowserEgoImportRequest,
+) -> io::Result<BrokerResponse> {
+    tokio::time::timeout(
+        BROWSER_EGO_IMPORT_TIMEOUT,
+        message_round_trip(socket_path, &BrokerMessage::BrowserEgoImport(req.clone())),
+    )
+    .await
+    .map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            "browser Ego login import timed out",
+        )
+    })?
 }
 
 /// Dispatch a `browser_snapshot` request and read back the serialized

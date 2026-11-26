@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { normalizeTypedAddress } from "./browser-toolbar"
+import { normalizeTypedAddress } from "@/lib/browser/browser-url"
 
 describe("normalizeTypedAddress", () => {
   it("keeps full http(s) URLs and normalizes them", () => {
@@ -31,6 +31,13 @@ describe("normalizeTypedAddress", () => {
     expect(normalizeTypedAddress("hello world")).toBeNull()
     expect(normalizeTypedAddress("notes")).toBeNull()
     expect(normalizeTypedAddress("")).toBeNull()
+  })
+
+  it("preserves explicit ports on local hosts and rejects embedded credentials", () => {
+    expect(normalizeTypedAddress("localhost:443/app")).toBe(
+      "http://localhost:443/app"
+    )
+    expect(normalizeTypedAddress("https://alice@example.com/")).toBeNull()
   })
 })
 
@@ -84,6 +91,9 @@ vi.mock("@/contexts/workspace-context", () => ({
 vi.mock("@/lib/browser/browser-api", () => ({
   // The toolbar also carries the agent share control.
   browserAgentGrant: vi.fn(() => Promise.resolve()),
+  browserCapabilities: vi.fn(() =>
+    Promise.resolve({ available: false, platform: "web" })
+  ),
   browserGoBack: vi.fn(),
   browserGoForward: vi.fn(),
   browserNavigate: vi.fn(() => Promise.resolve()),

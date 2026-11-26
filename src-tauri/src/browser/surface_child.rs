@@ -572,6 +572,50 @@ impl ChildHandle {
             .map_err(ChildError::Op)
     }
 
+    #[cfg(target_os = "windows")]
+    pub fn session_cdp(
+        &self,
+        generation: u64,
+        nav_epoch: u64,
+        method: &'static str,
+        params: String,
+        callback: impl FnOnce(Result<String, String>) + Send + 'static,
+    ) -> Result<(), ChildError> {
+        let app = self.app.clone();
+        let tab_id = self.tab_id.clone();
+        self.with(move |webview| {
+            // 标签 ID 可复用；主线程真正执行前再次核对，避免把登录态写入另一个标签。
+            let current = app.state::<BrowserRegistry>().read(&tab_id, |tab| {
+                tab.generation == generation && tab.nav_epoch == nav_epoch
+            }).unwrap_or(false);
+            if !current {
+                return Err("browser view changed".to_string());
+            }
+            shim::session_cdp(webview, method, &params, callback)
+        })?.map_err(ChildError::Op)
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn session_eval(
+        &self,
+        generation: u64,
+        nav_epoch: u64,
+        expression: String,
+        callback: impl Fn(Result<String, String>) + Send + 'static,
+    ) -> Result<(), ChildError> {
+        let app = self.app.clone();
+        let tab_id = self.tab_id.clone();
+        self.with(move |webview| {
+            let current = app.state::<BrowserRegistry>().read(&tab_id, |tab| {
+                tab.generation == generation && tab.nav_epoch == nav_epoch
+            }).unwrap_or(false);
+            if !current {
+                return Err("browser view changed".to_string());
+            }
+            shim::eval_in_world(webview, &expression, callback)
+        })?.map_err(ChildError::Op)
+    }
+
     /// Deliver a real pointer event at a page point; see
     /// `shim::dispatch_pointer`.
     pub fn dispatch_pointer(

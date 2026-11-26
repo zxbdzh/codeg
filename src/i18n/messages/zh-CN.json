@@ -64,7 +64,8 @@
       "browser": "浏览器操作",
       "computer_use": "电脑操作",
       "quick_messages": "快捷消息",
-      "logs": "运行日志"
+      "logs": "运行日志",
+      "prompt_stash": "输入收藏"
     }
   },
   "AppearanceSettings": {
@@ -551,6 +552,10 @@
       "newline_in_message": {
         "title": "消息换行",
         "description": "在输入框中插入换行符"
+      },
+      "prompt_stash": {
+        "title": "收藏或恢复输入框",
+        "description": "有内容时收藏，空白时选择收藏项回填"
       },
       "toggle_custom_style": {
         "title": "停用/恢复自定义样式",
@@ -2687,6 +2692,13 @@
       "closeWindow": "关闭窗口",
       "close": "关闭"
     },
+    "mobileTabs": {
+      "title": "已打开的标签页",
+      "open": "切换标签页（{count}）",
+      "conversations": "会话",
+      "files": "文件与预览",
+      "empty": "暂无打开的标签页"
+    },
     "tabs": {
       "closeConversationTab": "关闭会话标签",
       "close": "关闭",
@@ -2703,6 +2715,8 @@
       "unsplitAll": "全部取消拆分",
       "closeAll": "关闭所有",
       "tileDisplay": "平铺显示",
+      "focusTab": "聚焦标签页",
+      "exitFocus": "退出聚焦",
       "untileDisplay": "取消平铺"
     },
     "fileWorkspace": {
@@ -2723,6 +2737,8 @@
       "more": "更多",
       "maximize": "最大化",
       "restore": "还原",
+      "focusTab": "聚焦标签页",
+      "exitFocus": "退出聚焦",
       "emptyDirectory": "空目录"
     },
     "terminal": {
@@ -4596,6 +4612,25 @@
       "commandFailed": "项目创建命令执行失败。"
     }
   },
+  "WebAppInstall": {
+    "title": "安装 Codeg",
+    "description": "添加到手机主屏幕或电脑桌面，以独立窗口打开。",
+    "install": "安装应用",
+    "installing": "等待浏览器确认…",
+    "standalone": "正在以应用模式运行",
+    "installed": "已安装，可从主屏幕或应用列表打开 Codeg。",
+    "accepted": "请完成浏览器的安装步骤，然后从主屏幕或应用列表打开 Codeg。",
+    "httpHint": "当前是 HTTP 连接，可通过浏览器菜单尝试添加到主屏幕或创建快捷方式。网页内一键安装和离线缓存通常需要 HTTPS；打开方式由浏览器决定。",
+    "androidMenu": "打开浏览器菜单（⋮ 或 ≡）。",
+    "androidAdd": "选择「添加到主屏幕」「添加到手机」或「安装和创建快捷方式」。",
+    "androidConfirm": "按浏览器提示确认添加；如果只提供「创建快捷方式」，选择它即可从主屏幕进入。",
+    "iosOpen": "使用 Safari 打开当前页面。",
+    "iosShare": "打开「分享」，选择「添加到主屏幕」。",
+    "iosAdd": "如果显示「作为 Web App 打开」，将其开启，再点「添加」。",
+    "browserMenu": "在浏览器菜单中查找「安装应用」或「添加到主屏幕」。若没有这些选项，请尝试 Chrome、Edge 等支持安装的浏览器。",
+    "failed": "未能打开安装提示，请尝试浏览器菜单中的安装入口，或刷新页面后重试。",
+    "connection": "对话和任务仍需连接在线的电脑或服务器。安装应用不会把智能体和项目文件搬到手机上。"
+  },
   "WebServiceSettings": {
     "addressSwitchHint": "切换只改变这里显示和打开的地址；服务监听所有网卡，每个地址都可访问。",
     "sectionTitle": "Web 服务",
@@ -5807,6 +5842,16 @@
     "toneDescend": "下行音"
   },
   "BrowserSettings": {
+    "egoImportTitle": "从 Ego 导入登录状态",
+    "egoImportHint": "选择手动导入使用的 Ego 配置文件。AI 导入默认关闭，需由你开启。",
+    "egoImportSource": "Ego 来源配置文件",
+    "egoImportChooseSource": "选择 Ego 配置文件",
+    "egoImportMissingName": "不可用的 Ego 配置文件",
+    "egoImportSourceMissing": "已保存的 Ego 配置文件“{name}”不可用，请重新选择。",
+    "egoImportNoProfiles": "没有可用的 Ego 配置文件。",
+    "egoImportAllowAgent": "允许 AI 导入登录状态",
+    "egoImportAllowAgentHint": "允许智能体按需从此配置文件导入；这不会授予网页访问权限。",
+    "egoImportSaveFailed": "无法读取或保存 Ego 导入设置。",
     "title": "内置浏览器",
     "description": "从会话、工具结果和终端打开的网页可以作为标签页显示在文件旁边，而不必离开应用。",
     "descriptionWeb": "在浏览器会话里，网页都在你正在用的浏览器中打开；例外是跑在 codeg 主机上的服务器，它会被转发成这里的一个标签页。以下是仍然生效的设置。",
@@ -9911,6 +9956,46 @@
   },
   "Browser": {
     "toolbar": {
+      "importEgoLogin": "从 Ego 导入登录状态",
+      "egoImportDesktopOnly": "仅桌面版",
+      "muteWebsite": "关闭网站声音",
+      "unmuteWebsite": "播放网站声音",
+      "showKeyboard": "打开键盘",
+      "hideKeyboard": "收起键盘",
+      "remoteControls": "浏览器触控操作",
+      "enterLandscape": "横屏桌面",
+      "exitLandscape": "退出横屏",
+      "trackpadMode": "触控板",
+      "directTouch": "直接触摸",
+      "leftClick": "左键",
+      "rightClick": "右键",
+      "dragPointer": "拖拽",
+      "specialKeys": "常用按键",
+      "egoImportDialogTitle": "从 Ego 导入登录状态",
+      "egoImportTarget": "将 {site} 的登录状态导入到内置浏览器的「{profile}」配置文件。",
+      "egoImportSource": "Ego 来源配置文件",
+      "egoImportChooseSource": "选择 Ego 配置文件",
+      "egoImportSourceMissing": "已保存的 Ego 配置文件“{name}”不可用，请重新选择。",
+      "egoImportNoProfiles": "没有可用的 Ego 配置文件。",
+      "egoImportLoading": "正在读取 Ego 配置文件…",
+      "egoImportBoundSource": "Ego 配置文件：{name}",
+      "egoImportUnknownSite": "当前网页",
+      "egoImportImport": "导入",
+      "egoImportImporting": "正在导入…",
+      "egoImportCancel": "取消",
+      "egoImportClose": "关闭",
+      "egoImportResultImported": "已导入 {cookies} 个 Cookie 和 {storage} 项站点存储（跳过 {skipped} 个过期 Cookie）。请检查是否已登录 {site}。",
+      "egoImportResultUnchanged": "未更改 {site} 的登录数据。请在该网页检查登录状态。",
+      "egoImportErrorUnavailable": "Ego 当前不可用，请稍后重试。",
+      "egoImportErrorSourceRequired": "请选择 Ego 配置文件后继续。",
+      "egoImportErrorSourceMissing": "所选 Ego 配置文件已不可用，请重新选择。",
+      "egoImportErrorDisabled": "设置中已关闭 AI 导入。",
+      "egoImportErrorConflict": "未更改此网站现有的登录数据。",
+      "egoImportErrorUnsupported": "无法从此网站导入登录状态。",
+      "egoImportErrorFailed": "无法导入登录状态。",
+      "egoImportErrorGrant": "此网页尚未获准导入。",
+      "egoImportErrorTab": "此浏览器标签页已不可用。",
+      "egoImportErrorBlocked": "浏览器设置阻止了对此网站的导入。",
       "back": "后退",
       "forward": "前进",
       "reload": "刷新",
@@ -9992,6 +10077,9 @@
     "bridge": {
       "frameTitle": "开发服务器预览",
       "opening": "正在通过服务器连接…",
+      "address": "预览地址",
+      "addressPlaceholder": "输入网址或 localhost:端口",
+      "blankHint": "输入网站地址或本机服务地址后按回车",
       "reload": "重新加载",
       "openExternal": "在新标签页打开",
       "copyAddress": "复制地址",
@@ -10212,6 +10300,65 @@
         "probeFailed": "内置浏览器无法确认它能通过隧道访问远端主机。请稍后重试。"
       }
     }
+  },
+  "PromptStashSettings": {
+    "title": "输入收藏",
+    "description": "全部已保存的输入模板。旧版无归属的记录仅在此管理。",
+    "loading": "加载收藏中",
+    "retry": "重试",
+    "empty": "暂无收藏。在对话输入框收藏内容后可在此查看。",
+    "noResults": "没有收藏符合当前搜索和筛选条件。",
+    "refresh": "刷新",
+    "search": "搜索预览、对话或项目",
+    "filter": "筛选收藏",
+    "clearFilters": "清除筛选",
+    "clearSelection": "取消选择",
+    "selectFiltered": "选中全部筛选收藏",
+    "deleteSelected": "删除选中",
+    "deleting": "删除中…",
+    "unusedHint": "30天未使用",
+    "unknownTime": "—",
+    "untitledConversation": "未命名会话",
+    "noProject": "无项目",
+    "attachmentOnly": "（仅附件）",
+    "legacySource": "旧版",
+    "draftSource": "草稿",
+    "assetBytes": "{bytes}",
+    "selectEntry": "选择收藏：{preview}",
+    "deleteEntry": "删除收藏：{preview}",
+    "columns": {
+      "preview": "预览",
+      "source": "来源",
+      "status": "状态",
+      "savedAt": "保存时间",
+      "attachments": "附件",
+      "actions": "操作"
+    },
+    "statuses": {
+      "deleted": "已删除对话",
+      "in_progress": "进行中",
+      "pending_review": "待审阅",
+      "completed": "已完成",
+      "cancelled": "已取消",
+      "none": "—"
+    },
+    "filters": {
+      "all": "全部",
+      "completed": "已完成",
+      "unused": "未使用（30天）",
+      "legacy": "旧版未归属",
+      "draft": "新对话草稿"
+    },
+    "confirmDelete": {
+      "title": "删除 {count} 条收藏？",
+      "description": "这将永久删除所选条目及其附件。",
+      "cancel": "取消",
+      "confirm": "删除收藏"
+    },
+    "deleteFailed": "部分条目删除失败：{message}",
+    "results": "{visible} / {total} 条",
+    "selected": "已选 {count} 条",
+    "loadFailed": "加载收藏失败：{message}"
   },
   "PersonalAgent": {
     "title": "个人助手",
@@ -13286,5 +13433,49 @@
       "rateLimited": "SRN 要求 Codeg 稍后再试。",
       "server": "SRN 返回了错误。"
     }
+  },
+  "ConversationPanes": {
+    "label": "Pane",
+    "create": "新建 Pane",
+    "rename": "重命名",
+    "remove": "移除 Pane",
+    "move": "移动到 Pane",
+    "name": "Pane 名称",
+    "save": "保存",
+    "cancel": "取消",
+    "resetPosition": "重置灵动岛位置",
+    "dragHint": "拖动可调整灵动岛位置",
+    "status": {
+      "running": "进行中",
+      "runningMany": "{count} 个进行中",
+      "waiting": "待处理",
+      "waitingMany": "{count} 个待处理",
+      "completed": "已完成",
+      "completedMany": "{count} 个已完成",
+      "error": "出错",
+      "errorMany": "{count} 个出错"
+    },
+    "removeDraftTitle": "移除包含未发送内容的 Pane？",
+    "removeDraftDescription": "此 Pane 中的未发送内容将不再显示。历史会话会保留，正在运行的任务继续执行。",
+    "empty": "此 Pane 尚未打开会话",
+    "emptyHint": "从左侧打开会话，或新建一条会话。"
+  },
+  "PromptStash": {
+    "action": "收藏或恢复输入框",
+    "title": "输入框收藏",
+    "loading": "正在加载…",
+    "empty": "还没有收藏。在输入框写好内容后点击收藏。",
+    "saved": "已收藏输入框",
+    "failed": "收藏输入框失败",
+    "inputChanged": "输入框已有新内容，未覆盖。",
+    "attachmentOnly": "附件",
+    "attachments": "{count} 个附件",
+    "retry": "重试",
+    "delete": "删除",
+    "deleteTitle": "删除这条收藏？",
+    "deleteConfirm": "删除",
+    "cancel": "取消",
+    "deleted": "已删除收藏",
+    "deleteFailed": "删除收藏失败"
   }
 }

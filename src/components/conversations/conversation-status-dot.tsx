@@ -3,12 +3,14 @@
 import type { ReactNode } from "react"
 import type { ConversationStatus } from "@/lib/types"
 import { STATUS_COLORS } from "@/lib/types"
+import type { PaneActivityKind } from "@/lib/conversation-pane-status"
 import { cn } from "@/lib/utils"
 
 type ConversationStatusDotSize = "xs" | "sm" | "md"
 
 interface ConversationStatusDotProps {
   status?: ConversationStatus | null
+  activity?: PaneActivityKind | null
   size?: ConversationStatusDotSize
   className?: string
   title?: string
@@ -25,12 +27,16 @@ const FALLBACK_COLOR = "bg-gray-400 dark:bg-gray-500"
 
 export function ConversationStatusDot({
   status,
+  activity,
   size = "md",
   className,
   title,
   children,
 }: ConversationStatusDotProps) {
-  const colorClass = (status && STATUS_COLORS[status]) || FALLBACK_COLOR
+  const colorClass =
+    activity === "waiting"
+      ? "bg-orange-500"
+      : (status && STATUS_COLORS[status]) || FALLBACK_COLOR
   return (
     <span
       className={cn(

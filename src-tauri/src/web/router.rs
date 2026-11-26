@@ -2112,6 +2112,28 @@ pub fn build_router_with_srn(
             "/quick_messages_reorder",
             post(handlers::quick_messages::quick_messages_reorder),
         )
+        // ─── 输入收藏（prompt stash）───
+        .route(
+            "/save_prompt_stash",
+            post(handlers::prompt_stash::save_prompt_stash).layer(
+                // 收藏会连同图片附件一起保存，默认 2MB 的 body 上限不够用。
+                axum::extract::DefaultBodyLimit::max(
+                    crate::commands::prompt_stash::STASH_BODY_LIMIT_BYTES,
+                ),
+            ),
+        )
+        .route(
+            "/list_prompt_stash",
+            post(handlers::prompt_stash::list_prompt_stash),
+        )
+        .route(
+            "/restore_prompt_stash",
+            post(handlers::prompt_stash::restore_prompt_stash),
+        )
+        .route(
+            "/remove_prompt_stash",
+            post(handlers::prompt_stash::remove_prompt_stash),
+        )
         // ─── Automations ───
         .route(
             "/automation_list",

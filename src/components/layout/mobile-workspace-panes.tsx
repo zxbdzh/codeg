@@ -1,6 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
+import { ConversationPaneSwitcher } from "@/components/layout/conversation-pane-switcher"
 import { OverlayHostHiddenProvider } from "@/components/ui/overlay-host-hidden"
 import { cn } from "@/lib/utils"
 
@@ -26,6 +27,9 @@ export function MobileWorkspacePanes({
           aria-hidden={!showConversation}
           inert={!showConversation || undefined}
         >
+          <div className="relative h-[3.25rem] shrink-0">
+            <ConversationPaneSwitcher mobile />
+          </div>
           <div className="relative flex-1 min-h-0 overflow-hidden">
             {children}
           </div>

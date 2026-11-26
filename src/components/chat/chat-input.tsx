@@ -17,11 +17,13 @@ import type { QueuedMessage } from "@/hooks/use-message-queue"
 import {
   MessageInput,
   type ComposerInjectContent,
+  type ComposerHistoryHandle,
 } from "@/components/chat/message-input"
 import { MessageQueueDisplay } from "@/components/chat/message-queue-display"
 import { cn } from "@/lib/utils"
 
 interface ChatInputProps {
+  historyHandleRef?: React.Ref<ComposerHistoryHandle>
   status: ConnectionStatus | null
   promptCapabilities: PromptCapabilitiesInfo
   defaultPath?: string
@@ -45,6 +47,7 @@ interface ChatInputProps {
   /** Pass-through: see `MessageInput`. */
   folderPickerOverride?: ConversationFolderPickerOverride
   draftStorageKey?: string | null
+  promptStashScopeKey?: string | null
   /** Pass-through: see `MessageInput.getSentHistory`. */
   getSentHistory?: () => string[]
   isActive?: boolean
@@ -124,6 +127,7 @@ export const ChatInput = memo(function ChatInput({
   attachmentTabId,
   folderPickerOverride,
   draftStorageKey,
+  promptStashScopeKey,
   getSentHistory,
   isActive,
   showActiveFlow,
@@ -146,6 +150,7 @@ export const ChatInput = memo(function ChatInput({
   allowOfflineCompose = false,
   injectContent,
   onInjectConsumed,
+  historyHandleRef,
   flush = false,
   tall = false,
 }: ChatInputProps) {
@@ -175,7 +180,7 @@ export const ChatInput = memo(function ChatInput({
   // px-4 gutter.
   return (
     <div
-      className={cn("pt-0", flush ? "pb-1" : "px-4 pb-1")}
+      className={cn("pt-0", flush ? "pb-1" : "px-2 pb-1 md:px-4")}
       onContextMenu={(event) => event.stopPropagation()}
       // Touch and pen open a context menu from a LONG PRESS, which Radix arms on
       // pointerdown — and the whole conversation panel (composer included) sits
@@ -229,6 +234,7 @@ export const ChatInput = memo(function ChatInput({
         attachmentTabId={attachmentTabId}
         folderPickerOverride={folderPickerOverride}
         draftStorageKey={draftStorageKey}
+        promptStashScopeKey={promptStashScopeKey}
         getSentHistory={getSentHistory}
         isActive={isActive}
         showActiveFlow={showActiveFlow}
@@ -244,6 +250,7 @@ export const ChatInput = memo(function ChatInput({
         onAddFeedback={onAddFeedback}
         feedbackAddDisabled={feedbackAddDisabled}
         injectContent={injectContent}
+        historyHandleRef={historyHandleRef}
         onInjectConsumed={onInjectConsumed}
         placeholder={
           isConnecting
@@ -256,7 +263,7 @@ export const ChatInput = memo(function ChatInput({
         // and its editable area carry two halves of the same number, and only
         // MessageInput knows the action row that divides them.
         tall={tall}
-        className="max-h-60"
+        className="max-h-[min(15rem,40dvh)] md:max-h-60"
       />
     </div>
   )
