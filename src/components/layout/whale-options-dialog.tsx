@@ -24,6 +24,8 @@ import {
   type WhaleModule,
   type WhaleOptions,
 } from "@/lib/whale-widget"
+import { translateDshWidgetImport } from "@/lib/dsh-whale-import"
+import type { WhaleBalancePresentation } from "@/lib/types"
 import { WhaleBubbleContent, playWhaleSound } from "./whale-bubbles"
 import { DEFAULT_SECONDS } from "./use-whale-options"
 
@@ -379,11 +381,11 @@ function BubbleEditor({
                   )}
                   {!image(module) && (
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      <WhaleField title={label("字号", "Size")}>
+                      <WhaleField title={label("字号档位", "Size level")}>
                         <Input
                           type="number"
-                          min={10}
-                          max={48}
+                          min={1}
+                          max={50}
                           value={module.size ?? ""}
                           onChange={(event) =>
                             set({
@@ -522,14 +524,20 @@ function BubbleEditor({
 
 export function WhaleOptionsDialog({
   options,
+  presentation,
   onSave,
+  onSavePresentation,
   onClose,
   modelId,
   balanceLabel,
   turnModels,
 }: {
   options: WhaleOptions
+  presentation: WhaleBalancePresentation
   onSave: (options: WhaleOptions) => Promise<void>
+  onSavePresentation: (
+    presentation: WhaleBalancePresentation
+  ) => void | Promise<void>
   onClose: () => void
   modelId: string
   balanceLabel: string
@@ -537,6 +545,10 @@ export function WhaleOptionsDialog({
 }) {
   const label = useWhaleLabel()
   const [draft, setDraft] = useState(options)
+  const [draftWidgetSize, setDraftWidgetSize] = useState(
+    presentation.widgetSize
+  )
+  const [importWarnings, setImportWarnings] = useState<string[]>([])
   const [tab, setTab] = useState("bubble")
   const [priceModel, setPriceModel] = useState("")
   const [saving, setSaving] = useState(false)
@@ -642,6 +654,52 @@ export function WhaleOptionsDialog({
       setError(label("读取素材失败。", "Could not read the asset."))
     reader.readAsDataURL(file)
   }
+  const importDshAppearance = async (files: FileList | null) => {
+    if (!files?.length) return
+    try {
+      const documents = await Promise.all(
+        Array.from(files).map(async (file) => {
+          const text = await file.text()
+          return JSON.parse(text) as unknown
+        })
+      )
+      const size = documents.find(
+        (value) =>
+          value != null &&
+          typeof value === "object" &&
+          !Array.isArray(value) &&
+          "scale" in value
+      )
+      const bubble = documents.find(
+        (value) =>
+          value != null &&
+          typeof value === "object" &&
+          !Array.isArray(value) &&
+          "items" in value
+      )
+      if (!size && !bubble) {
+        setError(
+          label(
+            "没有找到 DSH 的 size 或 bubble JSON。",
+            "No DSH size or bubble JSON was found."
+          )
+        )
+        return
+      }
+      const imported = translateDshWidgetImport({ size, bubble }, draft)
+      setDraft(imported.options)
+      if (imported.widgetSize != null) setDraftWidgetSize(imported.widgetSize)
+      setImportWarnings(imported.warnings)
+      setError("")
+    } catch {
+      setError(
+        label(
+          "读取 DSH 外观失败，请确认选择的是有效 JSON 文件。",
+          "Could not read the DSH appearance. Choose valid JSON files."
+        )
+      )
+    }
+  }
 
   return (
     <Dialog
@@ -682,6 +740,43 @@ export function WhaleOptionsDialog({
         </nav>
         {tab === "bubble" && (
           <div className="grid gap-3">
+            <div className="grid gap-1 rounded-md border border-dashed p-2 text-xs">
+              <label className="flex items-center justify-between gap-2">
+                <span>
+                  {label("导入 DSH 外观", "Import DSH appearance")}
+                  <span className="block text-muted-foreground">
+                    {label(
+                      "选择 .dshw-size.json 和 .dshw-bubble.json；只导入外观，不导入密钥或素材。",
+                      "Choose .dshw-size.json and .dshw-bubble.json. Appearance only; no secrets or assets."
+                    )}
+                  </span>
+                </span>
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  multiple
+                  aria-label={label(
+                    "选择 DSH 外观文件",
+                    "Choose DSH appearance files"
+                  )}
+                  onChange={(event) => {
+                    void importDshAppearance(event.target.files)
+                    event.target.value = ""
+                  }}
+                  className="max-w-56 text-xs"
+                />
+              </label>
+              {importWarnings.length > 0 && (
+                <ul
+                  role="status"
+                  className="grid gap-0.5 text-[11px] text-muted-foreground"
+                >
+                  {importWarnings.slice(0, 4).map((warning) => (
+                    <li key={warning}>- {warning}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <label className="flex gap-2 text-sm">
               <input
                 type="checkbox"
@@ -1426,7 +1521,15 @@ export function WhaleOptionsDialog({
             onClick={() => {
               setSaving(true)
               setError("")
-              void onSave(draft)
+              void Promise.all([
+                onSave(draft),
+                Promise.resolve(
+                  onSavePresentation({
+                    ...presentation,
+                    widgetSize: draftWidgetSize,
+                  })
+                ),
+              ])
                 .then(onClose)
                 .catch(() =>
                   setError(

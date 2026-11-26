@@ -2,12 +2,21 @@ import { describe, expect, it } from "vitest"
 
 import type { MessageTurn, WhaleBalanceSnapshot } from "./types"
 import {
+  bubbleModuleFontU,
   DEFAULT_SNAP,
   snapWhalePosition,
   whaleAlertKeys,
   whaleTurnUsage,
   weightedIndex,
 } from "./whale-widget"
+
+describe("bubbleModuleFontU", () => {
+  it("maps DSH module levels onto the 1026-unit canvas", () => {
+    expect(bubbleModuleFontU(1)).toBe(40)
+    expect(bubbleModuleFontU(8)).toBe(69)
+    expect(bubbleModuleFontU(50)).toBe(240)
+  })
+})
 
 describe("snapWhalePosition", () => {
   it("anchors the right and bottom edges without a gap", () => {

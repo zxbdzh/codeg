@@ -610,7 +610,7 @@ impl WhaleBalanceService {
             show_api_used: input.show_api_used,
             show_observed_today: input.show_observed_today,
             show_token_cost: input.show_token_cost,
-            widget_size: input.widget_size.clamp(32, 96),
+            widget_size: input.widget_size.clamp(26, 110),
         };
         let encoded = serialize(&presentation, "whale balance presentation")?;
         persist_values(&self.db, &[(PRESENTATION_KV_KEY, &encoded)]).await?;
@@ -2207,7 +2207,7 @@ mod tests {
             .unwrap();
         assert!(!saved.show_api_used);
         assert!(saved.show_observed_today);
-        assert_eq!(saved.widget_size, 96);
+        assert_eq!(saved.widget_size, 110);
 
         // 重新加载服务后仍然保留（走 KV，不是内存）。
         let reloaded = WhaleBalanceService::new(db.conn.clone(), EventEmitter::Noop);

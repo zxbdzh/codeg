@@ -2,6 +2,7 @@ import { useMemo, type CSSProperties } from "react"
 
 import { BrowserLink } from "@/components/ui/browser-link"
 import {
+  bubbleModuleFontU,
   weightedIndex,
   type WhaleBubble,
   type WhaleModule,
@@ -105,7 +106,11 @@ export function WhaleBubbleContent({
                   key={colIndex}
                   src={asset.data}
                   alt={asset.name}
-                  className="mx-auto block max-h-24 max-w-full object-contain"
+                  className="mx-auto block object-contain"
+                  style={{
+                    maxWidth: "calc(var(--whale-u, 0.244px) * 540)",
+                    maxHeight: "calc(var(--whale-u, 0.244px) * 300)",
+                  }}
                 />
               ) : null
             }
@@ -150,7 +155,10 @@ function moduleStyle(module: WhaleModule): CSSProperties {
       color: "transparent",
     }),
     fontFamily: module.font || undefined,
-    fontSize: module.size,
+    fontSize:
+      module.size == null
+        ? undefined
+        : `calc(var(--whale-u, 0.244px) * ${bubbleModuleFontU(module.size)})`,
     fontWeight: module.bold ? 700 : undefined,
     fontStyle: module.italic ? "italic" : undefined,
     textDecoration: module.underline ? "underline" : undefined,

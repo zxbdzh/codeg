@@ -30,6 +30,11 @@ const mobileState = vi.hoisted(() => ({ current: false }))
 const subscribedHandler = vi.hoisted(() => ({
   fn: null as ((snap: unknown) => void) | null,
 }))
+const transportState = vi.hoisted(() => ({
+  options: null as unknown,
+  sessions: null as unknown,
+  subscriptions: {} as Record<string, (payload: unknown) => void>,
+}))
 
 vi.mock("@/hooks/use-mobile", () => ({
   useIsMobile: () => mobileState.current,
@@ -37,8 +42,21 @@ vi.mock("@/hooks/use-mobile", () => ({
 
 vi.mock("@/lib/transport", () => ({
   getTransport: () => ({
-    call: vi.fn(),
-    subscribe: vi.fn(),
+    call: vi.fn(async (channel: string) =>
+      channel === "whale_widget_get_options"
+        ? transportState.options
+        : channel === "pet_list_active_sessions"
+          ? transportState.sessions
+          : undefined
+    ),
+    subscribe: vi.fn(
+      async (channel: string, handler: (payload: unknown) => void) => {
+        transportState.subscriptions[channel] = handler
+        return () => {
+          delete transportState.subscriptions[channel]
+        }
+      }
+    ),
     isDesktop: () => true,
   }),
 }))
@@ -85,6 +103,9 @@ describe("WhaleBalanceWidget", () => {
     vi.clearAllMocks()
     mobileState.current = false
     subscribedHandler.fn = null
+    transportState.options = null
+    transportState.sessions = null
+    transportState.subscriptions = {}
     window.localStorage.clear()
   })
 
@@ -403,6 +424,122 @@ describe("WhaleBalanceWidget", () => {
       expect(row).not.toHaveStyle({ textOverflow: "ellipsis" })
       expect(row).not.toHaveStyle({ overflow: "hidden" })
     }
+  })
+
+  it("renders a custom bubble sequence inside the whale bubble", async () => {
+    transportState.options = {
+      sequence: [
+        [
+          {
+            weight: 1,
+            rows: [[{ type: "text", value: "自定义泡泡" }]],
+          },
+        ],
+      ],
+    }
+    vi.mocked(getWhaleBalanceState).mockResolvedValueOnce({
+      configured: true,
+      enabled: true,
+      accountName: "lk888",
+      balance: 20,
+      used: 5,
+      lastSuccessAt: "2026-11-24T12:00:00Z",
+      lastAttemptAt: "2026-11-24T12:00:00Z",
+      lastError: null,
+      stale: false,
+      refreshing: false,
+      accountGeneration: 1,
+    })
+
+    renderWidget()
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "展开或收起小鲸鱼余额气泡",
+      })
+    )
+    const bubble = await screen.findByTestId("whale-balance-bubble")
+    expect(bubble).toContainElement(await screen.findByText("自定义泡泡"))
+    expect(screen.queryByTestId("whale-balance-summary")).toBeNull()
+  })
+
+  it("does not append the active session count to explicit balance details", async () => {
+    transportState.sessions = {
+      sessions: [
+        {
+          connectionId: "c1",
+          conversationId: 1,
+          folderId: 2,
+          agentType: "codex",
+          title: "Conversation",
+          status: "prompting",
+        },
+      ],
+    }
+    vi.mocked(getWhaleBalanceState).mockResolvedValueOnce({
+      configured: true,
+      enabled: true,
+      accountName: "lk888",
+      balance: 20,
+      used: 5,
+      lastSuccessAt: "2026-11-24T12:00:00Z",
+      lastAttemptAt: "2026-11-24T12:00:00Z",
+      lastError: null,
+      stale: false,
+      refreshing: false,
+      accountGeneration: 1,
+    })
+
+    renderWidget()
+
+    const details = await screen.findByTestId("whale-balance-details")
+    expect(details).toHaveTextContent("接口已用 5.00")
+    expect(details).not.toHaveTextContent("个会话")
+  })
+
+  it("renders an ACP waiting notice inside the whale bubble", async () => {
+    transportState.options = {
+      events: {
+        question: {
+          enabled: true,
+          bubble: [[{ type: "text", value: "需要你的回答" }]],
+        },
+      },
+    }
+    vi.mocked(getWhaleBalanceState).mockResolvedValueOnce({
+      configured: true,
+      enabled: true,
+      accountName: "lk888",
+      balance: 20,
+      used: 5,
+      lastSuccessAt: "2026-11-24T12:00:00Z",
+      lastAttemptAt: "2026-11-24T12:00:00Z",
+      lastError: null,
+      stale: false,
+      refreshing: false,
+      accountGeneration: 1,
+    })
+
+    renderWidget()
+    await screen.findByTestId("whale-balance-summary")
+    await waitFor(() =>
+      expect(
+        transportState.subscriptions["whale://session-notice"]
+      ).toBeDefined()
+    )
+
+    act(() => {
+      transportState.subscriptions["whale://session-notice"]?.({
+        kind: "question",
+        connectionId: "connection-1",
+        conversationId: 1,
+        seq: 1,
+        at: Date.now(),
+      })
+    })
+
+    const bubble = await screen.findByTestId("whale-balance-bubble")
+    expect(bubble).toContainElement(await screen.findByText("需要你的回答"))
   })
 
   it("automatically refreshes every 30 seconds and clears the interval", async () => {

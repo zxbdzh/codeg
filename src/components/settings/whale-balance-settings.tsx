@@ -1071,8 +1071,8 @@ export function WhaleBalanceSettingsSection() {
                 <Input
                   id="whale-widget-size"
                   type="number"
-                  min="32"
-                  max="96"
+                  min="26"
+                  max="110"
                   value={presentation.widgetSize}
                   onChange={(event) => {
                     const next = Number(event.target.value)
@@ -1080,7 +1080,7 @@ export function WhaleBalanceSettingsSection() {
                       ...presentation,
                       // 清空或非数字时保留旧值，避免把 0/NaN 发给后端。
                       widgetSize: Number.isFinite(next)
-                        ? Math.max(32, Math.min(96, next))
+                        ? Math.max(26, Math.min(110, next))
                         : presentation.widgetSize,
                     })
                   }}

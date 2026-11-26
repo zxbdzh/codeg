@@ -55,8 +55,8 @@ const WIDGET_SNAP_PREF = "codeg-whale-snap-v1"
 const BUBBLE_BODY_PATH =
   "M 827 248 A 373 232 0 1 0 81 246 A 373 232 0 0 0 301 465 A 57 32 10 0 0 413 484 A 373 232 0 0 827 248 Z"
 const AVATAR_SIZE = 44
-const MIN_AVATAR_SIZE = 32
-const MAX_AVATAR_SIZE = 96
+const MIN_AVATAR_SIZE = 26
+const MAX_AVATAR_SIZE = 110
 const DRAG_THRESHOLD_PX = 5
 const BALANCE_REFRESH_INTERVAL_MS = 30_000
 
@@ -626,10 +626,6 @@ export function WhaleBalanceWidget() {
       })
     )
   }
-  const sessionTotal = activeSessions?.sessions.length ?? 0
-  if (sessionTotal > 0) {
-    hintParts.push(t("sessionCount", { count: sessionTotal }))
-  }
   if (quota?.used != null)
     hintParts.push(`${label("额度", "Quota")} ${values.quota}`)
 
@@ -647,11 +643,24 @@ export function WhaleBalanceWidget() {
 
   // 原版以 1026 宽的画布为基准，所有字号都按画布单位缩放。
   const u = baseSize / 1026
-  // 明细超过三行时略缩字号，避免把余额和明细挤出气泡。
-  const detailFontSize = Math.max(
-    12,
-    56 * u * (detailLines.length > 3 ? 0.82 : 1)
-  )
+  // 多行明细按密度整体收缩，避免把文字压到气泡尾巴。
+  const contentScale =
+    detailLines.length >= 4
+      ? 0.62
+      : detailLines.length === 3
+        ? 0.72
+        : detailLines.length === 2
+          ? 0.84
+          : 1
+  const detailFontSize = Math.max(9, 56 * u * contentScale)
+  const eventRows = notice ? options.events?.[notice.kind]?.bubble : undefined
+  const bubbleVisible =
+    !options.hideBubble &&
+    (expanded || !!customRows || !!notice) &&
+    (!!notice ||
+      !!customRows ||
+      presentation.showBalance ||
+      detailLines.length > 0)
   const needsAttention = activeSessions?.sessions.find(
     (session) => session.status === "error" || session.status === "prompting"
   )
@@ -672,7 +681,7 @@ export function WhaleBalanceWidget() {
       <div
         ref={rootRef}
         data-testid="whale-balance-widget"
-        className="pointer-events-auto absolute select-none"
+        className="group pointer-events-auto absolute select-none"
         style={{
           ...(position.x === null
             ? { right: 0 }
@@ -699,13 +708,16 @@ export function WhaleBalanceWidget() {
                 : "none",
           }}
         >
-          {expanded && !options.hideBubble && !customRows && !notice && (
+          {bubbleVisible && (
             <div
               role="status"
               data-testid="whale-balance-bubble"
               title={snapshot.lastError ?? undefined}
               className="absolute left-0 top-0 w-full"
-              style={{ aspectRatio: "1026 / 700" }}
+              style={{
+                aspectRatio: "1026 / 700",
+                ["--whale-u" as string]: `${u}px`,
+              }}
             >
               <svg
                 viewBox="0 0 1026 700"
@@ -742,12 +754,13 @@ export function WhaleBalanceWidget() {
               </svg>
 
               <div
+                data-testid="whale-balance-text"
                 className="absolute flex flex-col items-center justify-center text-center"
                 style={{
                   left: "44.25%",
-                  top: "34%",
+                  top: "35.5%",
                   width: "66%",
-                  height: "66%",
+                  height: "auto",
                   // 镜像时文字要翻回来才可读，与原版一致。
                   transform: `translate(-50%, -50%)${mirror ? " scaleX(-1)" : ""}`,
                   color: "#536ba9",
@@ -755,61 +768,118 @@ export function WhaleBalanceWidget() {
                   whiteSpace: "normal",
                 }}
               >
-                {presentation.showBalance && (
+                {notice ? (
+                  eventRows?.length ? (
+                    <WhaleBubbleContent
+                      rows={eventRows}
+                      options={options}
+                      values={{
+                        ...values,
+                        ...notice.values,
+                        session: notice.values.session ?? values.session,
+                        cost: notice.values.cost ?? "—",
+                      }}
+                    />
+                  ) : (
+                    <div>
+                      {notice.kind === "complete"
+                        ? [
+                            notice.values.session,
+                            notice.values.tokens &&
+                              `${notice.values.tokens} tokens`,
+                            notice.values.cost,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")
+                        : notice.kind === "low"
+                          ? balanceText
+                          : notice.kind === "budget"
+                            ? values.today
+                            : (notice.values.session ?? values.session)}
+                    </div>
+                  )
+                ) : customRows ? (
+                  <WhaleBubbleContent
+                    rows={customRows}
+                    options={options}
+                    values={values}
+                    revision={bubbleRevision}
+                  />
+                ) : (
                   <>
-                    <div
-                      data-testid="whale-balance-label"
-                      style={{
-                        fontSize: 66 * u * (detailLines.length > 3 ? 0.9 : 1),
-                        fontWeight: 600,
-                        letterSpacing: "0.06em",
-                      }}
-                    >
-                      {accountTitle}
-                    </div>
-                    <div
-                      data-testid="whale-balance-summary"
-                      style={{
-                        fontSize: 128 * u * (detailLines.length > 3 ? 0.9 : 1),
-                        fontWeight: 800,
-                        lineHeight: 1.05,
-                        fontVariantNumeric: "tabular-nums",
-                      }}
-                    >
-                      {balanceText}
-                    </div>
+                    {presentation.showBalance && (
+                      <>
+                        <div
+                          data-testid="whale-balance-label"
+                          style={{
+                            fontSize: 66 * u * contentScale,
+                            fontWeight: 600,
+                            letterSpacing: "0.06em",
+                          }}
+                        >
+                          {accountTitle}
+                        </div>
+                        <div
+                          data-testid="whale-balance-summary"
+                          style={{
+                            fontSize: 128 * u * contentScale,
+                            fontWeight: 800,
+                            lineHeight: 1.05,
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {balanceText}
+                        </div>
+                      </>
+                    )}
+                    {detailLines.length > 0 ? (
+                      <div
+                        data-testid="whale-balance-details"
+                        className="mt-1 flex max-w-full flex-col items-center"
+                        style={{
+                          fontSize: detailFontSize,
+                          lineHeight: 1.15,
+                          gap: Math.max(1, 6 * u),
+                          color: "#536ba9",
+                        }}
+                      >
+                        {detailLines.map((line, index) => (
+                          <div
+                            key={`${index}-${line}`}
+                            data-testid={
+                              index === 0
+                                ? statusLine
+                                  ? "whale-balance-stale"
+                                  : "whale-balance-hint"
+                                : "whale-balance-detail"
+                            }
+                            className="max-w-full text-center"
+                            style={{
+                              overflowWrap: "normal",
+                              wordBreak: "normal",
+                            }}
+                          >
+                            {line}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </>
                 )}
-                {detailLines.length > 0 ? (
-                  <div
-                    data-testid="whale-balance-details"
-                    className="mt-1 flex max-w-full flex-col items-center"
-                    style={{
-                      fontSize: detailFontSize,
-                      lineHeight: 1.15,
-                      gap: Math.max(1, 8 * u),
-                      color: "#536ba9",
-                    }}
-                  >
-                    {detailLines.map((line, index) => (
-                      <div
-                        key={`${index}-${line}`}
-                        data-testid={
-                          index === 0
-                            ? statusLine
-                              ? "whale-balance-stale"
-                              : "whale-balance-hint"
-                            : "whale-balance-detail"
-                        }
-                        className="max-w-full text-center"
-                        style={{ overflowWrap: "anywhere" }}
-                      >
-                        {line}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
               </div>
+              {notice && (
+                <button
+                  type="button"
+                  aria-label={label("关闭泡泡", "Close bubble")}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    dismiss()
+                  }}
+                  className="absolute right-[16%] top-[13%] flex size-5 items-center justify-center rounded-full bg-white/85 text-[#203170] shadow-sm"
+                >
+                  <X className="size-3" />
+                </button>
+              )}
             </div>
           )}
 
@@ -868,83 +938,50 @@ export function WhaleBalanceWidget() {
           )}
         </div>
 
-        {(notice || (customRows && !options.hideBubble)) && (
+        {notice && options.hideBubble && (
           <div
             role="status"
-            className={cn(
-              "z-10 grid w-60 max-w-[calc(100vw-1rem)] gap-2 rounded-lg border bg-background p-3 text-sm text-foreground shadow-lg",
-              notice && options.hideBubble
-                ? "fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
-                : "absolute bottom-[60%]"
-            )}
-            style={
-              notice && options.hideBubble
-                ? undefined
-                : { [mirror ? "left" : "right"]: 0 }
-            }
+            className="fixed top-1/2 left-1/2 z-10 grid w-60 max-w-[calc(100vw-1rem)] -translate-x-1/2 -translate-y-1/2 gap-2 rounded-lg border bg-background p-3 text-sm text-foreground shadow-lg"
           >
             <div className="flex items-start justify-between gap-2">
-              <strong>
-                {notice ? whaleEventLabel(notice.kind, label) : accountTitle}
-              </strong>
+              <strong>{whaleEventLabel(notice.kind, label)}</strong>
               <button
                 type="button"
                 aria-label={label("关闭泡泡", "Close bubble")}
-                onClick={() => (notice ? dismiss() : setBubbleIndex(-1))}
+                onClick={dismiss}
               >
                 <X className="size-4" />
               </button>
             </div>
-            {notice ? (
-              options.events?.[notice.kind]?.bubble?.length ? (
-                <WhaleBubbleContent
-                  rows={options.events[notice.kind]!.bubble!}
-                  options={options}
-                  values={{
-                    ...values,
-                    ...notice.values,
-                    session: notice.values.session ?? values.session,
-                    cost: notice.values.cost ?? "—",
-                  }}
-                />
-              ) : (
-                <div>
-                  {notice.kind === "complete"
-                    ? [
-                        notice.values.session,
-                        notice.values.tokens &&
-                          `${notice.values.tokens} tokens`,
-                        notice.values.cost,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")
-                    : notice.kind === "low"
-                      ? balanceText
-                      : notice.kind === "budget"
-                        ? values.today
-                        : (notice.values.session ?? values.session)}
-                </div>
-              )
+            {eventRows?.length ? (
+              <WhaleBubbleContent
+                rows={eventRows}
+                options={options}
+                values={{
+                  ...values,
+                  ...notice.values,
+                  session: notice.values.session ?? values.session,
+                  cost: notice.values.cost ?? "—",
+                }}
+              />
             ) : (
-              customRows && (
-                <WhaleBubbleContent
-                  rows={customRows}
-                  options={options}
-                  values={values}
-                  revision={bubbleRevision}
-                />
-              )
+              <div>
+                {notice.kind === "complete"
+                  ? [
+                      notice.values.session,
+                      notice.values.tokens && `${notice.values.tokens} tokens`,
+                      notice.values.cost,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : notice.kind === "low"
+                    ? balanceText
+                    : notice.kind === "budget"
+                      ? values.today
+                      : (notice.values.session ?? values.session)}
+              </div>
             )}
-            {!notice && (options.sequence?.length ?? 0) > 1 && (
-              <button
-                type="button"
-                className="justify-self-end text-xs underline"
-                onClick={() => moveBubble(bubbleIndex + 1)}
-              >
-                {label("下一项", "Next")}
-              </button>
-            )}
-            {notice?.conversationId &&
+            {notice.conversationId &&
               activeSessions?.sessions.some(
                 (item) => item.conversationId === notice.conversationId
               ) && (
@@ -981,10 +1018,15 @@ export function WhaleBalanceWidget() {
               event.stopPropagation()
               setMenuOpen((previous) => !previous)
             }}
-            className="absolute flex h-6 w-6 items-center justify-center rounded-md text-white shadow-md transition-colors"
+            className={cn(
+              "absolute flex h-[26px] w-[26px] items-center justify-center rounded-md text-white shadow-md transition-opacity focus-visible:opacity-100",
+              menuOpen || isMobile
+                ? "opacity-100"
+                : "opacity-0 group-hover:opacity-100"
+            )}
             style={{
-              top: "30%",
-              [mirror ? "left" : "right"]: 0,
+              top: "calc(40.55% + 4px)",
+              [mirror ? "left" : "right"]: 4,
               background: "rgba(32,49,112,0.85)",
             }}
           >
@@ -1000,13 +1042,10 @@ export function WhaleBalanceWidget() {
           <div
             data-testid="whale-balance-menu"
             role="menu"
-            className="absolute z-50 max-h-[calc(100dvh-4rem)] w-56 overflow-y-auto rounded-xl p-3 text-[11px] text-white shadow-xl"
+            className="absolute z-50 max-h-[calc(100dvh-4rem)] w-56 overflow-y-auto rounded-xl border border-[#203170]/35 bg-white/95 p-3 text-[11px] text-[#203170] shadow-xl"
             style={{
-              ...(position.y === null
-                ? { bottom: "calc(100% + 6px)" }
-                : { top: 0 }),
+              bottom: "calc(59.45% + 6px)",
               [mirror ? "left" : "right"]: 0,
-              background: "rgba(32,49,112,0.96)",
             }}
             onClick={(event) => event.stopPropagation()}
           >
@@ -1038,11 +1077,11 @@ export function WhaleBalanceWidget() {
                   }))
                 }
                 onPointerUp={() => void persistPresentation(presentation)}
-                className="mt-1 w-full accent-white"
+                className="mt-1 w-full accent-[#203170]"
               />
             </label>
 
-            <div className="my-2 border-t border-white/20" />
+            <div className="my-2 border-t border-[#203170]/20" />
 
             {PRESENTATION_TOGGLES.map((key) => (
               <label
@@ -1060,12 +1099,12 @@ export function WhaleBalanceWidget() {
                       [key]: event.target.checked,
                     })
                   }
-                  className="size-3 accent-white"
+                  className="size-3 accent-[#203170]"
                 />
               </label>
             ))}
 
-            <div className="my-2 border-t border-white/20" />
+            <div className="my-2 border-t border-[#203170]/20" />
 
             <label className="flex cursor-pointer items-center justify-between py-0.5">
               <span>{t("menuSnap")}</span>
@@ -1074,7 +1113,7 @@ export function WhaleBalanceWidget() {
                 checked={snapEnabled}
                 aria-label={t("menuSnap")}
                 onChange={toggleSnap}
-                className="size-3 accent-white"
+                className="size-3 accent-[#203170]"
               />
             </label>
 
@@ -1085,7 +1124,7 @@ export function WhaleBalanceWidget() {
                   event.stopPropagation()
                   toggleMirror()
                 }}
-                className="flex flex-1 items-center justify-center gap-1 rounded-md bg-white/15 py-1 transition-colors hover:bg-white/25"
+                className="flex flex-1 items-center justify-center gap-1 rounded-md bg-[#203170]/10 py-1 transition-colors hover:bg-[#203170]/20"
               >
                 <ArrowLeftRight className="size-3" />
                 {t("menuMirror")}
@@ -1097,7 +1136,7 @@ export function WhaleBalanceWidget() {
                   void handleRefresh()
                 }}
                 disabled={isSpinning}
-                className="flex flex-1 items-center justify-center gap-1 rounded-md bg-white/15 py-1 transition-colors hover:bg-white/25 disabled:opacity-60"
+                className="flex flex-1 items-center justify-center gap-1 rounded-md bg-[#203170]/10 py-1 transition-colors hover:bg-[#203170]/20 disabled:opacity-60"
               >
                 <RefreshCw
                   className={cn("size-3", isSpinning && "animate-spin")}
@@ -1113,7 +1152,7 @@ export function WhaleBalanceWidget() {
                   setMenuOpen(false)
                   setDialog("options")
                 }}
-                className="mt-1 w-full rounded-md bg-white/15 py-1 hover:bg-white/25"
+                className="mt-1 w-full rounded-md bg-[#203170]/10 py-1 hover:bg-[#203170]/20"
               >
                 {label("挂件设置", "Widget settings")}
               </button>
@@ -1124,7 +1163,7 @@ export function WhaleBalanceWidget() {
                 setMenuOpen(false)
                 setDialog("usage")
               }}
-              className="mt-1 w-full rounded-md bg-white/15 py-1 hover:bg-white/25"
+              className="mt-1 w-full rounded-md bg-[#203170]/10 py-1 hover:bg-[#203170]/20"
             >
               {label("小鲸鱼记账", "Usage records")}
             </button>
@@ -1134,7 +1173,7 @@ export function WhaleBalanceWidget() {
                 event.stopPropagation()
                 handleOpenSettings()
               }}
-              className="mt-1 flex w-full items-center justify-center gap-1 rounded-md bg-white/15 py-1 transition-colors hover:bg-white/25"
+              className="mt-1 flex w-full items-center justify-center gap-1 rounded-md bg-[#203170]/10 py-1 transition-colors hover:bg-[#203170]/20"
             >
               <Settings className="size-3" />
               {t("menuSettings")}
@@ -1146,7 +1185,9 @@ export function WhaleBalanceWidget() {
         <WhaleOptionsDialog
           key={activeModelId}
           options={options}
+          presentation={presentation}
           onSave={save}
+          onSavePresentation={persistPresentation}
           onClose={() => setDialog(null)}
           modelId={activeModelId}
           balanceLabel={snapshot.accountName || activeModelId}

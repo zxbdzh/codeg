@@ -17392,6 +17392,7 @@ async fn parsed_session(
         session_stats: None,
         transcript_watermark: None,
         in_flight_user_turn_id: None,
+        in_flight_user_source_turn_id: None,
         turns_offset: None,
         turns_total: None,
         assistant_turns_before_offset: None,

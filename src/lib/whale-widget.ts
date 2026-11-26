@@ -48,7 +48,7 @@ const moduleSchema = z.object({
   type: z.enum(MODULE_TYPES),
   value: z.string().max(1800),
   href: z.string().max(1000).optional(),
-  size: z.number().min(10).max(48).optional(),
+  size: z.number().min(1).max(50).optional(),
   color: color.optional(),
   gradient: color.optional(),
   background: color.optional(),
@@ -201,6 +201,11 @@ export function weightedIndex(
   )
   let target = random * eligible.reduce((sum, weight) => sum + weight, 0)
   return eligible.findIndex((weight) => (target -= weight) < 0)
+}
+
+export function bubbleModuleFontU(level: number | undefined): number {
+  const value = Math.max(1, Math.min(50, Math.round(level ?? 6)))
+  return Math.round(40 + ((value - 1) * 200) / 49)
 }
 
 export function whaleDate(at: number | string) {
