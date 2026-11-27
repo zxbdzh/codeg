@@ -56,11 +56,16 @@ mod m20261017_000002_conversation_source;
 mod m20261020_000001_folder_command_run_local;
 mod m20261022_000001_tool_approval;
 mod m20261022_000001_work_task_delivery;
+mod m20261030_000001_conversation_tag_link_source;
 mod m20261031_000001_prompt_stash;
+mod m20261102_000001_ai_tag_suggestions;
 mod m20261104_000001_prompt_stash_scope;
 mod m20261106_000001_work_task_source_key;
+mod m20261110_000001_research_branch;
 mod m20261112_000001_work_task_writeback_drafts;
 mod m20261116_000001_srn_web;
+mod m20261120_000001_ai_tag_curation;
+mod m20261121_000001_side_question;
 mod m20261123_000001_conversation_selector_state;
 mod m20261125_000001_personal_agent;
 mod m20261125_000002_personal_agent_item_closure;
@@ -126,11 +131,16 @@ impl MigratorTrait for Migrator {
             Box::new(m20261020_000001_folder_command_run_local::Migration),
             Box::new(m20261022_000001_tool_approval::Migration),
             Box::new(m20261022_000001_work_task_delivery::Migration),
+            Box::new(m20261030_000001_conversation_tag_link_source::Migration),
             Box::new(m20261031_000001_prompt_stash::Migration),
+            Box::new(m20261102_000001_ai_tag_suggestions::Migration),
             Box::new(m20261104_000001_prompt_stash_scope::Migration),
             Box::new(m20261106_000001_work_task_source_key::Migration),
+            Box::new(m20261110_000001_research_branch::Migration),
             Box::new(m20261112_000001_work_task_writeback_drafts::Migration),
             Box::new(m20261116_000001_srn_web::Migration),
+            Box::new(m20261120_000001_ai_tag_curation::Migration),
+            Box::new(m20261121_000001_side_question::Migration),
             Box::new(m20261123_000001_conversation_selector_state::Migration),
             Box::new(m20261125_000001_personal_agent::Migration),
             Box::new(m20261125_000002_personal_agent_item_closure::Migration),
