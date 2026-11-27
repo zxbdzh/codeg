@@ -138,9 +138,11 @@ export function ComposerAddMenu({
           type="button"
           disabled={disabled}
           variant="ghost"
-          size="icon-xs"
+          // `icon-sm` (32px): the same square as the composer's send button.
+          size="icon-sm"
           className={cn(
-            "size-10 shrink-0 touch-manipulation text-muted-foreground md:size-6",
+            // 保留本地移动端处理：触摸不缩放、不延迟，点击区域随触屏放大
+            "shrink-0 touch-manipulation text-muted-foreground",
             triggerClassName
           )}
           title={t("addActions")}

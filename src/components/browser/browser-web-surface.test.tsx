@@ -255,7 +255,7 @@ describe("Web browser page input", () => {
     fireEvent.click(screen.getByRole("button", { name: "触控板" }))
     fireEvent.click(screen.getByRole("button", { name: "拖拽" }))
     fireEvent(window, new Event("blur"))
-    expect(sent().at(-1)).toEqual(
+    expect(sent().slice(-1)[0]).toEqual(
       expect.objectContaining({ event: "mouseReleased", buttons: 0 })
     )
     expect(screen.getByRole("button", { name: "拖拽" })).toHaveAttribute(
@@ -318,7 +318,7 @@ describe("Web browser page input", () => {
       expect(
         sent()
           .filter((message) => message.type === "resize")
-          .at(-1)
+          .slice(-1)[0]
       ).toEqual({
         type: "resize",
         width: 390,
@@ -331,7 +331,7 @@ describe("Web browser page input", () => {
       expect(
         sent()
           .filter((message) => message.type === "resize")
-          .at(-1)
+          .slice(-1)[0]
       ).toEqual({
         type: "resize",
         width: 1280,
@@ -360,7 +360,7 @@ describe("Web browser page input", () => {
       sent().filter((message) => message.event === "mouseReleased")
     ).toHaveLength(0)
     fireEvent.click(screen.getByRole("button", { name: "触控板" }))
-    expect(sent().at(-1)).toEqual(
+    expect(sent().slice(-1)[0]).toEqual(
       expect.objectContaining({ event: "mouseReleased", buttons: 0 })
     )
     expect(screen.queryByRole("button", { name: "右键" })).toBeNull()
@@ -633,7 +633,7 @@ describe("Web browser page input", () => {
       await drawing
     })
     expect(drawImage).toHaveBeenCalledOnce()
-    expect(sent().at(-1)).toEqual({ type: "frame-ack", id: 7 })
+    expect(sent().slice(-1)[0]).toEqual({ type: "frame-ack", id: 7 })
   })
 
   it("decodes JPEG frames with an Image fallback when ImageBitmap is unavailable", async () => {
@@ -674,7 +674,7 @@ describe("Web browser page input", () => {
     })
     expect(createObjectURL).toHaveBeenCalledOnce()
     expect(drawImage).toHaveBeenCalledWith(expect.any(FakeImage), 0, 0)
-    expect(sent().at(-1)).toEqual({ type: "frame-ack", id: 8 })
+    expect(sent().slice(-1)[0]).toEqual({ type: "frame-ack", id: 8 })
   })
 
   it("stops audio and clears permissions on disconnect, ignoring the old socket", async () => {
@@ -784,7 +784,7 @@ describe("Web browser page input", () => {
     expect(
       screen.getByText("视频解码失败，已切换兼容画面：decoder rejected frame")
     ).toBeInTheDocument()
-    expect(sent().at(-1)).toEqual({ type: "video-fallback" })
+    expect(sent().slice(-1)[0]).toEqual({ type: "video-fallback" })
     expect(mocks.videoStop).toHaveBeenCalledOnce()
   })
 

@@ -12,6 +12,7 @@ import {
 } from "@/lib/drag-selection-guard"
 import type { ConversationStatus } from "@/lib/types"
 import { ConversationStatusDot } from "@/components/conversations/conversation-status-dot"
+import { useAwaitingAnswer } from "@/hooks/use-conversation-attention"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -132,12 +133,19 @@ export const TabItem = memo(function TabItem({
 }: TabItemProps) {
   const t = useTranslations("Folder.tabs")
   const tPanes = useTranslations("ConversationPanes")
+  // 等待原因复用侧栏已翻译好的三种说法，不新增文案。
+  const tSidebar = useTranslations("Folder.sidebar")
   const paneState = useTabStore((state) => state.paneState)
   const activity = useConnectionActivity(
     tab.id,
     tab.status as ConversationStatus | undefined
   )
   const itemRef = useRef<HTMLDivElement>(null)
+  // Read off the same conversation-keyed index as the sidebar, so the tab and
+  // its row agree (a delegated sub-agent's prompt marks both). The value is a
+  // primitive: a prompt raised elsewhere re-renders only the tab it concerns.
+  // A draft has no conversation row yet, so there is nothing to mark.
+  const awaiting = useAwaitingAnswer(tab.conversationId)
 
   const resolvedFolderName = folderName ?? String(tab.folderId)
   const tooltip = folderBranch
@@ -352,7 +360,17 @@ export const TabItem = memo(function TabItem({
                   ]
             )}
           >
-            {activity === "waiting" ? (
+            {awaiting != null ? (
+              <ConversationStatusDot
+                status={tab.status as ConversationStatus | undefined}
+                attention={awaiting}
+                // 悬停可读到"在等什么"：静态紫色点本身说明不了原因，标签标题上
+                // 的 folder / branch / title 组合也不会替它解释。
+                title={tSidebar(`statusAwaiting.${awaiting}`)}
+              />
+            ) : activity === "waiting" ? (
+              // 本地 pane 级等待：没有具体等待种类，改用带文案的图标，
+              // 与侧栏的 waiting 标记保持一致。
               <span
                 data-conversation-activity="waiting"
                 className="flex size-3.5 shrink-0 items-center justify-center text-orange-700 dark:text-orange-400"

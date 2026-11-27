@@ -10,6 +10,7 @@ import {
 } from "@/lib/conversation-panes"
 import { StaticConnectionStoreProvider } from "@/contexts/acp-connections-context"
 import type { ConnectionStoreApi } from "@/contexts/acp-connections-context"
+import { EMPTY_ATTENTION_INDEX } from "@/lib/conversation-attention"
 import { makePaneTestConnection } from "@/lib/conversation-pane-test-helpers"
 import {
   CONVERSATION_PANE_SWITCHER_POSITION_KEY,
@@ -275,6 +276,9 @@ describe("浮动 Pane 切换栏", () => {
       getConnectError: () => undefined,
       getActiveKey: () => null,
       subscribeActiveKey: () => () => {},
+      // 上游把「等你回答」索引并入连接 store，测试替身要补齐这两个成员。
+      getAttention: () => EMPTY_ATTENTION_INDEX,
+      subscribeAttention: () => () => {},
       subscribeKey: (_key: string, listener: () => void) => {
         listeners.add(listener)
         return () => listeners.delete(listener)
@@ -379,6 +383,8 @@ describe("浮动 Pane 切换栏", () => {
         getConnectError: () => undefined,
         getActiveKey: () => "conv-1",
         subscribeActiveKey: () => () => {},
+        getAttention: () => EMPTY_ATTENTION_INDEX,
+        subscribeAttention: () => () => {},
         subscribeKey: (key, listener) => {
           const subscribers = listeners.get(key) ?? new Set<() => void>()
           subscribers.add(listener)

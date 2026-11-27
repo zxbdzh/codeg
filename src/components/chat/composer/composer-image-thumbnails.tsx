@@ -41,9 +41,12 @@ function toDisplay(attachment: ImageInputAttachment): UserImageDisplay {
 export function ComposerImageThumbnails({
   attachments,
   onRemove,
+  disabled = false,
 }: {
   attachments: ImageInputAttachment[]
-  onRemove?: (id: string) => void
+  onRemove: (id: string) => void
+  /** The box is locked (sending): the images stay as they are. */
+  disabled?: boolean
 }) {
   const t = useTranslations("Folder.chat.messageInput")
   // The shared image actions live in the transcript's namespace; reusing the
@@ -85,16 +88,15 @@ export function ComposerImageThumbnails({
               <Loader2 className="h-4 w-4 animate-spin text-foreground/80" />
             </div>
           ) : null}
-          {onRemove && (
-            <button
-              type="button"
-              onClick={() => onRemove(attachment.id)}
-              className="absolute right-1 top-1 rounded-sm bg-background/70 p-0.5 hover:bg-background"
-              aria-label={t("removeAttachmentAria", { name: attachment.name })}
-            >
-              <X className="h-3 w-3" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => onRemove(attachment.id)}
+            disabled={disabled}
+            className="absolute right-1 top-1 rounded-sm bg-background/70 p-0.5 hover:bg-background disabled:pointer-events-none disabled:opacity-50"
+            aria-label={t("removeAttachmentAria", { name: attachment.name })}
+          >
+            <X className="h-3 w-3" />
+          </button>
         </ImageActions>
       ))}
       <ImagePreviewDialog
