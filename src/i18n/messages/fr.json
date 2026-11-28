@@ -2197,6 +2197,24 @@
     }
   },
   "Folder": {
+    "sideQuestion": {
+      "title": "Questions annexes",
+      "new": "Nouvelle question annexe",
+      "select": "Sélectionner une question annexe",
+      "createFailed": "Impossible de créer la question",
+      "draftSaveFailed": "Impossible d’enregistrer le brouillon. La question n’a pas été envoyée. Vérifiez le stockage et réessayez.",
+      "chooseConversation": "Sélectionnez d’abord une conversation",
+      "loadFailed": "Impossible de charger les questions",
+      "retry": "Réessayer",
+      "unsupportedAgent": "Cet agent ne prend pas en charge les questions annexes",
+      "noCompletedHistory": "Aucun historique terminé",
+      "policyUnavailable": "La politique en lecture seule est indisponible",
+      "sourceUnavailable": "La conversation source est indisponible",
+      "readonlyHint": "Le contexte est indépendant à la création et les fichiers sont lus dans leur état actuel.",
+      "legacyHint": "Les anciennes questions de suivi conservent leurs permissions initiales.",
+      "loading": "Chargement...",
+      "empty": "Aucune question annexe"
+    },
     "workspaceStatus": {
       "degradedTitle": "Mises à jour en temps réel indisponibles",
       "degradedHint": "L’observateur n’a pas pu démarrer (par ex. permission refusée). Actualisez manuellement pour voir les modifications.",

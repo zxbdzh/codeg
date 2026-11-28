@@ -844,7 +844,7 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
               <AtSign className="h-4 w-4" />
               {t("attachToCurrentSession")}
             </ContextMenuItem>
-            {(isAsk || isCheck) && (
+            {(isAsk || isCheck) && !conversation.readonly_ask && (
               <ContextMenuItem onSelect={() => detachAsk(conversation.id)}>
                 <Unlink className="h-4 w-4" />
                 {tAsk("convertToRegular")}

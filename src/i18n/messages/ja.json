@@ -2197,6 +2197,24 @@
     }
   },
   "Folder": {
+    "sideQuestion": {
+      "title": "サイド質問",
+      "new": "サイド質問を作成",
+      "select": "サイド質問を選択",
+      "createFailed": "サイド質問を作成できませんでした",
+      "draftSaveFailed": "下書きを保存できなかったため、質問は送信されませんでした。ストレージを確認して再試行してください。",
+      "chooseConversation": "先に会話を選択してください",
+      "loadFailed": "サイド質問を読み込めませんでした",
+      "retry": "再試行",
+      "unsupportedAgent": "このエージェントはサイド質問に対応していません",
+      "noCompletedHistory": "完了した履歴がありません",
+      "policyUnavailable": "読み取り専用ポリシーを利用できません",
+      "sourceUnavailable": "元の会話を利用できません",
+      "readonlyHint": "作成時のコンテキストは独立しており、ファイルは現在の内容を読み取ります。",
+      "legacyHint": "以前の追加質問には元の権限が適用されます。",
+      "loading": "読み込み中...",
+      "empty": "サイド質問はまだありません"
+    },
     "workspaceStatus": {
       "degradedTitle": "リアルタイム更新は利用できません",
       "degradedHint": "ウォッチャーの起動に失敗しました（アクセス権限エラーなど）。最新の変更を反映するには手動で更新してください。",

@@ -2197,6 +2197,24 @@
     }
   },
   "Folder": {
+    "sideQuestion": {
+      "title": "Nebenfragen",
+      "new": "Neue Nebenfrage",
+      "select": "Nebenfrage auswählen",
+      "createFailed": "Nebenfrage konnte nicht erstellt werden",
+      "draftSaveFailed": "Entwurf konnte nicht gespeichert werden. Die Frage wurde nicht gesendet. Speicherplatz prüfen und erneut versuchen.",
+      "chooseConversation": "Zuerst eine Unterhaltung auswählen",
+      "loadFailed": "Nebenfragen konnten nicht geladen werden",
+      "retry": "Erneut versuchen",
+      "unsupportedAgent": "Dieser Agent unterstützt keine Nebenfragen",
+      "noCompletedHistory": "Kein abgeschlossener Verlauf vorhanden",
+      "policyUnavailable": "Schreibschutzrichtlinie nicht verfügbar",
+      "sourceUnavailable": "Ausgangsunterhaltung nicht verfügbar",
+      "readonlyHint": "Beim Erstellen ist der Kontext unabhängig; Dateien werden mit ihrem aktuellen Inhalt gelesen.",
+      "legacyHint": "Frühere Rückfragen behalten ihre ursprünglichen Berechtigungen.",
+      "loading": "Wird geladen...",
+      "empty": "Noch keine Nebenfragen"
+    },
     "workspaceStatus": {
       "degradedTitle": "Live-Aktualisierungen nicht verfügbar",
       "degradedHint": "Beobachter konnte nicht gestartet werden (z. B. Berechtigung verweigert). Aktualisiere manuell, um Änderungen zu sehen.",

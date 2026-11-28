@@ -34,6 +34,10 @@ vi.mock("@/contexts/workspace-context", () => ({
 vi.mock("@/contexts/active-folder-context", () => ({
   useActiveFolder: () => ({ activeFolder: { path: "/repo" } }),
 }))
+const openAuxTab = vi.hoisted(() => vi.fn())
+vi.mock("@/contexts/aux-panel-context", () => ({
+  useAuxPanelContext: () => ({ openTab: openAuxTab }),
+}))
 vi.mock("@/components/agent-icon", () => ({
   AgentIcon: () => <span data-testid="agent-icon" />,
 }))
@@ -276,6 +280,27 @@ describe("SessionDetailsInsights", () => {
       const dot = icon.parentElement!.querySelector(".absolute.rounded-full")
       expect(dot).not.toBeNull()
       expect(dot).toHaveClass("motion-safe:animate-pulse")
+    })
+
+    it("keeps read-only side questions readable without offering conversion", () => {
+      mockAsks.mockImplementation((id, kind) =>
+        id === PARENT && kind === "ask"
+          ? [{ ...ask, readonly_ask: true }]
+          : null
+      )
+      render(
+        <NextIntlClientProvider locale="en" messages={enMessages}>
+          <SessionDetailsInsights
+            conversationId={CONVERSATION}
+            dbConversationId={PARENT}
+            active
+          />
+        </NextIntlClientProvider>
+      )
+      expect(screen.getByText("What does this do?")).toBeVisible()
+      expect(
+        screen.queryByRole("button", { name: "Convert to normal conversation" })
+      ).not.toBeInTheDocument()
     })
 
     it("offers converting only, and asks before it does", () => {

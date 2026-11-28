@@ -23,9 +23,13 @@ vi.mock("next-intl", () => ({
     params ? `${key}:${JSON.stringify(params)}` : key,
 }))
 
+const connectionSpies = vi.hoisted(() => ({
+  connect: vi.fn().mockResolvedValue(undefined),
+  active: vi.fn(),
+}))
 vi.mock("@/contexts/acp-connections-context", () => ({
   useAcpActions: () => ({
-    setActiveKey: vi.fn(),
+    setActiveKey: connectionSpies.active,
     releaseActiveKey: vi.fn(),
     touchActivity: vi.fn(),
   }),
@@ -80,7 +84,7 @@ vi.mock("@/hooks/use-connection", () => ({
     agentType: conn.agentType,
     selectorsReady: conn.selectorsReady,
     hasCachedSelectors: conn.hasCachedSelectors,
-    connect: vi.fn().mockResolvedValue(undefined),
+    connect: connectionSpies.connect,
     disconnect: vi.fn().mockResolvedValue(undefined),
     sendPrompt: vi.fn().mockResolvedValue(undefined),
     setMode: vi.fn().mockResolvedValue(undefined),
@@ -117,10 +121,38 @@ function renderLifecycle(preparing: boolean) {
 describe("useConnectionLifecycle opening legs", () => {
   beforeEach(() => {
     tasks.reset()
+    connectionSpies.connect.mockClear()
+    connectionSpies.active.mockClear()
     conn.status = null
     conn.agentType = null
     conn.selectorsReady = false
     conn.hasCachedSelectors = false
+  })
+
+  it("connects a submitted hidden side question without claiming focus", async () => {
+    const { rerender } = renderHook(
+      ({ autoConnect }) =>
+        useConnectionLifecycle({
+          contextKey: "side-1",
+          agentType: "claude_code",
+          isActive: false,
+          autoConnect,
+          workingDir: "/repo",
+          conversationId: 42,
+          sessionId: "side-native",
+        }),
+      { initialProps: { autoConnect: true } }
+    )
+    await act(async () => {})
+    expect(connectionSpies.connect).toHaveBeenCalledWith(
+      "claude_code",
+      "/repo",
+      "side-native",
+      42
+    )
+    expect(connectionSpies.active).not.toHaveBeenCalled()
+    rerender({ autoConnect: false })
+    expect(connectionSpies.connect).toHaveBeenCalledTimes(1)
   })
 
   it("reports the historical-session wait as a status-bar task and as loading selectors", () => {

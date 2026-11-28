@@ -46,6 +46,8 @@ import type {
 import { cn } from "@/lib/utils"
 import { SESSION_DETAILS_GUTTER } from "./session-details-layout"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { useSideQuestionPanelStore } from "@/stores/side-question-panel-store"
+import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { useAskConversationDrawerStore } from "@/stores/ask-conversation-drawer-store"
 import {
   demandTranscriptNav,
@@ -352,6 +354,8 @@ function LinkedConversationsSection({
   const asks = useLinkedConversations(parentConversationId, kind)
   const [open, setOpen] = useSessionDetailsSectionOpen(section.pref)
   const openExisting = useAskConversationDrawerStore((s) => s.openExisting)
+  const { openTab } = useAuxPanelContext()
+  const openSideQuestion = useSideQuestionPanelStore((s) => s.open)
   const openId = useAskConversationDrawerStore(
     (s) => s.target?.conversationId ?? null
   )
@@ -376,6 +380,22 @@ function LinkedConversationsSection({
     return null
   }
   const handleOpen = (ask: DbConversationSummary) => {
+    if (kind === "ask") {
+      openSideQuestion({
+        parentConversationId,
+        conversationId: ask.id,
+        folderId: ask.folder_id,
+        agentType: ask.agent_type,
+        readonly: ask.readonly_ask === true,
+        workingDir:
+          useAppWorkspaceStore
+            .getState()
+            .allFolders.find((folder) => folder.id === ask.folder_id)?.path ??
+          null,
+      })
+      openTab("side_question")
+      return
+    }
     const opened = openExisting({
       kind,
       parentConversationId,
@@ -451,18 +471,21 @@ function LinkedConversationsSection({
                     {title}
                   </span>
                 </button>
-                <button
-                  type="button"
-                  aria-label={t("convertToRegular")}
-                  title={t("convertToRegular")}
-                  onClick={() => {
-                    setConfirming({ id: ask.id, title })
-                    setConfirmOpen(true)
-                  }}
-                  className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity outline-none group-hover/ask:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50 [@media(hover:none)]:opacity-100"
-                >
-                  <Unlink className="size-3.5" />
-                </button>
+                {/* 只读身份不可转换为普通会话；后端也会拒绝解除该约束。 */}
+                {!ask.readonly_ask && (
+                  <button
+                    type="button"
+                    aria-label={t("convertToRegular")}
+                    title={t("convertToRegular")}
+                    onClick={() => {
+                      setConfirming({ id: ask.id, title })
+                      setConfirmOpen(true)
+                    }}
+                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity outline-none group-hover/ask:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50 [@media(hover:none)]:opacity-100"
+                  >
+                    <Unlink className="size-3.5" />
+                  </button>
+                )}
               </li>
             )
           })}

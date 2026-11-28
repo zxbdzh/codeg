@@ -2197,6 +2197,24 @@
     }
   },
   "Folder": {
+    "sideQuestion": {
+      "title": "Perguntas paralelas",
+      "new": "Nova pergunta paralela",
+      "select": "Selecionar pergunta paralela",
+      "createFailed": "Não foi possível criar a pergunta",
+      "draftSaveFailed": "Não foi possível salvar o rascunho. A pergunta não foi enviada. Verifique o armazenamento e tente novamente.",
+      "chooseConversation": "Selecione uma conversa primeiro",
+      "loadFailed": "Não foi possível carregar as perguntas",
+      "retry": "Tentar novamente",
+      "unsupportedAgent": "Este agente não oferece perguntas paralelas",
+      "noCompletedHistory": "Não há histórico concluído",
+      "policyUnavailable": "Política somente leitura indisponível",
+      "sourceUnavailable": "Conversa de origem indisponível",
+      "readonlyHint": "O contexto é independente na criação e os arquivos são lidos no estado atual.",
+      "legacyHint": "Perguntas anteriores mantêm suas permissões originais.",
+      "loading": "Carregando...",
+      "empty": "Nenhuma pergunta paralela"
+    },
     "workspaceStatus": {
       "degradedTitle": "Atualizações em tempo real indisponíveis",
       "degradedHint": "O observador falhou ao iniciar (por exemplo, permissão negada). Atualize manualmente para ver as mudanças.",

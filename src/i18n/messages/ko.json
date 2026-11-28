@@ -2197,6 +2197,24 @@
     }
   },
   "Folder": {
+    "sideQuestion": {
+      "title": "사이드 질문",
+      "new": "사이드 질문 만들기",
+      "select": "사이드 질문 선택",
+      "createFailed": "사이드 질문을 만들지 못했습니다",
+      "draftSaveFailed": "초안을 저장하지 못해 질문을 보내지 않았습니다. 저장 공간을 확인한 후 다시 시도하세요.",
+      "chooseConversation": "먼저 대화를 선택하세요",
+      "loadFailed": "사이드 질문을 불러오지 못했습니다",
+      "retry": "다시 시도",
+      "unsupportedAgent": "이 에이전트는 사이드 질문을 지원하지 않습니다",
+      "noCompletedHistory": "완료된 기록이 없습니다",
+      "policyUnavailable": "읽기 전용 정책을 사용할 수 없습니다",
+      "sourceUnavailable": "원본 대화를 사용할 수 없습니다",
+      "readonlyHint": "생성 시 컨텍스트는 독립적이며 파일은 현재 내용을 읽습니다.",
+      "legacyHint": "기존 추가 질문에는 원래 권한이 유지됩니다.",
+      "loading": "불러오는 중...",
+      "empty": "사이드 질문이 없습니다"
+    },
     "workspaceStatus": {
       "degradedTitle": "실시간 업데이트를 사용할 수 없음",
       "degradedHint": "감시자 시작 실패(권한 거부 등). 최신 변경 사항을 보려면 수동으로 새로 고치세요.",

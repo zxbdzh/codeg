@@ -12,6 +12,7 @@ const flatCss = read("src/app/globals.css")
   .replace(/\/\*[\s\S]*?\*\//g, "")
   .replace(/\s+/g, " ")
 const layout = read("src/app/workspace/layout.tsx")
+const panelSlide = read("src/hooks/use-panel-slide-on-toggle.ts")
 const panel = read("src/components/conversations/conversation-detail-panel.tsx")
 
 const RESERVE_SELECTOR =
@@ -28,7 +29,7 @@ describe("corner reserve slide", () => {
     const reserveRule = flatCss.match(
       /\.panel-slide-animating\[data-panel-group-direction="horizontal"\] \.chrome-reserve \{ transition: width (\d+)ms ([\w-]+); \}/
     )
-    const panelSlideMs = layout.match(/const PANEL_SLIDE_MS = (\d+)/)
+    const panelSlideMs = panelSlide.match(/const PANEL_SLIDE_MS = (\d+)/)
     expect(panelRule).not.toBeNull()
     expect(reserveRule).not.toBeNull()
     expect(panelSlideMs).not.toBeNull()

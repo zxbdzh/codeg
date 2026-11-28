@@ -207,6 +207,23 @@ describe("SidebarConversationCard pin action", () => {
     expect(onTogglePin).toHaveBeenCalledWith(1, true)
   })
 
+  it.each([false, true])(
+    "shows conversion only for a writable Ask (readonly: %s)",
+    (readonly) => {
+      const { getByText } = renderCard({
+        ...conv(1),
+        kind: "ask",
+        readonly_ask: readonly,
+      })
+      fireEvent.contextMenu(getByText("conv-1"))
+      const item = screen.queryByRole("menuitem", {
+        name: "Convert to normal conversation",
+      })
+      if (readonly) expect(item).not.toBeInTheDocument()
+      else expect(item).toBeInTheDocument()
+    }
+  )
+
   it("offers Unpin for a pinned conversation and requests unpinning", () => {
     const pinned: DbConversationSummary = {
       ...conv(2),

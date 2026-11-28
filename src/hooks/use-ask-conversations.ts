@@ -78,6 +78,7 @@ interface LoadedAsks {
   parentId: number
   kind: LinkedConversationKind
   rows: readonly DbConversationSummary[]
+  error: unknown | null
 }
 
 /**
@@ -108,7 +109,20 @@ export function useLinkedConversations(
   parentId: number | null,
   kind: LinkedConversationKind
 ): readonly DbConversationSummary[] | null {
+  return useLinkedConversationsState(parentId, kind).rows
+}
+
+/** 旁问栏需区分列表加载失败与没有历史，保留旧调用方的返回类型。 */
+export function useLinkedConversationsState(
+  parentId: number | null,
+  kind: LinkedConversationKind
+): {
+  rows: readonly DbConversationSummary[] | null
+  error: unknown | null
+  retry: () => void
+} {
   const [loaded, setLoaded] = useState<LoadedAsks | null>(null)
+  const [revision, setRevision] = useState(0)
 
   useEffect(() => {
     if (parentId == null) return
@@ -127,7 +141,7 @@ export function useLinkedConversations(
             rows = applyAskConversationChange(rows, parentId, change, kind)
           }
           early = null
-          setLoaded({ parentId, kind, rows })
+          setLoaded({ parentId, kind, rows, error: null })
         })
         .catch((error: unknown) => {
           if (disposed) return
@@ -135,8 +149,8 @@ export function useLinkedConversations(
           early = null
           setLoaded((prev) =>
             prev?.parentId === parentId && prev.kind === kind
-              ? prev
-              : { parentId, kind, rows: [] }
+              ? { ...prev, error }
+              : { parentId, kind, rows: [], error }
           )
         })
     }
@@ -158,7 +172,7 @@ export function useLinkedConversations(
               change,
               kind
             )
-            return rows === prev.rows ? prev : { parentId, kind, rows }
+            return rows === prev.rows ? prev : { ...prev, rows }
           })
         }
       )
@@ -173,14 +187,13 @@ export function useLinkedConversations(
       unlisten?.()
       offReconnect?.()
     }
-  }, [parentId, kind])
+  }, [parentId, kind, revision])
 
-  if (
-    parentId == null ||
-    loaded?.parentId !== parentId ||
-    loaded.kind !== kind
-  ) {
-    return null
+  const current =
+    parentId != null && loaded?.parentId === parentId && loaded.kind === kind
+  return {
+    rows: current ? loaded.rows : null,
+    error: current ? loaded.error : null,
+    retry: () => setRevision((value) => value + 1),
   }
-  return loaded.rows
 }

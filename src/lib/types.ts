@@ -586,6 +586,8 @@ export interface DbConversationSummary {
   status: string
   /** Mirrors `conversation.kind` — drives sidebar visibility and grouping. */
   kind: ConversationKind
+  /** 服务端持久化的只读旁问身份；缺失时仍按旧会话处理。 */
+  readonly_ask?: boolean
   model: string | null
   git_branch: string | null
   external_id: string | null

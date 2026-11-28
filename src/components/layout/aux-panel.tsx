@@ -9,6 +9,7 @@ import {
   GitPullRequestArrow,
   ListTodo,
   ReceiptText,
+  MessagesSquare,
   Zap,
   type LucideIcon,
 } from "lucide-react"
@@ -32,6 +33,7 @@ import { cn } from "@/lib/utils"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { AuxPanelTabRail } from "./aux-panel-tab-rail"
 import { ChromeReserve } from "./chrome-reserve"
+import { SideQuestionTab } from "./aux-panel-side-question-tab"
 import { SessionDetailsTab } from "./aux-panel-session-details-tab"
 import { FileTreeTab } from "./aux-panel-file-tree-tab"
 import { GitChangesTab } from "./aux-panel-git-changes-tab"
@@ -58,6 +60,7 @@ const LAZY_TABS: AuxPanelTab[] = [
 // issue and an open pull request.
 const TAB_ICONS: Record<AuxPanelTab, LucideIcon> = {
   session_details: ReceiptText,
+  side_question: MessagesSquare,
   file_tree: Folder,
   changes: FolderPen,
   git_log: GitCommit,
@@ -80,15 +83,15 @@ const FOLDER_TAB_LABEL_KEY: Record<
 }
 
 /** What the tab switchers list while the folder tabs are hidden. */
-const SESSION_DETAILS_ONLY: AuxTabOrder = ["session_details"]
+const SESSION_TABS: AuxTabOrder = ["session_details", "side_question"]
 
 /**
  * Decide which aux-panel tabs are available and which to actually show.
  *
  * The folder-scoped tabs (files/changes/commits, and the project's automations,
  * tasks, issues and pull requests) only make sense with a real folder
- * workspace open, so chat sessions and the folderless state collapse to just
- * the Session Details tab. `effectiveTab` keeps the rendered selection
+ * workspace open. Chat sessions and the folderless state keep Session Details
+ * and Side Questions. `effectiveTab` keeps the rendered selection
  * valid even when the stored `activeTab` is a now-hidden folder tab, avoiding a
  * one-frame flash before the reconciling effect corrects the stored value.
  */
@@ -100,13 +103,17 @@ export function resolveAuxTabView(
   const showFolderTabs = activeFolderId != null && !isChatMode
   return {
     showFolderTabs,
-    effectiveTab: showFolderTabs ? activeTab : "session_details",
+    effectiveTab:
+      showFolderTabs || activeTab === "side_question"
+        ? activeTab
+        : "session_details",
   }
 }
 
 export function AuxPanel() {
   const t = useTranslations("Folder.auxPanel.tabs")
   const tDetails = useTranslations("Folder.sessionDetails")
+  const tSide = useTranslations("Folder.sideQuestion")
   const tAutomations = useTranslations("Automations")
   const tTasks = useTranslations("Tasks")
   const tForge = useTranslations("Forge")
@@ -147,7 +154,7 @@ export function AuxPanel() {
   // chat session), so other consumers of `activeTab` stay in sync with what's
   // shown. Done in an effect — never a render-time setState on the provider.
   useEffect(() => {
-    if (!showFolderTabs && activeTab !== "session_details") {
+    if (!showFolderTabs && !SESSION_TABS.includes(activeTab)) {
       setActiveTab("session_details")
     }
   }, [showFolderTabs, activeTab, setActiveTab])
@@ -173,6 +180,8 @@ export function AuxPanel() {
   const tabLabel = useCallback(
     (tab: AuxPanelTab) => {
       switch (tab) {
+        case "side_question":
+          return tSide("title")
         case "session_details":
           return tDetails("menuLabel")
         case "automations":
@@ -191,15 +200,22 @@ export function AuxPanel() {
           return t(FOLDER_TAB_LABEL_KEY[tab])
       }
     },
-    [t, tDetails, tAutomations, tTasks, tForge, forgeProvider]
+    [t, tDetails, tSide, tAutomations, tTasks, tForge, forgeProvider]
   )
 
-  const shownTabs = showFolderTabs ? tabOrder : SESSION_DETAILS_ONLY
+  const shownTabs = showFolderTabs ? tabOrder : SESSION_TABS
 
   if (!isOpen) return null
 
   const panels = (
     <>
+      <TabsContent
+        value="side_question"
+        // 旁问靠 flex 逐层分配剩余高度，避免输入框悬在半栏、长历史被裁切。
+        className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+      >
+        <SideQuestionTab />
+      </TabsContent>
       <TabsContent
         value="session_details"
         forceMount
@@ -337,7 +353,7 @@ export function AuxPanel() {
               <div className="flex min-w-0 flex-1 flex-col">{panels}</div>
               <AuxPanelTabRail
                 tabs={shownTabs}
-                visible={showFolderTabs}
+                visible={shownTabs.length > 1}
                 icons={TAB_ICONS}
                 labelOf={tabLabel}
                 activeTab={effectiveTab}

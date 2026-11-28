@@ -34,7 +34,14 @@ import {
   type SelectionAskLiveSelectors,
 } from "@/components/message/selection-ask-composer"
 import { formatConversationTitle } from "@/lib/conversation-title"
-import { useAskConversationDrawerStore } from "@/stores/ask-conversation-drawer-store"
+import { useSideQuestionPanelStore } from "@/stores/side-question-panel-store"
+import { createReadonlyAskConversation } from "@/lib/api"
+import { getActiveRemoteConnectionId } from "@/lib/transport"
+import {
+  clearSideQuestionDraft,
+  loadSideQuestionDraft,
+  saveSideQuestionDraft,
+} from "@/lib/side-question-draft"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
@@ -293,8 +300,8 @@ const ConversationTabView = memo(function ConversationTabView({
   const tDiag = useTranslations("DiagnosticsSettings")
   const sharedT = useTranslations("Folder.chat.shared")
   const tMessageList = useTranslations("Folder.chat.messageList")
+  const tSideQuestion = useTranslations("Folder.sideQuestion")
   const tAsyncTasks = useTranslations("Folder.chat.asyncTasks")
-  const tAskConversations = useTranslations("Folder.askConversations")
   const refreshConversations = useAppWorkspaceStore(
     (s) => s.refreshConversations
   )
@@ -2163,20 +2170,8 @@ const ConversationTabView = memo(function ConversationTabView({
     setComposerInject({ text: quoted, mode: "append" })
   }, [])
 
-  /**
-   * "Ask about this selection": the selection bubble opens this conversation's
-   * own composer kind, holding the selection as a quote and a mention of this
-   * conversation, and sending it opens an ASK CONVERSATION in the side drawer —
-   * a separate conversation rather than another turn here, so a side question
-   * neither derails nor pollutes the thread the user is reading. It is linked
-   * to this one, listed under its Session Details rather than in the sidebar.
-   *
-   * The ask starts on THIS conversation's agent — the answer is usually a
-   * continuation of what that agent just said — but the composer lets the user
-   * pick another, and that agent's settings, as the new-task dialog does. It
-   * runs in this conversation's folder, and needs a persisted row: that is
-   * what the mention names and what the ask is linked to.
-   */
+  // 先由后端创建已完成上下文的只读副本，再把选文首问交给常驻旁问宿主。
+  // 主会话继续运行；不向旁问注入会随主线变化的实时会话引用。
   // Depends on primitives, not the folder OBJECT: branch polling rewrites that
   // row regularly, and the render prop has to stay referentially stable (it is
   // a MessageListView prop).
@@ -2189,7 +2184,7 @@ const ConversationTabView = memo(function ConversationTabView({
     }),
     [conn.promptCapabilities, connectionCommands]
   )
-  const openAskDrawer = useAskConversationDrawerStore((s) => s.openNew)
+  const { openTab: openAuxTab } = useAuxPanelContext()
   const canAskSelection =
     askFolderId != null &&
     workingDirForConnection != null &&
@@ -2210,20 +2205,40 @@ const ConversationTabView = memo(function ConversationTabView({
           live={askLive}
           defaultPath={workingDirForConnection}
           onClose={close}
-          onSubmit={(draft, pick) => {
-            const opened = openAskDrawer({
-              parentConversationId: dbConversationId,
-              agentType: pick.agentType,
-              folderId: askFolderId,
+          onSubmit={async (draft, requestId, token, backend) => {
+            const result = await createReadonlyAskConversation(
+              dbConversationId,
+              requestId,
+              draft.displayText.slice(0, 120)
+            )
+            // 旧后端或已被新提交替换的结果不能覆盖当前旁问。
+            if (
+              backend !== getActiveRemoteConnectionId() ||
+              loadSideQuestionDraft(backend, "source", dbConversationId)
+                ?.token !== token
+            )
+              return false
+            if (
+              !saveSideQuestionDraft(
+                backend,
+                "question",
+                result.conversationId,
+                { token, draft }
+              )
+            ) {
+              toast.error(tSideQuestion("draftSaveFailed"))
+              return false
+            }
+            useSideQuestionPanelStore.getState().open({
+              ...result,
+              readonly: true,
               workingDir: workingDirForConnection ?? null,
-              initialSend: { draft, modeId: pick.modeId },
-              configValues: pick.configValues,
+              initialSend: { draft, modeId: null, token },
             })
-            // The drawer still holds another ask's unsent first message:
-            // keep this one in the bubble rather than dropping either.
-            if (opened) close()
-            else toast.warning(tAskConversations("pendingFirstMessage"))
-            return opened
+            clearSideQuestionDraft(backend, "source", dbConversationId, token)
+            openAuxTab("side_question")
+            close()
+            return true
           }}
         />
       )
@@ -2233,9 +2248,9 @@ const ConversationTabView = memo(function ConversationTabView({
       askLive,
       askMainTitle,
       dbConversationId,
-      openAskDrawer,
+      openAuxTab,
       selectedAgent,
-      tAskConversations,
+      tSideQuestion,
       workingDirForConnection,
     ]
   )

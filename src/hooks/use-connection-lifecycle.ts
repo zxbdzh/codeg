@@ -49,6 +49,8 @@ interface UseConnectionLifecycleOptions {
    * put a row in the (global) status bar.
    */
   preparing?: boolean
+  /** 隐藏旁问仍可完成已提交首问的连接，但不能抢走主会话焦点。 */
+  autoConnect?: boolean
   /**
    * Read at unmount-cleanup time: true when the component is unmounting
    * because the view is being REPARENTED (its tab moved between split groups /
@@ -85,6 +87,8 @@ export interface UseConnectionLifecycleReturn {
        * on (a reconnect removed it while the send waited for a setter).
        */
       onNotSent?: () => void
+      /** Called only after the backend acknowledges the prompt. */
+      onPromptAccepted?: () => void
       /**
        * Called when the backend rejected the send because a turn was already
        * in flight (a second, concurrent prompt). The caller re-queues the
@@ -161,6 +165,7 @@ export function useConnectionLifecycle({
   sessionId,
   conversationId,
   preparing = false,
+  autoConnect = isActive,
   isTransientUnmount,
 }: UseConnectionLifecycleOptions): UseConnectionLifecycleReturn {
   const t = useTranslations("Folder.chat.connectionLifecycle")
@@ -281,7 +286,7 @@ export function useConnectionLifecycle({
   // agentType differs. Status changes must NOT re-trigger this to avoid
   // infinite reconnect loops on transient errors.
   useEffect(() => {
-    if (!isActive) return
+    if (!autoConnect) return
     if (!workingDir) return
     let cancelled = false
     connConnectRef
@@ -311,7 +316,7 @@ export function useConnectionLifecycle({
     return () => {
       cancelled = true
     }
-  }, [isActive, workingDir, agentType])
+  }, [autoConnect, workingDir, agentType])
 
   // Status-bar task for the two legs that precede a usable session:
   //   "preparing"  — the caller is resolving what to connect to (see `preparing`)
@@ -540,6 +545,7 @@ export function useConnectionLifecycle({
         rewind?: PromptRewindTarget | null
         onRewindRefused?: (reason: string) => void
         onNotSent?: () => void
+        onPromptAccepted?: () => void
         onTurnInProgress?: () => void
         onSendFailed?: (error: unknown) => void
       }
@@ -557,62 +563,68 @@ export function useConnectionLifecycle({
           // calls before CurrentModeUpdate arrives from the agent.
           modeIdRef.current = modeId
         }
-        if (!(await sendPrompt(draft.blocks, opts))) opts?.onNotSent?.()
-      })().catch((e: unknown) => {
-        if (e instanceof RewindRefusedError && opts?.onRewindRefused) {
-          opts.onRewindRefused(e.reason)
-          return
-        }
-        if (e instanceof TurnBusyError) {
-          // A turn was already in flight on the connection (another
-          // co-controlling client, or a "prompting" status this client hadn't
-          // observed yet). Not an error — the draft is re-queued by the caller
-          // so it auto-sends when the current turn finishes.
-          onTurnInProgress?.()
-          return
-        }
-        if (e instanceof ConversationMovedError) {
-          // The conversation was moved to another project and this connection
-          // still runs in the folder it left. Say where it went and pull the
-          // rows: the tab follows its row to the new folder, which reconnects
-          // the agent there. The message is not resent on its own — the user
-          // sends it again from the new folder.
-          const folder =
-            e.folderId != null
-              ? useAppWorkspaceStore.getState().getFolder(e.folderId)
-              : undefined
+        return sendPrompt(draft.blocks, opts)
+      })().then(
+        (sent) => {
+          if (sent) opts?.onPromptAccepted?.()
+          else opts?.onNotSent?.()
+        },
+        (e: unknown) => {
+          if (e instanceof RewindRefusedError && opts?.onRewindRefused) {
+            opts.onRewindRefused(e.reason)
+            return
+          }
+          if (e instanceof TurnBusyError) {
+            // A turn was already in flight on the connection (another
+            // co-controlling client, or a "prompting" status this client hadn't
+            // observed yet). Not an error — the draft is re-queued by the caller
+            // so it auto-sends when the current turn finishes.
+            onTurnInProgress?.()
+            return
+          }
+          if (e instanceof ConversationMovedError) {
+            // The conversation was moved to another project and this connection
+            // still runs in the folder it left. Say where it went and pull the
+            // rows: the tab follows its row to the new folder, which reconnects
+            // the agent there. The message is not resent on its own — the user
+            // sends it again from the new folder.
+            const folder =
+              e.folderId != null
+                ? useAppWorkspaceStore.getState().getFolder(e.folderId)
+                : undefined
+            notify({
+              level: "warning",
+              key: `conversation-moved:${contextKey}`,
+              title: t("errors.conversationMoved", {
+                folder: folder?.alias || folder?.name || "",
+              }),
+            })
+            void useAppWorkspaceStore.getState().refreshConversations()
+            onSendFailed?.(e)
+            return
+          }
+          console.error("[ConnLifecycle] sendPrompt:", e)
+          // The composer already cleared itself (sends are fire-and-forget), so
+          // without a toast a failed send — an oversized body 413'd by the
+          // server, a hydration failure, a network drop — looks like the message
+          // simply vanished. Surface the failure; prefer the structured backend
+          // message over a bare stringification.
+          const appError = extractAppCommandError(e)
+          const message =
+            appError?.message ??
+            (e instanceof Error ? e.message : String(e ?? "unknown error"))
           notify({
-            level: "warning",
-            key: `conversation-moved:${contextKey}`,
-            title: t("errors.conversationMoved", {
-              folder: folder?.alias || folder?.name || "",
-            }),
+            level: "error",
+            key: `send-failed:${contextKey}`,
+            title: t("errors.sendPromptFailed", { error: message }),
           })
-          void useAppWorkspaceStore.getState().refreshConversations()
+          // Let the caller settle its optimistic state (roll back the phantom
+          // user turn, drop out of awaiting_persist so the queue keeps
+          // flushing). Runs after the toast so the state rollback can't hide
+          // the failure.
           onSendFailed?.(e)
-          return
         }
-        console.error("[ConnLifecycle] sendPrompt:", e)
-        // The composer already cleared itself (sends are fire-and-forget), so
-        // without a toast a failed send — an oversized body 413'd by the
-        // server, a hydration failure, a network drop — looks like the message
-        // simply vanished. Surface the failure; prefer the structured backend
-        // message over a bare stringification.
-        const appError = extractAppCommandError(e)
-        const message =
-          appError?.message ??
-          (e instanceof Error ? e.message : String(e ?? "unknown error"))
-        notify({
-          level: "error",
-          key: `send-failed:${contextKey}`,
-          title: t("errors.sendPromptFailed", { error: message }),
-        })
-        // Let the caller settle its optimistic state (roll back the phantom
-        // user turn, drop out of awaiting_persist so the queue keeps
-        // flushing). Runs after the toast so the state rollback can't hide
-        // the failure.
-        onSendFailed?.(e)
-      })
+      )
     },
     [connSetMode, sendPrompt, contextKey, touchActivity, t]
   )

@@ -4721,6 +4721,36 @@ export async function createAskConversation(
   })
 }
 
+export interface ReadonlyAskCapability {
+  supported: boolean
+  reason?:
+    | "unsupportedAgent"
+    | "noCompletedHistory"
+    | "policyUnavailable"
+    | "sourceUnavailable"
+}
+
+export function getReadonlyAskCapability(
+  parentConversationId: number
+): Promise<ReadonlyAskCapability> {
+  return getTransport().call("get_readonly_ask_capability", {
+    parentConversationId,
+  })
+}
+
+/** 创建安全副本后才允许连接；重试沿用 requestId，避免生成重复旁问。 */
+export function createReadonlyAskConversation(
+  parentConversationId: number,
+  requestId: string,
+  title?: string
+): Promise<CreateAskConversationResult & { agentType: AgentType }> {
+  return getTransport().call("create_readonly_ask_conversation", {
+    parentConversationId,
+    requestId,
+    title: title ?? null,
+  })
+}
+
 /** The ask conversations of `parentConversationId`, newest first. */
 export async function listAskConversations(
   parentConversationId: number

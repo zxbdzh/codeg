@@ -2197,6 +2197,24 @@
     }
   },
   "Folder": {
+    "sideQuestion": {
+      "title": "Preguntas aparte",
+      "new": "Nueva pregunta aparte",
+      "select": "Seleccionar pregunta aparte",
+      "createFailed": "No se pudo crear la pregunta",
+      "draftSaveFailed": "No se pudo guardar el borrador. La pregunta no se envió. Comprueba el almacenamiento y vuelve a intentarlo.",
+      "chooseConversation": "Selecciona primero una conversación",
+      "loadFailed": "No se pudieron cargar las preguntas",
+      "retry": "Reintentar",
+      "unsupportedAgent": "Este agente no admite preguntas aparte",
+      "noCompletedHistory": "No hay historial completado",
+      "policyUnavailable": "La política de solo lectura no está disponible",
+      "sourceUnavailable": "La conversación de origen no está disponible",
+      "readonlyHint": "Se crea con contexto independiente y lee el contenido actual de los archivos.",
+      "legacyHint": "Las preguntas anteriores conservan sus permisos originales.",
+      "loading": "Cargando...",
+      "empty": "Aún no hay preguntas aparte"
+    },
     "workspaceStatus": {
       "degradedTitle": "Actualizaciones en vivo no disponibles",
       "degradedHint": "El observador no pudo iniciarse (por ejemplo, permiso denegado). Actualiza manualmente para ver los cambios.",

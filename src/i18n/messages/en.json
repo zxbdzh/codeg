@@ -2197,6 +2197,24 @@
     }
   },
   "Folder": {
+    "sideQuestion": {
+      "title": "Side questions",
+      "new": "New side question",
+      "select": "Select a side question",
+      "createFailed": "Could not create side question",
+      "draftSaveFailed": "Could not save the draft. Your question was not sent. Check storage and try again.",
+      "chooseConversation": "Select a conversation first",
+      "loadFailed": "Could not load side questions",
+      "retry": "Retry",
+      "unsupportedAgent": "This agent does not support side questions",
+      "noCompletedHistory": "No completed history available",
+      "policyUnavailable": "Read-only policy unavailable",
+      "sourceUnavailable": "Source conversation unavailable",
+      "readonlyHint": "Starts with an independent context. Files are read as they are now.",
+      "legacyHint": "Old follow-ups retain their original permissions.",
+      "loading": "Loading...",
+      "empty": "No side questions yet"
+    },
     "workspaceStatus": {
       "degradedTitle": "Live updates unavailable",
       "degradedHint": "Watcher failed to start (e.g. permission denied). Refresh manually to see changes.",

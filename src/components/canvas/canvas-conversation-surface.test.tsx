@@ -71,6 +71,7 @@ const lifecycle = vi.hoisted(() => ({
   conn: {} as Record<string, unknown>,
   handleSend: vi.fn(),
   handleSetConfigOption: vi.fn(),
+  autoConnectError: null as string | null,
 }))
 vi.mock("@/hooks/use-connection-lifecycle", () => ({
   useConnectionLifecycle: () => ({
@@ -78,7 +79,7 @@ vi.mock("@/hooks/use-connection-lifecycle", () => ({
     modeLoading: false,
     configOptionsLoading: false,
     selectorsLoading: false,
-    autoConnectError: null,
+    autoConnectError: lifecycle.autoConnectError,
     handleFocus: vi.fn(),
     handleSend: lifecycle.handleSend,
     handleSetConfigOption: lifecycle.handleSetConfigOption,
@@ -123,6 +124,16 @@ vi.mock("@/lib/selector-prefs-storage", () => prefs)
 
 import { CanvasConversationSurface } from "@/components/canvas/canvas-conversation-surface"
 import { notify } from "@/lib/notify"
+import {
+  loadSideQuestionDraft,
+  saveSideQuestionDraft,
+  clearSideQuestionDraft,
+} from "@/lib/side-question-draft"
+import {
+  saveMessageInputDraft,
+  clearMessageInputDraft,
+} from "@/lib/message-input-draft"
+import type { ComponentProps } from "react"
 import {
   getTimelineTurns,
   resetConversationRuntimeStore,
@@ -326,6 +337,7 @@ describe("a send the running turn turns away", () => {
     shell.props = null
     registry.agents = [agent("codex", "2.0.0")]
     lifecycle.conn = connection("codex", "connected")
+    lifecycle.autoConnectError = null
     lifecycle.handleSend.mockReset()
     api.createConversation.mockReset()
     vi.mocked(notify).mockReset()
@@ -336,6 +348,8 @@ describe("a send the running turn turns away", () => {
   type SendOpts = {
     onTurnInProgress?: () => void
     onSendFailed?: (error: unknown) => void
+    onPromptAccepted?: () => void
+    onNotSent?: () => void
   }
 
   /** The backend's verdict on the send, as the lifecycle hook reports it. */
@@ -344,17 +358,21 @@ describe("a send the running turn turns away", () => {
       (_draft: PromptDraft, _modeId: unknown, opts: SendOpts) => {
         if (outcome === "turn-in-progress") opts.onTurnInProgress?.()
         else opts.onSendFailed?.(new Error("payload too large"))
+        return Promise.resolve()
       }
     )
   }
 
-  function renderPinnedCard() {
+  function renderPinnedCard(
+    overrides?: Partial<ComponentProps<typeof CanvasConversationSurface>>
+  ) {
     return render(
       <CanvasConversationSurface
         contextKey="canvas-node-1"
         conversationId={5}
         agentType="codex"
         isActive
+        {...overrides}
       />
     )
   }
@@ -428,6 +446,112 @@ describe("a send the running turn turns away", () => {
 
     expect(lifecycle.handleSend).toHaveBeenCalledTimes(1)
     expect(shell.props?.injectContent).toEqual({ handBack: draft.blocks })
+  })
+
+  it("sends a new token added to a mounted history card once", () => {
+    const card = (initialSend?: {
+      draft: PromptDraft
+      modeId: null
+      token: string
+    }) => (
+      <CanvasConversationSurface
+        contextKey="canvas-node-1"
+        conversationId={5}
+        agentType="codex"
+        initialSend={initialSend}
+        onInitialSendConsumed={consumed}
+      />
+    )
+    const consumed = vi.fn()
+    const { rerender } = render(card())
+    expect(lifecycle.handleSend).not.toHaveBeenCalled()
+    const pending = { draft, modeId: null, token: "retry" } as const
+    rerender(card(pending))
+    rerender(card({ ...pending }))
+    expect(lifecycle.handleSend).toHaveBeenCalledExactlyOnceWith(
+      draft,
+      null,
+      expect.any(Object)
+    )
+    expect(consumed).toHaveBeenCalledExactlyOnceWith("retry")
+  })
+
+  it("returns the initial question on a connect rejection without a connection entry", () => {
+    lifecycle.conn = { status: "disconnected" }
+    lifecycle.autoConnectError = "agent unavailable"
+    const consumed = vi.fn()
+    const pending = { draft, modeId: null, token: "initial" } as const
+    const card = (initialSend?: typeof pending) => (
+      <CanvasConversationSurface
+        contextKey="canvas-node-1"
+        conversationId={5}
+        agentType="codex"
+        initialSend={initialSend}
+        onInitialSendConsumed={consumed}
+      />
+    )
+    const { rerender, unmount } = render(card(pending))
+    expect(shell.props?.injectContent).toEqual({ handBack: draft.blocks })
+    expect(consumed).toHaveBeenCalledExactlyOnceWith("initial")
+    lifecycle.conn = connection("codex", "connected")
+    lifecycle.autoConnectError = null
+    rerender(card())
+    unmount()
+    renderPinnedCard({ recoveryDraft: draft })
+    expect(shell.props?.injectContent).toEqual({ handBack: draft.blocks })
+    expect(lifecycle.handleSend).not.toHaveBeenCalled()
+  })
+
+  it("recovers a rejected first question after refresh without automatically sending it", async () => {
+    const draft = {
+      blocks: [{ type: "image", data: "aW1hZ2U=", mime_type: "image/png" }],
+      displayText: "image question",
+    } satisfies PromptDraft
+    const token = "first-question"
+    saveSideQuestionDraft(null, "question", 5, { token, draft })
+    const protectRecoverySend = () => () =>
+      clearSideQuestionDraft(null, "question", 5, token)
+    let pending!: SendOpts
+    lifecycle.handleSend.mockImplementation(
+      (_draft: PromptDraft, _mode: unknown, opts: SendOpts) => {
+        pending = opts
+        return Promise.resolve()
+      }
+    )
+    const first = renderPinnedCard({
+      recoveryDraft: draft,
+      protectRecoverySend,
+      initialSend: { draft, modeId: null },
+    })
+    expect(lifecycle.handleSend).toHaveBeenCalledTimes(1)
+    expect(shell.props?.injectContent).toBeNull()
+    act(() => pending.onSendFailed?.(new Error("offline")))
+    expect(shell.props?.injectContent).toEqual({ handBack: draft.blocks })
+    expect(loadSideQuestionDraft(null, "question", 5)?.draft).toEqual(draft)
+    first.unmount()
+    const refreshed = renderPinnedCard({
+      recoveryDraft: loadSideQuestionDraft(null, "question", 5)?.draft,
+      protectRecoverySend,
+    })
+    expect(shell.props?.injectContent).toEqual({ handBack: draft.blocks })
+    expect(lifecycle.handleSend).toHaveBeenCalledTimes(1)
+    await send(draft)
+    expect(lifecycle.handleSend).toHaveBeenCalledTimes(2)
+    act(() => pending.onPromptAccepted?.())
+    expect(loadSideQuestionDraft(null, "question", 5)).toBeNull()
+    refreshed.unmount()
+  })
+
+  it("prefers an edited saved draft to the original first question", () => {
+    const key = "canvas-draft:canvas-node-1"
+    saveMessageInputDraft(key, "edited first question")
+    try {
+      renderPinnedCard({ recoveryDraft: draft })
+      expect(shell.props?.injectContent).toBeNull()
+      expect(lifecycle.handleSend).not.toHaveBeenCalled()
+    } finally {
+      clearMessageInputDraft(key)
+    }
   })
 
   it("leaves any other failed send to the error already raised for it", async () => {

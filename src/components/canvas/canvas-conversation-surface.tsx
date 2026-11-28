@@ -32,6 +32,7 @@ import {
 } from "@/lib/api"
 import { toErrorMessage } from "@/lib/app-error"
 import { notify } from "@/lib/notify"
+import { loadMessageInputDraftV2 } from "@/lib/message-input-draft"
 import { isConnectionReady } from "@/lib/queue-flush"
 import { getAgentLabel } from "@/lib/custom-agents"
 import {
@@ -134,8 +135,18 @@ interface CanvasConversationSurfaceProps {
    * back into the composer because the connection failed). MUST stay the same
    * object until then.
    */
-  initialSend?: { draft: PromptDraft; modeId: string | null } | null
-  onInitialSendConsumed?: () => void
+  initialSend?: {
+    draft: PromptDraft
+    modeId: string | null
+    token?: string
+  } | null
+  onInitialSendConsumed?: (token?: string) => void
+  recoveryDraft?: PromptDraft | null
+  /** 首问先落盘再发送；false 阻止发送，回调仅在后端受理后执行。 */
+  protectRecoverySend?: (
+    draft: PromptDraft,
+    initialToken?: string
+  ) => false | (() => void) | undefined
   /**
    * True while the first send is minting the conversation row. The draft card
    * hides its discard button for that window — the row and the prompt are
@@ -158,6 +169,10 @@ interface CanvasConversationSurfaceProps {
   checksOpenInDrawer?: boolean
   /** Focus/priority hint for the connection lifecycle and the transcript. */
   isActive?: boolean
+  /** 已提交首问可在隐藏时完成连接；焦点仍由 isActive 控制。 */
+  connectInBackground?: boolean
+  /** 仅隐藏不适用于只读旁问的控件；安全策略始终由后端执行。 */
+  readonlyAsk?: boolean
   className?: string
 }
 
@@ -212,11 +227,15 @@ export function CanvasConversationSurface({
   createDraftConversation,
   initialSend,
   onInitialSendConsumed,
+  recoveryDraft,
+  protectRecoverySend,
   onCreatingChange,
   onSaveSelectionAsNote,
   folderPickerOverride,
   checksOpenInDrawer = false,
   isActive = true,
+  connectInBackground = false,
+  readonlyAsk = false,
   className,
 }: CanvasConversationSurfaceProps) {
   const t = useTranslations("Canvas")
@@ -319,9 +338,15 @@ export function CanvasConversationSurface({
   // Sends handed back to the composer, which cleared itself as each went out
   // (see the bounce handler in `handleSend`). Oldest first, offered one at a
   // time: a second can bounce before the composer has taken the first.
+  const draftStorageKey = `canvas-draft:${contextKey}`
   const [composerHandBacks, setComposerHandBacks] = useState<
     ComposerInjectContent[]
-  >([])
+  >(() =>
+    // 已编辑过的恢复内容由常规草稿还原，不能再追加一份原首问。
+    recoveryDraft && !initialSend && !loadMessageInputDraftV2(draftStorageKey)
+      ? [{ handBack: recoveryDraft.blocks }]
+      : []
+  )
   const handleComposerHandBackConsumed = useCallback(
     () => setComposerHandBacks((pending) => pending.slice(1)),
     []
@@ -423,6 +448,7 @@ export function CanvasConversationSurface({
 
   const {
     conn,
+    autoConnectError,
     modeLoading,
     configOptionsLoading,
     selectorsLoading,
@@ -437,6 +463,10 @@ export function CanvasConversationSurface({
     // Without a cwd there is nothing to connect to yet (a chat draft before its
     // scratch dir lands); auto-connect would fire with an undefined dir.
     isActive: isActive && workingDir != null && !awaitingHistoricalSessionId,
+    autoConnect:
+      (isActive || connectInBackground) &&
+      workingDir != null &&
+      !awaitingHistoricalSessionId,
     // The historical-session wait is a WAIT, not idleness — surface it so the
     // card's composer shows selector placeholders instead of a bare row (the
     // cwd wait has nothing to report: a dormant draft card isn't opening).
@@ -661,7 +691,11 @@ export function CanvasConversationSurface({
   )
 
   const handleSend = useCallback(
-    (draft: PromptDraft, selectedModeIdArg?: string | null) => {
+    (
+      draft: PromptDraft,
+      selectedModeIdArg?: string | null,
+      initialToken?: string
+    ) => {
       // Bail BEFORE the optimistic turn exists. A second submit while the first
       // one is still minting the conversation row cannot be sent (there is no
       // row to send it against yet), and painting it into the transcript first
@@ -672,6 +706,8 @@ export function CanvasConversationSurface({
       // The composer already reads as not ready while the connection belongs
       // to another agent; this catches a submit that races the switch.
       if (connIsForOtherAgent) return
+      const onPromptAccepted = protectRecoverySend?.(draft, initialToken)
+      if (onPromptAccepted === false) return false
 
       const optimisticTurn = buildOptimisticUserTurn(
         draft,
@@ -707,12 +743,14 @@ export function CanvasConversationSurface({
       // `prompting` still on the way. Rolling the message back used to be all
       // that happened, and the composer had cleared itself when it went out, so
       // it was simply gone, with no notice either. Hand it back instead.
-      const onTurnInProgress = () => {
-        onSendFailed()
+      const handBack = () =>
         setComposerHandBacks((pending) => [
           ...pending,
           { handBack: draft.blocks },
         ])
+      const onTurnInProgress = () => {
+        onSendFailed()
+        handBack()
         notify({
           level: "info",
           key: `held-while-responding:${contextKey}`,
@@ -722,12 +760,19 @@ export function CanvasConversationSurface({
 
       const persistedId = dbConversationIdRef.current
       if (persistedId) {
-        lifecycleSend(draft, selectedModeIdArg, {
+        const onRejected = () => {
+          onSendFailed()
+          // 首问不能因拒收丢失；其他画布发送仍遵循原有错误处理。
+          if (onPromptAccepted) handBack()
+        }
+        void lifecycleSend(draft, selectedModeIdArg, {
           folderId: boundFolderId ?? undefined,
           conversationId: persistedId,
           clientMessageId: optimisticTurn.id,
           onTurnInProgress,
-          onSendFailed,
+          onSendFailed: onRejected,
+          onNotSent: onRejected,
+          onPromptAccepted,
         })
         return
       }
@@ -847,6 +892,7 @@ export function CanvasConversationSurface({
       effectiveConversationId,
       lifecycleSend,
       onConversationCreated,
+      protectRecoverySend,
       refreshConversations,
       removeOptimisticTurn,
       setDbConversationId,
@@ -982,8 +1028,7 @@ export function CanvasConversationSurface({
   // settling onto either would take the message to the wrong place. A
   // connection that fails instead hands the message back to the composer, so
   // it is never silently lost.
-  const initialSendRef = useRef(initialSend)
-  const initialSendDoneRef = useRef(false)
+  const consumedInitialSends = useRef(new Set<string | undefined>())
   const connectionReady = isConnectionReady(
     connStatus,
     conn.connectedWorkingDir,
@@ -992,34 +1037,40 @@ export function CanvasConversationSurface({
     agentType
   )
   useEffect(() => {
-    const pending = initialSendRef.current
-    if (!pending || initialSendDoneRef.current) return
-    if (connStatus === "error") {
-      initialSendDoneRef.current = true
-      setComposerHandBacks((queued) => [
-        ...queued,
-        { handBack: pending.draft.blocks },
-      ])
-      onInitialSendConsumed?.()
+    if (!initialSend || consumedInitialSends.current.has(initialSend.token))
+      return
+    const { draft, modeId, token } = initialSend
+    // 预检可能在创建连接条目之前就失败，此时只有生命周期的拒绝原因。
+    if (
+      autoConnectError != null ||
+      (connStatus === "error" && !connIsForOtherAgent)
+    ) {
+      consumedInitialSends.current.add(token)
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 连接失败时把首问退回草稿，是一次性同步结果
+      setComposerHandBacks((queued) => [...queued, { handBack: draft.blocks }])
+      onInitialSendConsumed?.(token)
       return
     }
     if (!connectionReady || selectorsLoading) return
-    initialSendDoneRef.current = true
-    onInitialSendConsumed?.()
+    consumedInitialSends.current.add(token)
+    onInitialSendConsumed?.(token)
     // Same rule as the composer's own send: a standalone mode applies only
     // where the agent has no config options — where it does, its mode is one
     // of them, already set at connect, and a (legacy) saved mode id pushed on
     // top would override the mode the message was written for.
     handleSend(
-      pending.draft,
-      pending.modeId ??
-        (connectionConfigOptions.length === 0 ? selectedModeId : null)
+      draft,
+      modeId ?? (connectionConfigOptions.length === 0 ? selectedModeId : null),
+      token
     )
   }, [
+    autoConnectError,
+    connIsForOtherAgent,
     connStatus,
     connectionConfigOptions.length,
     connectionReady,
     handleSend,
+    initialSend,
     onInitialSendConsumed,
     selectedModeId,
     selectorsLoading,
@@ -1070,8 +1121,8 @@ export function CanvasConversationSurface({
           onAnswerQuestion={handleAnswerQuestion}
           onAnswerAskQuestion={handleAnswerAskQuestion}
           onAnswerPlanApproval={handleAnswerPlanApproval}
-          modes={connectionModes}
-          configOptions={connectionConfigOptions}
+          modes={readonlyAsk ? [] : connectionModes}
+          configOptions={readonlyAsk ? [] : connectionConfigOptions}
           modeLoading={modeLoading}
           configOptionsLoading={configOptionsLoading}
           selectorsLoading={selectorsLoading}
@@ -1079,7 +1130,7 @@ export function CanvasConversationSurface({
           onModeChange={handleModeChange}
           onConfigOptionChange={handleConfigOptionChange}
           agentType={agentType}
-          availableCommands={connectionCommands ?? []}
+          availableCommands={readonlyAsk ? [] : (connectionCommands ?? [])}
           promptSuggestion={connIsForOtherAgent ? null : conn.promptSuggestion}
           draftStorageKey={`canvas-draft:${contextKey}`}
           injectContent={composerHandBacks[0] ?? null}

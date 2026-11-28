@@ -2197,6 +2197,24 @@
     }
   },
   "Folder": {
+    "sideQuestion": {
+      "title": "旁問",
+      "new": "新增旁問",
+      "select": "選擇旁問",
+      "createFailed": "建立旁問失敗",
+      "draftSaveFailed": "草稿儲存失敗，旁問未送出。請檢查儲存空間後重試。",
+      "chooseConversation": "請先選擇對話",
+      "loadFailed": "載入旁問失敗",
+      "retry": "重試",
+      "unsupportedAgent": "此智能體不支援旁問",
+      "noCompletedHistory": "尚無已完成的歷史紀錄",
+      "policyUnavailable": "唯讀策略無法使用",
+      "sourceUnavailable": "來源對話無法使用",
+      "readonlyHint": "建立時上下文獨立，讀取檔案時使用目前內容。",
+      "legacyHint": "舊追問沿用原有權限。",
+      "loading": "載入中...",
+      "empty": "尚無旁問"
+    },
     "workspaceStatus": {
       "degradedTitle": "即時更新不可用",
       "degradedHint": "監聽器啟動失敗（如目錄無讀取權限）。請手動重新整理以取得最新變更。",

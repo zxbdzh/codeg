@@ -21,6 +21,7 @@ const custom: AuxTabOrder = [
   "git_log",
   "file_tree",
   "session_details",
+  "side_question",
   "changes",
   "pull_requests",
   "issues",
@@ -53,6 +54,7 @@ describe("aux panel tab order", () => {
   it("defaults to the built-in order: the folder's tabs, then the project's work", () => {
     expect(loadAuxTabOrder()).toEqual([
       "session_details",
+      "side_question",
       "file_tree",
       "changes",
       "git_log",
@@ -87,6 +89,7 @@ describe("aux panel tab order", () => {
       // right after the nearest tab before it in the built-in order that is
       // there — first when none is.
       "session_details",
+      "side_question",
       "file_tree",
       "changes",
       "git_log",
@@ -102,6 +105,7 @@ describe("aux panel tab order", () => {
       "issues",
       "pull_requests",
       "session_details",
+      "side_question",
       "file_tree",
       "changes",
     ])
@@ -123,6 +127,7 @@ describe("aux panel tab order", () => {
       "changes",
       "file_tree",
       "session_details",
+      "side_question",
     ])
 
     localStorage.setItem(
@@ -132,6 +137,7 @@ describe("aux panel tab order", () => {
     expect(loadAuxTabOrder()).toEqual([
       "file_tree",
       "session_details",
+      "side_question",
       "changes",
       "git_log",
       "automations",
@@ -157,6 +163,7 @@ describe("aux panel tab order", () => {
     saveAuxTabOrder(["git_log", "changes", "git_log"])
     expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toEqual([
       "session_details",
+      "side_question",
       "file_tree",
       "git_log",
       "automations",
@@ -184,6 +191,7 @@ describe("aux panel tab order", () => {
     it("moves a tab by the given number of slots", () => {
       expect(moveAuxTab(DEFAULT_AUX_TAB_ORDER, "changes", -1)).toEqual([
         "session_details",
+        "side_question",
         "changes",
         "file_tree",
         "git_log",
@@ -193,10 +201,11 @@ describe("aux panel tab order", () => {
         "pull_requests",
       ])
       expect(moveAuxTab(DEFAULT_AUX_TAB_ORDER, "session_details", 3)).toEqual([
+        "side_question",
         "file_tree",
         "changes",
-        "git_log",
         "session_details",
+        "git_log",
         "automations",
         "tasks",
         "issues",

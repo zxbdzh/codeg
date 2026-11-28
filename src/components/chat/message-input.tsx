@@ -189,7 +189,8 @@ export type ComposerInjectContent =
     }
 
 interface MessageInputProps {
-  onSend: (draft: PromptDraft, modeId?: string | null) => void
+  /** 返回 false 可在草稿尚未安全保存时阻止清空，其余返回值保持原有发送行为。 */
+  onSend: (draft: PromptDraft, modeId?: string | null) => unknown
   placeholder?: string
   defaultPath?: string
   disabled?: boolean
@@ -1688,7 +1689,8 @@ export function MessageInput({
       return
     }
 
-    onSend(draft, showModeSelector ? effectiveModeId : null)
+    if (onSend(draft, showModeSelector ? effectiveModeId : null) === false)
+      return
     if (effectiveDraftStorageKey) {
       clearMessageInputDraftV2(effectiveDraftStorageKey)
     }

@@ -81,6 +81,7 @@ import { useHistoryBackDismiss } from "@/hooks/use-history-back-dismiss"
 import { FILL_MODE_STYLE } from "@/lib/workspace-background"
 import { TabBar } from "@/components/tabs/tab-bar"
 import { TerminalPanel } from "@/components/terminal/terminal-panel"
+import { SideQuestionHost } from "@/components/conversations/side-question-host"
 import { AuxPanel } from "@/components/layout/aux-panel"
 import { ChromeReserve } from "@/components/layout/chrome-reserve"
 import { LeftEdgeChrome } from "@/components/layout/left-edge-chrome"
@@ -115,6 +116,7 @@ import {
   leftChromeReserve,
   rightChromeReserve,
 } from "@/lib/window-chrome"
+import { usePanelSlideOnToggle } from "@/hooks/use-panel-slide-on-toggle"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { usePlatform } from "@/hooks/use-platform"
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer"
@@ -143,15 +145,6 @@ const LAYOUT_EPSILON = 0.25
 // skipped until they added up, and the next drag started that far off the
 // divider on screen.
 const PIXEL_LAYOUT_EPSILON = 0.01
-// Slide duration for panel show/hide; must match the CSS transitions on
-// `.panel-slide-animating > [data-panel]` and on the top strips' corner
-// reserves (`.chrome-reserve`) in globals.css — pinned together by
-// chrome-reserve-slide-source.test.ts. The transition class
-// is held a touch past this so the animation finishes before it's removed
-// (removing it mid-transition would snap the final pixels).
-const PANEL_SLIDE_MS = 240
-const PANEL_SLIDE_CLEANUP_MS = PANEL_SLIDE_MS + 60
-
 function TabKeysSync() {
   const tabs = useTabStore((s) => s.tabs)
   const { registerOpenTabKeys } = useAcpActions()
@@ -189,46 +182,6 @@ function resolvePanelSizeRange(
   const minSize = clamp(toPercent(minPixels, safeTotal), 0, 100)
   const maxSize = clamp(toPercent(maxPixels, safeTotal), minSize, 100)
   return { minSize, maxSize }
-}
-
-/**
- * Returns `true` for a brief window after `open` flips, so the caller can add
- * the `.panel-slide-animating` class that animates the panel resize (a "push"
- * slide) on explicit show/hide toggles only — never on the initial mount, on
- * localStorage hydration, or during resize-handle drags. The first settled
- * `open` value (once `ready`) establishes a baseline without animating.
- *
- * The toggle is detected during render (React's sanctioned "adjust state when a
- * prop changes" pattern) rather than in an effect: turning the class on in the
- * render that observes the flip lands it in the same commit as the panel
- * resize, so the browser has the transition in place before the panel's
- * `flex-basis` (or `flex-grow`) changes. Turn-off is deferred to a timer keyed
- * on a per-toggle sequence, so a fresh toggle mid-slide re-arms the timer
- * instead of inheriting the old one.
- */
-function usePanelSlideOnToggle(open: boolean, ready: boolean): boolean {
-  const [animating, setAnimating] = useState(false)
-  const [slideSeq, setSlideSeq] = useState(0)
-  const [prevOpen, setPrevOpen] = useState<boolean | null>(null)
-
-  if (ready) {
-    if (prevOpen === null) {
-      // Adopt the hydrated value as the baseline without animating.
-      setPrevOpen(open)
-    } else if (prevOpen !== open) {
-      setPrevOpen(open)
-      setAnimating(true)
-      setSlideSeq((seq) => seq + 1)
-    }
-  }
-
-  useEffect(() => {
-    if (slideSeq === 0) return
-    const timer = setTimeout(() => setAnimating(false), PANEL_SLIDE_CLEANUP_MS)
-    return () => clearTimeout(timer)
-  }, [slideSeq])
-
-  return animating
 }
 
 /**
@@ -814,8 +767,17 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
   // persisted open/closed state on load doesn't animate. The terminal has no
   // persisted state (always starts closed), so it's always "ready".
   const sidebarAnimating = usePanelSlideOnToggle(sidebarOpen, sidebarRestored)
-  const auxAnimating = usePanelSlideOnToggle(auxOpen, auxRestored)
-  const terminalAnimating = usePanelSlideOnToggle(terminalOpen, true)
+  // 路由切换直接恢复最终尺寸，避免会话出现后再被面板动画挤压。
+  const auxAnimating = usePanelSlideOnToggle(
+    auxOpen,
+    auxRestored,
+    isConversations
+  )
+  const terminalAnimating = usePanelSlideOnToggle(
+    terminalOpen,
+    true,
+    isConversations
+  )
   const shellSlideAnimating = sidebarAnimating || auxAnimating
 
   const shellGroupRef = useRef<ImperativePanelGroupHandle | null>(null)
@@ -1584,9 +1546,11 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                                               page's own ?harness=, or the address
                                               PetFocusBridge claimed. */}
                                           <HarnessLinkBootstrap />
-                                          <FolderLayoutShell>
-                                            {children}
-                                          </FolderLayoutShell>
+                                          <SideQuestionHost>
+                                            <FolderLayoutShell>
+                                              {children}
+                                            </FolderLayoutShell>
+                                          </SideQuestionHost>
                                         </WorkbenchRouteProvider>
                                       </PersonalAgentViewScope>
                                     </PersonalAgentProvider>

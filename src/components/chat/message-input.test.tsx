@@ -894,6 +894,21 @@ describe("MessageInput injectContent", () => {
     ])
   })
 
+  it("keeps text and attachments when the sender rejects submission before sending", async () => {
+    const onSend = vi.fn(() => false)
+    const { editor } = await mount({
+      onSend,
+      injectContent: {
+        handBack: [{ type: "text", text: "keep this" }, imageHi],
+      },
+    })
+    expect(await screen.findByAltText("image.png")).toBeInTheDocument()
+    pressEnter(editor)
+    expect(onSend).toHaveBeenCalledTimes(1)
+    expect(serializeDocToText(editor.state.doc)).toBe("keep this")
+    expect(screen.getByAltText("image.png")).toBeInTheDocument()
+  })
+
   it("adds a hand-back after what was written since, losing neither", async () => {
     const onSend = vi.fn()
     const { view, editor } = await mount({ onSend })
