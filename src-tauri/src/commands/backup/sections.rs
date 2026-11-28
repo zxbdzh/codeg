@@ -77,6 +77,14 @@ pub const MANAGED_SECTIONS: &[ManagedSection] = &[
         live_path: |_| crate::paths::codeg_acp_transcripts_root(),
     },
     ManagedSection {
+        // 只读旁问的正文保存在隔离 HOME 的原生会话文件里，数据库只留行和
+        // request id；不打包这一节，还原后旁问历史只剩空壳。
+        id: "readonly-asks",
+        kind: SectionKind::Dir,
+        policy: SectionPolicy::AlwaysReplace,
+        live_path: |_| crate::acp::readonly_ask::root_dir(),
+    },
+    ManagedSection {
         // Per-turn wall-clock spans for agents whose native store has no
         // timestamps (Cursor). Without it a restored history shows no durations.
         id: "turn-timings",
