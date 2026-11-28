@@ -1382,6 +1382,8 @@ async fn resume_topic_binding_and_send_followup(
 async fn list_recent_sessions(db: &DatabaseConnection, lang: Lang, prefix: &str) -> RichMessage {
     let recent = match conversation::Entity::find()
         .filter(conversation::Column::DeletedAt.is_null())
+        // 只读旁问只能在旁问面板里恢复，列进来只会给出一条打不开的会话。
+        .filter(conversation::Column::ReadonlyAskPolicy.is_null())
         .order_by_desc(conversation::Column::CreatedAt)
         .limit(10)
         .all(db)

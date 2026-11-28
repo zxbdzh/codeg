@@ -414,6 +414,10 @@ pub async fn list_sync_candidates(
             token_usage_sync::Relation::Conversation.def(),
         )
         .filter(conversation::Column::DeletedAt.is_null())
+        // 旁问转录是从来源会话整体分叉出来的，前缀的 usage 已经算在来源会话上；
+        // 再按旁问行同步一次会把同一笔消耗重复计入。旁问自身新增的回合也随之
+        // 不计入统计；若要精确到增量，需要记录分叉点再做差。
+        .filter(conversation::Column::ReadonlyAskPolicy.is_null())
         .order_by_desc(conversation::Column::UpdatedAt)
         .into_model::<SyncCandidate>()
         .all(conn)
