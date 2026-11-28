@@ -54,6 +54,7 @@ pub(crate) mod qoder;
 pub mod registry;
 pub mod reply_turn;
 pub mod remote_registry;
+pub mod readonly_ask;
 pub(crate) mod reported_usage;
 pub mod result_tool;
 pub mod rewind;

@@ -1500,6 +1500,7 @@ mod tests {
                 agent_type: crate::models::AgentType::Hermes,
                 status: "completed".into(),
                 kind: crate::db::entities::conversation::ConversationKind::Regular,
+                readonly_ask: None,
                 model: Some(" hermes-model ".into()),
                 git_branch: None,
                 external_id: None,

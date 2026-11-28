@@ -1579,7 +1579,17 @@ pub(crate) async fn get_folder_conversation_with_text(
         // The session file is wherever the agent's launch environment put it:
         // a `CLAUDE_CONFIG_DIR`/`CODEX_HOME`/… in its settings moves it out of
         // the default directory codeg's own environment names.
-        let agent_env = agent_setting_service::load_agent_env(conn, at).await;
+        let agent_env = if summary.readonly_ask == Some(true) {
+            use sea_orm::EntityTrait;
+            let home = conversation::Entity::find_by_id(conversation_id).one(conn).await
+                .map_err(crate::db::error::DbError::from)?
+                .and_then(|row| row.readonly_ask_request_id)
+                .as_deref().and_then(crate::acp::readonly_ask::history_home)
+                .ok_or_else(|| AppCommandError::not_found("Read-only side question history"))?;
+            crate::parsers::AgentEnv::from_overrides([("CLAUDE_CONFIG_DIR".into(), home.to_string_lossy().into_owned())].into())
+        } else {
+            agent_setting_service::load_agent_env(conn, at).await
+        };
         tokio::task::spawn_blocking(move || -> Result<_, AppCommandError> {
             let parser = crate::parsers::build_agent_parser_with_text(at, &agent_env, text);
             match parser.get_conversation(&eid) {
@@ -2617,6 +2627,36 @@ pub async fn create_ask_conversation(
     .await
 }
 
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn get_readonly_ask_capability(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDatabase>,
+    manager: tauri::State<'_, crate::acp::manager::ConnectionManager>,
+    parent_conversation_id: i32,
+) -> Result<crate::acp::readonly_ask::Capability, AppCommandError> {
+    let data_dir = app.path().app_data_dir()
+        .map(|path| crate::paths::resolve_effective_data_dir(&path))
+        .unwrap_or_else(|_| crate::paths::codeg_home_dir());
+    Ok(crate::acp::readonly_ask::capability(&db, &manager, &data_dir, parent_conversation_id).await)
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn create_readonly_ask_conversation(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDatabase>,
+    manager: tauri::State<'_, crate::acp::manager::ConnectionManager>,
+    parent_conversation_id: i32,
+    request_id: String,
+    title: Option<String>,
+) -> Result<crate::acp::readonly_ask::Created, AppCommandError> {
+    let data_dir = app.path().app_data_dir()
+        .map(|path| crate::paths::resolve_effective_data_dir(&path))
+        .unwrap_or_else(|_| crate::paths::codeg_home_dir());
+    crate::acp::readonly_ask::create(&db, &manager, &EventEmitter::from_app(&app), &data_dir, parent_conversation_id, request_id, title).await
+}
+
 /// The ask conversations listed under `parent_conversation_id`'s Session
 /// Details, newest first.
 pub async fn list_ask_conversations_core(
@@ -3570,6 +3610,7 @@ mod tests {
             agent_type: AgentType::Codex,
             status: status.into(),
             kind: conversation::ConversationKind::Delegate,
+            readonly_ask: None,
             model: None,
             git_branch: None,
             external_id: None,
@@ -8060,6 +8101,7 @@ mod tests {
                 agent_type: AgentType::ClaudeCode,
                 status: "completed".into(),
                 kind: crate::db::entities::conversation::ConversationKind::Regular,
+                readonly_ask: None,
                 model: None,
                 git_branch: None,
                 external_id: None,

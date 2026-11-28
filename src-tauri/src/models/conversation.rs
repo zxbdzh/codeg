@@ -80,6 +80,8 @@ pub struct DbConversationSummary {
     /// Mirrors `conversation.kind` — drives sidebar visibility/grouping
     /// (serialized as "regular" | "chat" | "loop" | "delegate" | "ask").
     pub kind: ConversationKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readonly_ask: Option<bool>,
     pub model: Option<String>,
     pub git_branch: Option<String>,
     pub external_id: Option<String>,

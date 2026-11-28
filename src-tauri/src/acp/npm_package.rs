@@ -31,7 +31,14 @@ pub(crate) fn package_dir_for_command(command: &Path, name: &str) -> Option<Path
         }
         dir = current.parent();
     }
-    let beside = command.parent()?.join("node_modules").join(name_path(name));
+    let bin_dir = command.parent()?;
+    // 项目内的 Windows npm shim 位于 node_modules/.bin，而全局 shim 与 node_modules 同级。
+    let modules = if bin_dir.file_name().is_some_and(|base| base == ".bin") {
+        bin_dir.parent()?.to_path_buf()
+    } else {
+        bin_dir.join("node_modules")
+    };
+    let beside = modules.join(name_path(name));
     is_package(&beside, name).then_some(beside)
 }
 

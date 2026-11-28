@@ -335,6 +335,28 @@ pub struct ListAskConversationsParams {
     pub parent_conversation_id: i32,
 }
 
+pub async fn get_readonly_ask_capability(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<ListAskConversationsParams>,
+) -> Json<crate::acp::readonly_ask::Capability> {
+    Json(crate::acp::readonly_ask::capability(&state.db, &state.connection_manager, &state.data_dir, params.parent_conversation_id).await)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateReadonlyAskParams {
+    parent_conversation_id: i32,
+    request_id: String,
+    title: Option<String>,
+}
+
+pub async fn create_readonly_ask_conversation(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<CreateReadonlyAskParams>,
+) -> Result<Json<crate::acp::readonly_ask::Created>, AppCommandError> {
+    crate::acp::readonly_ask::create(&state.db, &state.connection_manager, &state.emitter, &state.data_dir, params.parent_conversation_id, params.request_id, params.title).await.map(Json)
+}
+
 pub async fn list_ask_conversations(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<ListAskConversationsParams>,

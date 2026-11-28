@@ -548,6 +548,7 @@ pub struct SessionState {
     /// connection (`connection::ClaudeSessionOptions::settings`): the
     /// `/model` picker rows codeg adds. Fixed at spawn; backend-internal.
     pub claude_settings: Option<serde_json::Value>,
+    pub(crate) readonly_ask_row: Option<i32>,
     /// Claude Code's Remote Control while it is on (`AcpEvent::RemoteControl`):
     /// the session can be continued from claude.ai/code or a phone. It lives
     /// in the agent CLI, so the idle sweeps leave the connection alone while
@@ -831,6 +832,8 @@ pub struct SessionState {
     /// with [`Self::last_background_reply`] (see `acp::turn_end_hold`) needs
     /// both on the same clock. Backend-internal; not serialized.
     pub last_turn_completed_at: Option<DateTime<Utc>>,
+    // 取消或失败也会发 TurnComplete，旁问只能使用最近一次正常结束的边界。
+    pub(crate) last_successful_turn_at: Option<DateTime<Utc>>,
 
     /// The just-completed turn's tool-call progress ([`Self::turn_progress`]),
     /// captured at TurnComplete beside `last_assistant_text` — by the time the
@@ -1016,6 +1019,7 @@ impl SessionState {
         crate::acp::connection::ClaudeSessionOptions {
             prompt_suggestions: self.wants_prompt_suggestions,
             settings: self.claude_settings.clone(),
+            readonly_ask: self.readonly_ask_row.is_some(),
         }
     }
 
@@ -1076,6 +1080,7 @@ impl SessionState {
             prompt_suggestion: None,
             wants_prompt_suggestions,
             claude_settings: None,
+            readonly_ask_row: None,
             remote_control: None,
             clear_context_restart_pending: false,
             selectors_ready: false,
@@ -1111,6 +1116,7 @@ impl SessionState {
             async_task_activity_at: None,
             last_assistant_text: None,
             last_turn_completed_at: None,
+            last_successful_turn_at: None,
             last_turn_progress: None,
             pending_user_message: None,
             pending_user_message_started_at: None,
@@ -1339,6 +1345,7 @@ impl SessionState {
             AcpEvent::SessionStarted { session_id } => {
                 if self.external_id.as_deref() != Some(session_id.as_str()) {
                     self.external_id_changed_at = Some(std::time::SystemTime::now());
+                    self.last_successful_turn_at = None;
                     // The AIR task table is keyed to the session we just left.
                     // Its rows can never settle here again: the adapter
                     // publishes their terminal frames on the OLD session id, and
@@ -1759,6 +1766,9 @@ impl SessionState {
                     self.last_assistant_text = None;
                     self.last_turn_progress = self.turn_progress();
                     self.last_turn_completed_at = Some(Utc::now());
+                    if stop_reason == "end_turn" {
+                        self.last_successful_turn_at = self.last_turn_completed_at;
+                    }
                 }
                 if let Some(live) = self.live_message.as_ref() {
                     let after_last_tool_call = live

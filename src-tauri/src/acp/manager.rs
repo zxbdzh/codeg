@@ -1084,6 +1084,22 @@ impl ConnectionManager {
         .await
     }
 
+    pub(crate) async fn spawn_readonly_ask(
+        &self,
+        launch: crate::acp::readonly_ask::Resume,
+        owner_window_label: String,
+        emitter: EventEmitter,
+    ) -> Result<String, AcpError> {
+        self.spawn_agent_seeded(
+            AgentType::ClaudeCode, Some(launch.cwd), Some(launch.session_id), launch.env,
+            owner_window_label, emitter, None, launch.config,
+            crate::acp::connection::SpawnSeed {
+                readonly_ask: Some((launch.row_id, launch.runtime)),
+                ..Default::default()
+            },
+        ).await.map(|outcome| outcome.connection_id)
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn spawn_agent_seeded(
         &self,
@@ -1110,6 +1126,15 @@ impl ConnectionManager {
         // spawning a fresh process — this is what makes a browser refresh
         // mid-turn re-attach to the existing live state rather than orphan it.
         let working_dir_path = working_dir.as_ref().map(PathBuf::from);
+        let readonly_row = seed.readonly_ask.as_ref().map(|(row, _)| *row);
+        if readonly_row.is_none() {
+            if let (Some(db), Some(sid)) = (self.selection.db(), session_id.as_deref()) {
+                if crate::acp::readonly_ask::row_by_native(db, sid).await
+                    .map_err(|err| AcpError::protocol(err.to_string()))?.is_some() {
+                    return Err(AcpError::protocol("Read-only side question requires a restricted connection"));
+                }
+            }
+        }
 
         // Acquire a per-(agent, working_dir, session_id) async mutex so two
         // concurrent connects for the same logical session can't both miss
@@ -1143,6 +1168,10 @@ impl ConnectionManager {
             .find_connection_for_reuse(agent_type, working_dir_path.as_ref(), session_id.as_deref())
             .await
         {
+            let existing_state = self.get_state(&existing).await.ok_or_else(|| AcpError::ConnectionNotFound(existing.clone()))?;
+            if existing_state.read().await.readonly_ask_row != readonly_row {
+                return Err(AcpError::protocol("Existing connection does not have the requested read-only policy"));
+            }
             tracing::info!(
                 "[ACP] reusing connection id={} for session_id={}",
                 existing,
@@ -1196,7 +1225,11 @@ impl ConnectionManager {
         // Logged on every wait so production can audit real-world handshake
         // latencies and tune `CODEG_ACP_SPAWN_HANDSHAKE_TIMEOUT_SECS`.
         if dedup_lock.is_some() {
-            let timeout = self.spawn_handshake_timeout;
+            let timeout = if readonly_row.is_some() {
+                self.spawn_handshake_timeout.max(Duration::from_secs(30))
+            } else {
+                self.spawn_handshake_timeout
+            };
             let (outcome, elapsed) = wait_for_session_started(session_started_rx, timeout).await;
             tracing::info!(
                 "[ACP] dedup_wait connection_id={} session_id={} outcome={} \
@@ -1207,6 +1240,10 @@ impl ConnectionManager {
                 elapsed.as_millis(),
                 timeout.as_millis(),
             );
+            if readonly_row.is_some() && outcome != HandshakeWaitOutcome::Ready {
+                let _ = self.disconnect(&connection_id).await;
+                return Err(AcpError::protocol("Read-only side question history could not be restored"));
+            }
         }
         // session_started_rx (in the no-dedup branch) is dropped here. tx
         // staying inside SessionState gets dropped naturally when the
@@ -1551,11 +1588,20 @@ impl ConnectionManager {
         Ok(conn.prompt_lock.clone())
     }
 
+    async fn ensure_writable_connection(&self, conn_id: &str) -> Result<(), AcpError> {
+        let state = self.get_state(conn_id).await.ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
+        if state.read().await.readonly_ask_row.is_some() {
+            return Err(AcpError::protocol("This operation is unavailable on a read-only side question"));
+        }
+        Ok(())
+    }
+
     pub async fn send_prompt(
         &self,
         conn_id: &str,
         blocks: Vec<PromptInputBlock>,
     ) -> Result<(), AcpError> {
+        self.ensure_writable_connection(conn_id).await?;
         let prompt_lock = self.clone_prompt_lock(conn_id).await?;
         let _guard = prompt_lock.lock_owned().await;
         self.send_prompt_inner(conn_id, blocks, None, Vec::new(), None, None, None)
@@ -1832,6 +1878,29 @@ impl ConnectionManager {
                 launch_dir,
             )
         };
+
+        let row_id = bound_conversation_id.or(conversation_id);
+        let readonly_row = {
+            let state = state_arc.read().await;
+            if let Some(id) = state.readonly_ask_row {
+                crate::acp::readonly_ask::validate_prompt(&blocks)?;
+                if rewind.is_some() || delegation.is_some() || !internal_suffix.is_empty()
+                    || !state.selectors_ready || state.selectors_settling || row_id != Some(id)
+                    || conversation_id.is_some_and(|actual| actual != id) {
+                    return Err(AcpError::protocol("This operation is unavailable on a read-only side question"));
+                }
+            }
+            state.readonly_ask_row
+        };
+        if let Some(id) = row_id {
+            let row = conversation::Entity::find_by_id(id).one(&db.conn).await
+                .map_err(|err| AcpError::protocol(err.to_string()))?;
+            let policy_row = row.as_ref().filter(|row| row.readonly_ask_policy.is_some());
+            if policy_row.map(|row| row.id) != readonly_row
+                || policy_row.is_some_and(|row| !crate::acp::readonly_ask::can_resume_row(row)) {
+                return Err(AcpError::protocol("Connection does not have the conversation's read-only policy"));
+            }
+        }
 
         // Reject a concurrent prompt while a turn is already in flight, BEFORE
         // any side effects (row creation, InProgress emit, user-message
@@ -2388,6 +2457,7 @@ impl ConnectionManager {
     }
 
     pub async fn set_mode(&self, conn_id: &str, mode_id: String) -> Result<(), AcpError> {
+        self.ensure_writable_connection(conn_id).await?;
         let cmd_tx = {
             let connections = self.connections.lock().await;
             let conn = connections
@@ -2414,6 +2484,7 @@ impl ConnectionManager {
         conn_id: &str,
         mode_id: String,
     ) -> Result<SetterOutcome, AcpError> {
+        self.ensure_writable_connection(conn_id).await?;
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.cmd_sender(conn_id)
             .await?
@@ -2432,6 +2503,7 @@ impl ConnectionManager {
         config_id: String,
         value_id: String,
     ) -> Result<(), AcpError> {
+        self.ensure_writable_connection(conn_id).await?;
         let cmd_tx = {
             let connections = self.connections.lock().await;
             let conn = connections
@@ -2457,6 +2529,7 @@ impl ConnectionManager {
         config_id: String,
         value_id: String,
     ) -> Result<SetterOutcome, AcpError> {
+        self.ensure_writable_connection(conn_id).await?;
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.cmd_sender(conn_id)
             .await?
@@ -2543,6 +2616,7 @@ impl ConnectionManager {
         conn_id: &str,
         action: GoalControlAction,
     ) -> Result<(), AcpError> {
+        self.ensure_writable_connection(conn_id).await?;
         let (cmd_tx, agent_type, state_arc) = {
             let connections = self.connections.lock().await;
             let conn = connections
@@ -2670,6 +2744,7 @@ impl ConnectionManager {
         target: &crate::acp::rewind::RewindTarget,
         hold_token: &str,
     ) -> Result<crate::acp::rewind::RewindOutcome, AcpError> {
+        self.ensure_writable_connection(conn_id).await?;
         let cmd_tx = {
             let connections = self.connections.lock().await;
             connections
@@ -2873,6 +2948,7 @@ impl ConnectionManager {
         // Resolved to an agent-specific `ForkPoint` below.
         fork_from_turn_id: Option<String>,
     ) -> Result<ForkResultInfo, AcpError> {
+        self.ensure_writable_connection(conn_id).await?;
         let (state_arc, cmd_tx, emitter) = {
             let connections = self.connections.lock().await;
             let conn = connections
@@ -2908,6 +2984,15 @@ impl ConnectionManager {
         // below then rejects, unchanged).
         if state_arc.read().await.conversation_id.is_none() {
             if let (Some(cid), Some(fid)) = (link_conversation_id, link_folder_id) {
+                // 普通分叉会改写会话绑定，不能把调用者传入的旁问行当作分叉目标。
+                if conversation::Entity::find_by_id(cid)
+                    .one(&db.conn)
+                    .await
+                    .map_err(|err| AcpError::protocol(err.to_string()))?
+                    .is_some_and(|row| row.readonly_ask_policy.is_some())
+                {
+                    return Err(AcpError::protocol("Cannot fork a read-only side question"));
+                }
                 self.selection
                     .take_authority_on_link(conn_id, &state_arc, cid)
                     .await;
@@ -3364,6 +3449,8 @@ impl ConnectionManager {
                         bot_uid: Set(None),
                         source: Set(source),
                         selector_state: Set(inherited_selection.clone()),
+                        readonly_ask_policy: NotSet,
+                        readonly_ask_request_id: NotSet,
                     };
                     let inserted = sibling.insert(txn).await?;
                     // The sibling keeps the pre-fork history under the
@@ -4205,6 +4292,13 @@ impl ConnectionManager {
             .get_state_and_emitter(conn_id)
             .await
             .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
+        if let Some(db) = self.selection.db() {
+            let row = conversation::Entity::find_by_id(row_id).one(db).await
+                .map_err(|err| AcpError::protocol(err.to_string()))?;
+            if row.is_some_and(|row| row.readonly_ask_policy.is_some()) {
+                return Err(AcpError::protocol("Read-only side question selectors are frozen"));
+            }
+        }
         self.selection
             .bind(conn_id, &state, &emitter, row_id, stored_composer_mode_id)
             .await
@@ -4218,6 +4312,7 @@ impl ConnectionManager {
         mode_id: Option<String>,
         initial: bool,
     ) -> Result<bool, AcpError> {
+        self.ensure_writable_connection(conn_id).await?;
         let (state, emitter) = self
             .get_state_and_emitter(conn_id)
             .await
@@ -4343,6 +4438,7 @@ impl ConnectionManager {
         blocks: Option<Vec<PromptInputBlock>>,
         expect_turns_completed: Option<u64>,
     ) -> Result<FeedbackItem, AcpError> {
+        self.ensure_writable_connection(conn_id).await?;
         let trimmed = text.trim();
         if trimmed.is_empty() {
             return Err(AcpError::InvalidFeedback("empty note".into()));

@@ -296,6 +296,14 @@ pub fn build_router_with_srn(
             post(handlers::conversations::create_ask_conversation),
         )
         .route(
+            "/get_readonly_ask_capability",
+            post(handlers::conversations::get_readonly_ask_capability),
+        )
+        .route(
+            "/create_readonly_ask_conversation",
+            post(handlers::conversations::create_readonly_ask_conversation),
+        )
+        .route(
             "/list_ask_conversations",
             post(handlers::conversations::list_ask_conversations),
         )

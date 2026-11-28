@@ -125,6 +125,9 @@ pub struct Model {
     /// one-time fallback, then frozen). Never bumps `updated_at`. See
     /// `m20261123_000001_conversation_selector_state`.
     pub selector_state: Option<String>,
+    // 未知策略也要拒绝当普通会话打开，避免升级或回滚时放开权限。
+    pub readonly_ask_policy: Option<String>,
+    pub readonly_ask_request_id: Option<String>,
 }
 
 /// [`Model::source`] of a conversation a `codeg-cli` run started.

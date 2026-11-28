@@ -2583,6 +2583,7 @@ pub struct SpawnSeed {
     pub cli_root: Option<crate::cli_run::RootSeed>,
     /// The personal agent's own connection.
     pub personal_agent: bool,
+    pub(crate) readonly_ask: Option<(i32, crate::acp::readonly_ask::Runtime)>,
 }
 
 /// Spawn an ACP agent process and run the connection loop in a background task.
@@ -2661,6 +2662,7 @@ pub async fn spawn_agent_connection(
     // The personal agent's connection, the same way: its tool group is decided
     // by the injection below, which reads this.
     initial_state.personal_agent = seed.personal_agent;
+    initial_state.readonly_ask_row = seed.readonly_ask.as_ref().map(|(row, _)| *row);
     if agent_type == AgentType::Pi {
         initial_state.pi_enabled_model_patterns =
             crate::commands::acp::pi_enabled_model_patterns_for_env(&runtime_env, &launch_cwd);
@@ -2747,16 +2749,20 @@ pub async fn spawn_agent_connection(
     // directory could not be created) means the child inherits the ambient
     // temp dir exactly as it did before.
     let scratch = crate::acp::scratch_dir::create(agent_type);
-    let (agent, prompt_usage_mode) = match build_agent(
+    let configured_agent = async {
+        if let Some((_, runtime)) = &seed.readonly_ask {
+            return Ok((runtime.agent(&runtime_env), Default::default()));
+        }
+        build_agent(
         agent_type,
         &runtime_env,
         &launch_cwd,
         &stderr_tail,
         scratch.as_ref().map(|s| s.path()),
         wants_prompt_suggestions,
-    )
-    .await
-    {
+        ).await
+    }.await;
+    let (agent, prompt_usage_mode) = match configured_agent {
         Ok(agent) => agent,
         Err(e) => {
             // No process was spawned, so nothing will ever fire `on_exit` for
@@ -2816,7 +2822,7 @@ pub async fn spawn_agent_connection(
     // them back to the agent so the agent's OWN sandbox covers them (#436).
     // Resolved here for the same reason as `fs_policy`: it reads the full
     // per-agent `runtime_env`, which does not survive into `run_connection`.
-    let host_tools = HostToolsPolicy::from_env(&runtime_env);
+    let host_tools = if seed.readonly_ask.is_some() { HostToolsPolicy::Agent } else { HostToolsPolicy::from_env(&runtime_env) };
 
     // Where this launch's Claude writes its transcripts, for the background
     // watcher. Resolved here for the same reason as `fs_policy`: a
@@ -4621,6 +4627,21 @@ async fn emit_config_options(
         },
     )
     .await;
+}
+
+async fn verify_readonly_ask_config(
+    state: &Arc<RwLock<SessionState>>,
+    expected: &BTreeMap<String, String>,
+) -> Result<(), agent_client_protocol::Error> {
+    let state = state.read().await;
+    let effective = current_config_option_values(state.config_options.as_deref().unwrap_or_default());
+    // 契约由 `frozen_config` 保证是两个键；任一项在连接上缺失即说明恢复的分支与来源不一致。
+    if !expected.iter().all(|(key, value)| effective.get(key) == Some(value)) {
+        return Err(agent_client_protocol::util::internal_error(
+            "The read-only side question could not restore the source model and effort",
+        ));
+    }
+    Ok(())
 }
 
 async fn emit_selectors_ready(state: &Arc<RwLock<SessionState>>, emitter: &EventEmitter) {
@@ -7095,6 +7116,7 @@ pub struct ClaudeSessionOptions {
     /// Settings for the CLI's `--settings` tier: the `/model` picker rows
     /// codeg adds ([`crate::acp::claude_model_picker`]).
     pub settings: Option<serde_json::Value>,
+    pub(crate) readonly_ask: bool,
 }
 
 impl ClaudeSessionOptions {
@@ -7102,6 +7124,7 @@ impl ClaudeSessionOptions {
         Self {
             prompt_suggestions,
             settings: None,
+            readonly_ask: false,
         }
     }
 }
@@ -7130,6 +7153,12 @@ pub(crate) fn claude_raw_sdk_session_meta(
         return None;
     }
 
+    if claude.readonly_ask {
+        return Some(serde_json::Map::from_iter([("claudeCode".into(), serde_json::json!({
+            "emitRawSDKMessages": true,
+            "options": crate::acp::readonly_ask::claude_options(),
+        }))]));
+    }
     let mut claude_code = serde_json::Map::new();
     claude_code.insert(
         "emitRawSDKMessages".to_string(),
@@ -8766,6 +8795,7 @@ async fn run_connection(
     // agent output, to attach evidence to the synthesized error.
     stderr_tail: Arc<StderrTail>,
 ) -> Result<(), AcpError> {
+    let readonly_ask = state.read().await.readonly_ask_row.is_some();
     let pending_perms: PendingPermissions =
         Arc::new(tokio::sync::Mutex::new(PermissionQueue::default()));
     // `terminal_base_env` already filtered to just the credential helper
@@ -8902,6 +8932,10 @@ async fn run_connection(
                 async move |req: RequestPermissionRequest,
                             responder: Responder<RequestPermissionResponse>,
                             cx: ConnectionTo<Agent>| {
+                    if readonly_ask {
+                        let _ = responder.respond(RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled));
+                        return Ok(());
+                    }
                     // An approval gating codeg's OWN ask tool is a dialog asking
                     // permission to show a dialog; allow it so the user sees only
                     // the interactive question card (see
@@ -9316,7 +9350,7 @@ async fn run_connection(
             let agent_name_for_log = registry::get_agent_meta(agent_type).name;
 
             let init_request = InitializeRequest::new(ProtocolVersion::V1)
-                .client_capabilities(build_client_capabilities(agent_type, host_tools));
+                .client_capabilities(if readonly_ask { ClientCapabilities::new() } else { build_client_capabilities(agent_type, host_tools) });
             // Bound the Initialize handshake so an outdated / incompatible
             // cached binary that never responds can't leave the frontend
             // stuck on "Connecting...". A healthy agent answers in <1s; we
@@ -9371,6 +9405,11 @@ async fn run_connection(
                     return Err(agent_client_protocol::util::internal_error(INIT_TIMEOUT_SENTINEL));
                 }
             };
+            if readonly_ask && !init_resp.agent_info.as_ref().is_some_and(|info| {
+                info.name == registry::CLAUDE_AGENT_ACP_PACKAGE && info.version == crate::acp::readonly_ask::ADAPTER_VERSION
+            }) {
+                return Err(agent_client_protocol::util::internal_error("Read-only Claude adapter version mismatch"));
+            }
             emit_prompt_capabilities(
                 &state,
                 &emitter_clone,
@@ -9400,7 +9439,7 @@ async fn run_connection(
                 sign_in_antigravity_non_interactive(&cx, &handshake, method_id).await?;
             }
 
-            let supports_fork = agent_type != AgentType::ZCode && init_resp
+            let supports_fork = !readonly_ask && agent_type != AgentType::ZCode && init_resp
                 .agent_capabilities
                 .session_capabilities
                 .fork
@@ -9417,7 +9456,7 @@ async fn run_connection(
                 .is_some();
             // Echoed back only to a client that declared it (see
             // `build_client_capabilities`), so it is the version gate too.
-            let supports_rewind = matches!(agent_type, AgentType::ClaudeCode | AgentType::Codex)
+            let supports_rewind = !readonly_ask && matches!(agent_type, AgentType::ClaudeCode | AgentType::Codex)
                 && crate::acp::rewind::agent_offers_rewind(init_resp.meta.as_ref());
             tracing::info!(
                 "[ACP] Agent capabilities: load_session={}, fork={}, resume={}, close={}, rewind={}",
@@ -9507,7 +9546,7 @@ async fn run_connection(
             // `_meta` at `session/new` below.
             let one_shot =
                 crate::acp::one_shot::is_one_shot_owner(&state.read().await.owner_window_label);
-            let offer_mcp = agent_supports_mcp && !one_shot;
+            let offer_mcp = agent_supports_mcp && !one_shot && !readonly_ask;
 
             // Load MCP servers configured for this agent and filter by the
             // capabilities the agent just declared. Stdio is mandatory per
@@ -9599,7 +9638,7 @@ async fn run_connection(
                 // even when no codeg-mcp is injected (it's exactly the channel
                 // that needs no tool; OpenClaw-style `supports_mcp: false`
                 // agents could ship it someday).
-                s.native_steering_available = native_steering_available;
+                s.native_steering_available = !readonly_ask && native_steering_available;
                 s.codex_user_input_shape = codex_user_input_shape;
                 s.agent_info = init_resp
                     .agent_info
@@ -9620,7 +9659,7 @@ async fn run_connection(
                 if let Some(method) = goal_method {
                     s.goal_control_method = method;
                 }
-                s.goal_actions = Some(goal_actions);
+                s.goal_actions = Some(if readonly_ask { Vec::new() } else { goal_actions });
                 if let Some(ref injected) = delegate_injection {
                     s.delegation_token = Some(injected.token.clone());
                     s.delegation_enabled = injected.delegation_enabled;
@@ -9751,6 +9790,9 @@ async fn run_connection(
                                 ),
                             )
                             .await?;
+                            if readonly_ask {
+                                verify_readonly_ask_config(&state, &preferred_config_values).await?;
+                            }
                             emit_selectors_ready(&state, &emitter_clone).await;
 
                             let loop_result = run_conversation_loop(
@@ -10071,6 +10113,9 @@ async fn run_connection(
                             ),
                         )
                         .await?;
+                        if readonly_ask {
+                            verify_readonly_ask_config(&state, &preferred_config_values).await?;
+                        }
                         emit_selectors_ready(&state, &emitter_clone).await;
 
                         let loop_result = run_conversation_loop(
@@ -10207,6 +10252,9 @@ async fn run_connection(
                             )
                             .await;
                             return Ok(());
+                        }
+                        if readonly_ask {
+                            return Err(agent_client_protocol::util::internal_error("The read-only side question history could not be resumed"));
                         }
                         if attempted_load {
                             tracing::warn!(
@@ -35055,6 +35103,7 @@ mod tests {
     #[test]
     fn claude_session_meta_carries_the_launch_settings_on_every_request() {
         let claude = ClaudeSessionOptions {
+            readonly_ask: false,
             prompt_suggestions: false,
             settings: Some(serde_json::json!({
                 "modelPicker": {"options": [{"model": "glm-5.2"}]}

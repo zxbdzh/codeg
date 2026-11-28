@@ -9330,7 +9330,10 @@ fn reconcile_hermes_runtime_env_in(home: &Path) -> Result<(), AcpError> {
 
 fn agent_local_config_path(agent_type: AgentType) -> Option<PathBuf> {
     match agent_type {
-        AgentType::ClaudeCode => Some(home_dir_or_default().join(".claude").join("settings.json")),
+        // Claude 的设置与会话应从同一个配置目录读取，避免混入默认目录的模型配置。
+        AgentType::ClaudeCode => {
+            Some(crate::parsers::claude::resolve_claude_config_dir().join("settings.json"))
+        },
         AgentType::Gemini => Some(home_dir_or_default().join(".gemini").join("settings.json")),
         // Antigravity CLI (`agy acp`) 的自身配置文件位于
         // `<GEMINI_HOME>/antigravity-cli/settings.json`（与 Gemini CLI 的
@@ -12446,6 +12449,10 @@ pub(crate) async fn spawn_and_bind_conversation_selection(
     client_mode_id: Option<String>,
     client_config_values: BTreeMap<String, String>,
 ) -> Result<SpawnedConversationConnection, AcpError> {
+    if let Some(launch) = crate::acp::readonly_ask::prepare_resume(db, conversation_id, session_id.as_deref(), agent_type, &runtime_env).await? {
+        let connection_id = manager.spawn_readonly_ask(launch, owner_window_label, emitter).await?;
+        return Ok(SpawnedConversationConnection { connection_id, bound: Ok(()) });
+    }
     let selection = resolve_connect_selection(
         db,
         manager,

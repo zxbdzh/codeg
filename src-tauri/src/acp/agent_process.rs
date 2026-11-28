@@ -246,6 +246,7 @@ pub struct AcpAgent {
     server: McpServer,
     debug_callback: Option<DebugCallback>,
     current_dir: Option<PathBuf>,
+    isolated_env: bool,
     spawn_callback: Option<Arc<dyn Fn(u32) + Send + Sync + 'static>>,
     exit_callback: Option<Arc<dyn Fn() + Send + Sync + 'static>>,
 }
@@ -275,6 +276,7 @@ impl AcpAgent {
             server,
             debug_callback: None,
             current_dir: None,
+            isolated_env: false,
             spawn_callback: None,
             exit_callback: None,
         }
@@ -302,6 +304,11 @@ impl AcpAgent {
     /// right place.
     pub fn with_current_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.current_dir = Some(dir.into());
+        self
+    }
+
+    pub(crate) fn with_isolated_env(mut self) -> Self {
+        self.isolated_env = true;
         self
     }
 
@@ -399,6 +406,9 @@ impl AcpAgent {
                     command.args(&stdio.args);
                     command
                 };
+                if self.isolated_env {
+                    cmd.env_clear();
+                }
                 for env_var in &stdio.env {
                     // codeg convention: an empty value means "ensure this var is
                     // ABSENT from the child" (strip an inherited value) rather
@@ -417,7 +427,9 @@ impl AcpAgent {
                 // The session's environment, not the one an AppImage's
                 // launcher set up for codeg itself. After the launch env,
                 // whose PATH is built from codeg's own.
-                crate::appimage_env::restore_tokio(&mut cmd);
+                if !self.isolated_env {
+                    crate::appimage_env::restore_tokio(&mut cmd);
+                }
                 if let Some(dir) = &self.current_dir {
                     // The `pushd` detour already owns the cwd for this launch,
                     // and handing the same UNC path to `CreateProcess` is the
@@ -881,6 +893,7 @@ impl AcpAgent {
             ),
             debug_callback: None,
             current_dir: None,
+            isolated_env: false,
             spawn_callback: None,
             exit_callback: None,
         })

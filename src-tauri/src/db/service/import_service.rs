@@ -651,6 +651,8 @@ async fn import_one(
         bot_uid: Set(None),
         source: Set(None),
         selector_state: Set(None),
+        readonly_ask_policy: NotSet,
+        readonly_ask_request_id: NotSet,
     };
     conv.insert(conn).await?;
     Ok(ImportOutcome::Imported)
@@ -1133,6 +1135,8 @@ mod tests {
             bot_uid: Set(None),
             source: Set(None),
             selector_state: Set(None),
+            readonly_ask_policy: NotSet,
+            readonly_ask_request_id: NotSet,
         }
         .insert(&db.conn)
         .await
@@ -1432,6 +1436,8 @@ mod tests {
             bot_uid: Set(None),
             source: Set(None),
             selector_state: Set(None),
+            readonly_ask_policy: NotSet,
+            readonly_ask_request_id: NotSet,
         }
         .insert(&db.conn)
         .await

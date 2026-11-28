@@ -1926,6 +1926,8 @@ mod tauri_app {
                 conversations::get_sidebar_data,
                 conversations::create_conversation,
                 conversations::create_ask_conversation,
+                conversations::get_readonly_ask_capability,
+                conversations::create_readonly_ask_conversation,
                 conversations::list_ask_conversations,
                 conversations::list_check_conversations,
                 conversations::detach_ask_conversation,

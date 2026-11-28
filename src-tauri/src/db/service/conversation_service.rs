@@ -303,6 +303,8 @@ async fn create_inner(
         bot_uid: Set(bot_uid),
         source: Set(None),
         selector_state: Set(None),
+        readonly_ask_policy: NotSet,
+        readonly_ask_request_id: NotSet,
     };
     Ok(model.insert(conn).await?)
 }
@@ -872,6 +874,15 @@ pub async fn bind_external_id(
                     })?;
 
                 let previous = current.external_id.clone();
+                if current.readonly_ask_policy.is_some() {
+                    // 旁问的原生 ID 与隔离日志绑定，不能走通用的改绑或历史拆分逻辑。
+                    if previous.as_deref() == Some(external_id.as_str()) {
+                        return Ok(BindTxOutcome::Bound(None));
+                    }
+                    return Err(sea_orm::DbErr::Custom(
+                        "Cannot rebind a read-only side question".into(),
+                    ));
+                }
                 let repoints_away = matches!(
                     previous.as_deref(),
                     Some(prev) if prev != external_id && !continues.iter().any(|c| c == prev)
@@ -1196,6 +1207,8 @@ impl CarriedOverRow {
             bot_uid: Set(self.bot_uid),
             source: Set(self.source),
             selector_state: Set(self.selector_state),
+            readonly_ask_policy: NotSet,
+            readonly_ask_request_id: NotSet,
         }
     }
 }
@@ -1662,6 +1675,7 @@ fn conv_to_summary(r: conversation::Model) -> DbConversationSummary {
         assistant_id: r.assistant_id,
         bot_uid: r.bot_uid,
         source: r.source,
+        readonly_ask: r.readonly_ask_policy.is_some().then_some(true),
         // Backfilled by `fill_summary_extras`, like `child_count`.
         tag_ids: Vec::new(),
     }
@@ -1753,6 +1767,7 @@ pub async fn set_selector_state<C: sea_orm::ConnectionTrait>(
         .col_expr(conversation::Column::SelectorState, Expr::value(json.clone()))
         .filter(conversation::Column::Id.eq(conversation_id))
         .filter(conversation::Column::DeletedAt.is_null())
+        .filter(conversation::Column::ReadonlyAskPolicy.is_null())
         .filter(
             Condition::any()
                 .add(conversation::Column::SelectorState.is_null())
@@ -1779,6 +1794,7 @@ pub async fn set_selector_state_if_absent<C: sea_orm::ConnectionTrait>(
         )
         .filter(conversation::Column::Id.eq(conversation_id))
         .filter(conversation::Column::DeletedAt.is_null())
+        .filter(conversation::Column::ReadonlyAskPolicy.is_null())
         .filter(conversation::Column::SelectorState.is_null())
         .exec(conn)
         .await?;
@@ -2111,6 +2127,7 @@ pub async fn detach_ask(
     use sea_orm::sea_query::Expr;
     let Some(row) = conversation::Entity::find_by_id(conversation_id)
         .filter(conversation::Column::Kind.is_in([ConversationKind::Ask, ConversationKind::Check]))
+        .filter(conversation::Column::ReadonlyAskPolicy.is_null())
         .filter(conversation::Column::DeletedAt.is_null())
         .one(conn)
         .await?
